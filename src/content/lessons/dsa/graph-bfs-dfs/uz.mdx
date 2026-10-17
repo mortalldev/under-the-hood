@@ -1,0 +1,126 @@
+## TL;DR
+
+BFS va DFS — konteyneri boshqa boʻlgan bitta algoritm: **queue** masofa oʻsib boruvchi halqalar boʻylab aylanadi (shuning uchun vaznsiz graph'larda eng qisqa yoʻllarni topadi), **stack** (yoki recursion) avval chuqurga shoʻngʻiydi (shuning uchun connected component'lar, cycle'lar va tugash tartiblarini tabiiy topadi). Ikkalasi O(V + E) — agar node'larni toʻgʻri paytda visited deb belgilasangiz.
+
+## Vizual model
+
+Grid'lar ham graph: har bir katak — node, uning 4 qoʻshnisi — edge'lar. "Orollar soni", "chirigan apelsinlar" va "labirintdagi eng qisqa yoʻl" — yashirin graph ustida BFS/DFS.
+
+```text
+adjacency list (afzal)           adjacency matrix
+A: B, C                          ·  A B C D
+B: A, D                          A  0 1 1 0
+C: A, D                          B  1 0 0 1
+D: B, C                          …  O(V²) xotira, O(1) edge tekshiruvi
+```
+
+## Mexanizm
+
+**BFS** — qadamma-qadam yuring va masofa belgilarini kuzating: d masofadagi har bir node d + 1 dagi har qanday node'dan oldin queue'dan olinadi, shuning uchun node birinchi marta topilganda u eng qisqa yoʻl orqali topilgan boʻladi.
+
+<GraphTraversalViz mode="bfs" />
+
+Nozik joy: node'ni queue'dan **olganda** emas, **qoʻshganda** belgilang. Aks holda bitta node turli qoʻshnilar orqali koʻp marta qoʻshilishi mumkin, bu zich graph'larda vaqtni ham, xotirani ham portlatib yuboradi.
+
+**DFS** — call stack *bu* start'dan joriy node'gacha boʻlgan yoʻl. Node barcha avlodlari tugaganda "tugaydi"; topological sort va koʻp cycle tekshiruvlari aynan shu tugash tartibiga tayanadi.
+
+<GraphTraversalViz mode="dfs" />
+
+## Kod
+
+```ts
+function bfs(adj: Map<string, string[]>, start: string): Map<string, number> {
+  const dist = new Map([[start, 0]]);
+  const q = [start];
+  for (let h = 0; h < q.length; h++) {              // head indeks: O(1) dequeue
+    const u = q[h];
+    for (const v of adj.get(u) ?? []) {
+      if (dist.has(v)) continue;
+      dist.set(v, dist.get(u)! + 1);
+      q.push(v);
+    }
+  }
+  return dist;
+}
+
+// Orollar soni — grid'da iterative DFS (recursion chuqurligi muammosiz)
+function numIslands(grid: string[][]): number {
+  const R = grid.length, C = grid[0].length;
+  let islands = 0;
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+    if (grid[r][c] !== "1") continue;
+    islands++;
+    const stack: [number, number][] = [[r, c]];
+    grid[r][c] = "0";                                   // push paytida belgilash
+    while (stack.length) {
+      const [y, x] = stack.pop()!;
+      for (const [dy, dx] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ny = y + dy, nx = x + dx;
+        if (ny >= 0 && ny < R && nx >= 0 && nx < C && grid[ny][nx] === "1") {
+          grid[ny][nx] = "0";
+          stack.push([ny, nx]);
+        }
+      }
+    }
+  }
+  return islands;
+}
+
+// Multi-source BFS: BARCHA manbalarni 0 masofada queue'ga qoʻyib boshlang (chirigan apelsinlar, eng yaqin chiqish)
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- **BFS**: birlik narxli "minimal qadamlar/harakatlar/oʻzgarishlar soni"; daraja-daraja natija; vaqt boʻyicha koʻp manbali tarqalish.
+- **DFS**: "component'larni sanash", "yoʻl bormi", "cycle'ni aniqlash", "barcha yoʻllar", "flood fill", post-order yoki tugash vaqtlari kerak boʻlgan har qanday narsa.
+- Graph yashirin: bir harfga farq qiluvchi soʻzlar, doska holatlari, grid kataklari.
+
+**Qachon kerak emas**
+- Vaznli edge'lar → Dijkstra (manfiy boʻlmagan) yoki Bellman-Ford; 0/1 vaznlar bilan → deque bilan 0-1 BFS.
+- Edge qoʻshilishlari oqimi ostida bogʻlanganlik → union-find.
+- JS engine'larda recursion chuqurligi ~10⁴ dan oshishi mumkin → iterative DFS.
+
+## Trade-off'lar
+
+| | BFS | DFS |
+| --- | --- | --- |
+| Konteyner | queue | stack / recursion |
+| Xotira | O(frontier kengligi) — katta boʻlishi mumkin | O(chuqurlik) |
+| Eng qisqa yoʻl (vaznsiz) | ha | yoʻq |
+| Yoʻnalgan graph'da tugash tartibi / cycle aniqlash | noqulay | tabiiy |
+
+## Senior nuance
+
+- **Yoʻnalgan cycle aniqlash uchta rang talab qiladi** (koʻrilmagan / stack'da / tugagan). Faqat visited set zararsiz "cross edge"larni cycle deb belgilaydi.
+- **Bidirectional BFS** (start va goal'dan, oʻrtada uchrashib) koʻrilgan node'larni b^d dan taxminan 2·b^(d/2) ga kamaytiradi — Word Ladder uchun standart optimizatsiya.
+- **State-space graph'lar**: faqat "pozitsiya" yetarli boʻlmaganda (masalan, yigʻilgan kalitlar, olib tashlangan toʻsiqlar), node — `(pozitsiya, qoʻshimcha holat)`; visited toʻliq holat boʻyicha kalitlanishi shart.
+- **Visited belgilash uchun input'ni oʻzgartirish** (grid kataklarini "0" qilish) tez, lekin buzuvchi — buni ayting va chaqiruvchiga grid kerak boʻlsa alohida visited array taklif qiling.
+
+## Interview savollari
+
+<QA q="Nega BFS node'larni queue'ga qoʻshish paytida visited deb belgilashi shart?" level="mid">
+Agar olish paytida belgilasangiz, node queue'da bir necha marta turishi mumkin (u qayta ishlanishidan oldin uni topgan har bir qoʻshni uchun bir marta). Masofalar baribir toʻgʻri boʻladi, lekin vaqt va xotira takroriy ish bilan O(E) ta queue yozuviga oʻsishi mumkin; grid'larda bu portlab ketishi mumkin. Qoʻshishda belgilash har bir node queue'ga bir marta kirishini kafolatlaydi.
+</QA>
+
+<QA q="Word Ladder: eng qisqa oʻzgartirish ketma-ketligi uzunligi." level="senior">
+Soʻzlar ustida BFS; qoʻshnilar bitta harfga farq qiladi. Har bir pozitsiyada 26 harfni sinab qoʻshnilarni yaratish soʻz boshiga O(L·26); wildcard bucket'larni oldindan hisoblash ("h*t" → [hot, hit]) butun lugʻatni skanerlashdan qutqaradi. Bidirectional BFS koʻriladigan frontier'ni sezilarli kamaytiradi. Soʻzlarni queue'ga qoʻshilganda lugʻatdan olib tashlang (yoki visited deb belgilang).
+</QA>
+
+<QA q="Yoʻnalgan graph'da cycle'ni aniqlang." level="mid">
+Ranglar bilan DFS: oq (koʻrilmagan), kulrang (joriy recursion stack'ida), qora (tugagan). Kulrang node'ga edge — back edge → cycle. Muqobil: Kahn algoritmi — topological tartib barcha node'larni oʻz ichiga olmasa, cycle bor.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Ot ikki katak orasida eng kam yurishlar: qaysi aylanib chiqish?", options: ["DFS", "BFS", "Vaznli Dijkstra", "Union-find"], answer: 1, explain: "Har bir yurish 1 turadi; BFS node'larni masofa tartibida topadi." },
+  { q: "Koʻp chirigan apelsinlardan bir vaqtda tarqalish nimadan foydalanadi?", options: ["har bir chirigan apelsin uchun alohida BFS", "multi-source BFS", "DFS", "binary search"], answer: 1, explain: "Queue'ni barcha manbalar bilan 0 vaqtda boshlang; bitta oʻtish har bir katak qaysi daqiqada chirishini beradi." },
+  { q: "Yoʻnalgan graph'da visited-set'li DFS allaqachon koʻrilgan node'ga edge topdi. Bu cycle'mi?", options: ["Doim", "Faqat oʻsha node hali recursion stack'ida boʻlsa", "Hech qachon", "Faqat BFS'da"], answer: 1, explain: "Cross/forward edge'lar orqali yetilgan tugagan node'lar cycle hosil qilmaydi." }
+]} />
+
+**Klassik masalalar:** Number of Islands (Medium) · Clone Graph (Medium) · Rotting Oranges (Medium) · Pacific Atlantic Water Flow (Medium) · Shortest Path in Binary Matrix (Medium) · Word Ladder (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/graph-bfs-dfs" />

@@ -1,0 +1,105 @@
+## TL;DR
+
+Turlarni inference sukut boʻyicha beradiganidan aniqroq qilishning uchta vositasi. <Term id="branded-type" /> phantom tag qoʻshadi, shunda strukturaviy bir xil qiymatlar (`UserId`, `OrderId`, ikkalasi string) bir-birining oʻrniga ishlatilmay qoladi. <Term id="satisfies" /> qiymatni turga nisbatan **kengaytirmasdan** tekshiradi. **`const` type parametrlari** (TS 5.0) generic funksiyalarga chaqiruvchilar `as const` yozmasdan literal/readonly turlarni (`string[]` oʻrniga `["a", "b"]`) chiqarishga imkon beradi.
+
+## Vizual model
+
+```text
+type UserId  = string & { readonly __brand: "UserId" }
+type OrderId = string & { readonly __brand: "OrderId" }
+loadOrder(userId)    ✗  "UserId" "OrderId"ga tayinlanmaydi
+userId.toUpperCase() ✓  runtime'da ham, turlarda ham hali string
+
+const a: Config = { mode: "dark" }          a.mode: "dark" | "light"   (annotatsiya e'lon qilingan turga kengaytiradi)
+const b = { mode: "dark" } satisfies Config  b.mode: "dark"             (tekshirilgan, lekin literal saqlanadi)
+```
+
+## Mexanizm
+
+**Brand'lar** intersection'lardan foydalanadi: `string & { __brand: "UserId" }` hali ham string (barcha string amallari ishlaydi), lekin unda hech bir oddiy string'da yoʻq property bor, shuning uchun oddiy string — yoki boshqa brand — tayinlanmaydi. Brand faqat turlarda mavjud; runtime'da u shunchaki string. Qiymatlar bitta validatsiya qilingan chegarada (parser/konstruktor funksiya) brand oladi — cast'ga ruxsat berilgan yagona joy.
+
+**`satisfies`** ifodaning turga assignability tekshiruvini bajaradi, annotatsiya kabi xatolarni (excess property check'lar bilan) xabar qiladi, keyin oʻzgaruvchi ifodaning oʻzi chiqarilgan turini saqlaydi. Ham validatsiya, ham aniq literal'larni olasiz.
+
+**`const` type parametrlari** chaqiruv joylarida inference'ni oʻzgartiradi: `function f<const T>(x: T)` `f(["a", "b"])`ni `readonly ["a", "b"]` deb chiqaradi. Ilgari har bir chaqiruvchi `as const` yozishi kerak edi.
+
+## Kod
+
+```ts
+declare const brand: unique symbol;
+type Brand<T, B extends string> = T & { readonly [brand]: B };
+
+type Email = Brand<string, "Email">;
+function parseEmail(input: string): Email {             // Email yaratadigan YAGONA joy
+  if (!/^[^@\s]+@[^@\s]+$/.test(input)) throw new Error("invalid email");
+  return input as Email;
+}
+function sendWelcome(to: Email) { /* … */ }
+sendWelcome(parseEmail(form.email));   // ✓
+sendWelcome(form.email);               // ✗ oddiy string
+
+// satisfies: lookup jadvalini validatsiya qilib, aniq key'larini saqlash
+type Route = { path: string; auth: boolean };
+const routes = {
+  home: { path: "/", auth: false },
+  settings: { path: "/settings", auth: true },
+} satisfies Record<string, Route>;
+type RouteName = keyof typeof routes;   // "home" | "settings" — string emas
+
+// const type parametri
+function defineColumns<const T extends readonly string[]>(cols: T): T { return cols; }
+const cols = defineColumns(["id", "name"]);   // readonly ["id", "name"]
+type Col = (typeof cols)[number];             // "id" | "name"
+```
+
+<TypePuzzle id="branded-ids" />
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Brand'lar**: har xil entity'lar identifikatorlari, validatsiya qilingan string'lar (email'lar, URL'lar, tozalangan HTML), birliklar (`Meters` va `Feet`) va kichik birliklardagi pul uchun. Har bir string uchun emas — noqulaylik oʻzini oqlashi kerak.
+
+**`satisfies`**: konfiguratsiya obyektlari, lookup jadvallari, theme token'lari, route map'lari — "bu mos kelishi shart" va "aynan nima yozganimni eslab qol" kerak boʻlgan har qanday joy uchun.
+
+**`const` type parametrlari**: argumentlardan tur quradigan kutubxona uslubidagi yordamchilarda (ustunlar roʻyxati, array'lardan enum'lar, router ta'riflari).
+
+## Trade-off'lar
+
+| Vosita | Runtime narxi | Nimani ushlaydi | Noqulaylik |
+| --- | --- | --- | --- |
+| Oddiy `string` | yoʻq | hech narsa | yoʻq |
+| Branded type | yoʻq (faqat turlar) | ID/birliklarni aralashtirish | konstruktor/validator funksiyalari kerak |
+| Class oʻrami (`new UserId(s)`) | ajratish | aralashtirish + runtime `instanceof` | serialization, tenglik |
+| `satisfies` | yoʻq | kengaytirmasdan notoʻgʻri shakl | TS 4.9+ kerak |
+| `as const` / `const T` | yoʻq | literal'larning kengayishi | hamma joyda readonly |
+
+## Senior nuance
+
+- **Serialization chegaralarida brand'lar**: JSON parsing oddiy string'lar beradi; qayta brand berish uchun ma'lumotni parser/validator'dan oʻtkazing. Schema kutubxonasi toʻgʻridan-toʻgʻri branded turlarni chiqarishi mumkin.
+- **`unique symbol` brand'lari** soxta `__brand` property autocomplete'da koʻrinishidan saqlaydi va haqiqiy ma'lumot bilan toʻqnasha olmaydi.
+- **`satisfies` + `as const`** birlashadi: `({ … }) as const satisfies T` validatsiya qilingan readonly literal'larni beradi.
+- **Hamma joyda `as` bilan brand bermang** — cast'lar tarqoq boʻlsa, brand hech narsani kafolatlamaydi. Yaratishni markazlashtiring.
+
+## Interview savollari
+
+<QA q="TypeScript'da nominal typing'ni qanday olasiz?" level="mid">
+Asosiy turni faqat shu brand'da boʻlgan phantom property bilan kesishtiring, masalan unique symbol bilan `string & { readonly [brand]: "UserId" }`. Qiymatlar faqat validatsiya qiluvchi konstruktor funksiya orqali brand oladi. Har xil brand'lar bir-biriga tayinlanmaydi, runtime'da esa asosiy tur kabi ishlaydi.
+</QA>
+
+<QA q="Type annotatsiya va satisfies orasidagi farq nima?" level="mid">
+Annotatsiya oʻzgaruvchi turini e'lon qilingan turga oʻrnatadi, literal'larni kengaytiradi (va Record'ning aniq key'larini yoʻqotadi). satisfies qiymatni xuddi shu xatolar bilan turga nisbatan tekshiradi, lekin oʻzgaruvchi ifodaning chiqarilgan, torroq turini saqlaydi.
+</QA>
+
+<QA q="const type parametrlari qanday muammoni hal qiladi?" level="senior">
+Argumentlaridan literal turlar kerak boʻlgan generic yordamchilar ilgari har bir chaqiruvchidan `as const` yozishni talab qilardi; uni unutish turlarni jimgina kengaytirardi (literal'lar tuple'i oʻrniga string[]). `function f<const T>(x: T)` bilan chaqiruv joyidagi inference argumentni `as const` qoʻllangandek koʻradi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "const x = { kind: 'a' } satisfies { kind: string }; typeof x.kind nima?", options: ["string", "'a'", "never", "unknown"], answer: 1, explain: "satisfies chiqarilgan literal'ni kengaytirmaydi." },
+  { q: "Branded type'lar runtime'da qanday mavjud?", options: ["oʻram obyektlar", "asosiy primitiv", "symbol'lar", "class'lar"], answer: 1, explain: "Brand'lar faqat turlarda; runtime'da hech narsa qoʻshilmaydi." },
+  { q: "`as Brand` cast'lari qayerda yashashi kerak?", options: ["qiymat ishlatilgan har bir joyda", "bitta validatsiya qiluvchi konstruktor/parser'da", "faqat testlarda", "hech qayerda"], answer: 1, explain: "Markazlashtirilgan yaratish kafolatni ma'noli saqlaydi." }
+]} />
+
+## Resurslar
+
+<Resources topic="typescript/branded-satisfies-const" />

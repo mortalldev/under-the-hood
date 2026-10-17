@@ -1,0 +1,120 @@
+## TL;DR
+
+<Term id="sliding-window" /> uzluksiz `[left, right]` oraligʻini va u haqidagi <Term id="invariant" />'ni saqlaydi ("barcha belgilar takrorlanmas", "yigʻindi ≤ k", "koʻpi bilan k ta har xil"). `right` doim oldinga yuradi; `left` faqat invariant'ni tiklash uchun oldinga siljiydi. Hech bir pointer orqaga qaytmagani uchun har bir element koʻpi bilan bir marta kiradi va chiqadi: barcha O(n²) subarray'larni tekshirish oʻrniga **O(n)**.
+
+## Vizual model
+
+```text
+qat'iy oʻlcham k = 3        oʻzgaruvchan oʻlcham (invariant buzilsa qisqartiriladi)
+[2 1 5] 1 3 2               a b c [a b c] b b
+ 2 [1 5 1] 3 2                      ↑ takroriy 'a' → left eski 'a'dan oʻtadi
+```
+
+## Mexanizm
+
+"Takrorlanuvchi belgilarsiz eng uzun substring" boʻyicha qadamma-qadam yuring. Map har bir belgining oxirgi indeksini saqlaydi; `right` allaqachon window **ichida** boʻlgan belgiga duch kelganda, `left` uning oldingi uchrashuvidan darhol keyinga sakraydi.
+
+<SlidingWindowViz />
+
+Nega toʻgʻri: `s[right]` `s[prev]`ni takrorlagani uchun `[left, right]` window yaroqsiz boʻlganda, `prev` va `right`ni birga oʻz ichiga olgan har qanday window ham yaroqsiz. Demak `[left, prev]`dagi har bir boshlanish shu `right` **va keyingi barcha right'lar** uchun foydasiz — ularni butunlay oʻtkazib yuborish mumkin. Window'ni qonuniy qiladigan aynan shu monoton dalil.
+
+`prev >= left` tekshiruviga e'tibor bering: window'dan *oldin* koʻrilgan belgi (`abba`ni sinab koʻring) eskirgan va `left`ni orqaga surmasligi kerak.
+
+## Kod
+
+```ts
+// Shablon: oʻzgaruvchan window, window yaroqli ekan uzunlikni maksimallashtirish
+function longestValid(s: string): number {
+  const state = new Map<string, number>();     // invariant'ga nima kerak boʻlsa
+  let left = 0, best = 0;
+  for (let right = 0; right < s.length; right++) {
+    add(state, s[right]);                       // 1. kengaytirish
+    while (!valid(state)) remove(state, s[left++]); // 2. yana yaroqli boʻlguncha qisqartirish
+    best = Math.max(best, right - left + 1);    // 3. yozib qoʻyish
+  }
+  return best;
+}
+
+// k oʻlchamli qat'iy window: maksimal yigʻindi
+function maxSumK(nums: number[], k: number): number {
+  let sum = 0;
+  for (let i = 0; i < k; i++) sum += nums[i];
+  let best = sum;
+  for (let i = k; i < nums.length; i++) {
+    sum += nums[i] - nums[i - k];               // bittasi kiradi, bittasi chiqadi
+    best = Math.max(best, sum);
+  }
+  return best;
+}
+
+// Minimal window: yigʻindisi ≥ target boʻlgan eng qisqa subarray (manfiy boʻlmagan sonlar)
+function minLen(nums: number[], target: number): number {
+  let left = 0, sum = 0, best = Infinity;
+  for (let right = 0; right < nums.length; right++) {
+    sum += nums[right];
+    while (sum >= target) {                     // yaroqli → qisqartirishga urinamiz
+      best = Math.min(best, right - left + 1);
+      sum -= nums[left++];
+    }
+  }
+  return best === Infinity ? 0 : best;
+}
+```
+
+Ikki shaklga e'tibor bering: **maksimallashtirish** → *yaroqsiz ekan* qisqartirish, keyin yozish; **minimallashtirish** → *yaroqli ekan* qisqartirish, loop ichida yozish.
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- Shart bajariladigan **uzluksiz** subarray yoki substring'ning "eng uzuni / eng qisqasi / soni".
+- Shart **monoton**: window yaroqli boʻlsa, uning ichidagi har bir kichikroq window ham yaroqli (minimallashtirish masalalarida: yaroqli boʻlsa, har bir kattaroq ham yaroqli).
+- Qat'iy k oʻlcham aniq berilgan (moving average, k ta elementning maksimal yigʻindisi).
+
+**Qachon kerak emas**
+- Subsequence'lar (uzluksiz emas) → DP.
+- Yigʻindi target'li manfiy sonlar → yaroqlilik monoton emas; prefix sum + hash map ishlating.
+- "Aynan k ta har xil" → toʻgʻridan-toʻgʻri monoton emas, lekin `exactly(k) = atMost(k) − atMost(k − 1)`, ikki window.
+
+## Trade-off'lar
+
+| Yondashuv | Vaqt | Xotira | Talab |
+| --- | --- | --- | --- |
+| Barcha subarray'lar | O(n²)–O(n³) | O(1) | yoʻq |
+| Sliding window | O(n) | O(alfavit) yoki O(k) | monoton yaroqlilik |
+| Prefix sum + hash map | O(n) | O(n) | yigʻindi/XOR kabi agregatlar |
+| Monotonic deque (window max/min) | O(n) | O(k) | window ekstremumlari |
+
+## Senior nuance
+
+- **`for` ichidagi `while` uni O(n²) qilmaydi**: loop ichma-ichligini emas, pointer harakatlarini sanang. `left` jami koʻpi bilan n marta siljiydi. Buni aniq ayting — bu eng keng tarqalgan follow-up.
+- **Eskirgan yozuvlar**: oxirgi indekslarni saqlab `left` bilan solishtiring yoki olib tashlashda sanoqlarni kamaytiring. Ikki uslubni aralashtirish `abba` kabi bug'larga olib keladi.
+- **Window maksimumi** heap emas, monotonic deque talab qiladi (heap O(n log k) va lazy deletion beradi).
+- **Unicode**: JS string'ini indeks boʻyicha aylanish UTF-16 code unit'lari boʻylab yuradi; emoji va ba'zi belgilar surrogate juftliklar. Masala "belgilar" desa, aniqlashtiring yoki `[...s]` (code point'lar) ishlating.
+
+## Interview savollari
+
+<QA q="Sliding window yechimingiz O(n) ekanini isbotlang." level="mid">
+Tashqi loop'ning har bir iteratsiyasi right'ni bir marta oldinga suradi: n iteratsiya. Ichki loop'ning har bir iteratsiyasi left'ni bir marta oldinga suradi, left hech qachon orqaga qaytmaydi va right'dan oshmaydi, shuning uchun butun ish davomida ichki loop koʻpi bilan n marta bajariladi. Jami pointer harakatlari ≤ 2n, har biri hash map bilan O(1) → O(n).
+</QA>
+
+<QA q="Minimum Window Substring: invariant nima va uni O(1) da qanday tekshirasiz?" level="senior">
+Yaroqli = window har bir kerakli belgini kamida talab qilingan miqdorda oʻz ichiga oladi. `need` sanoqlarini va faqat belgining sanogʻi kerakli chegarani kesib oʻtganda oʻzgaradigan bitta `missing` (yoki `formed`) butun sonni saqlang. Shunda yaroqlilik — `missing === 0`, har qadamda ikki map'ni solishtirish oʻrniga O(1) da tekshiriladi.
+</QA>
+
+<QA q="Aynan K ta har xil butun sonli subarray'larni sanang." level="senior">
+Aynan-K monoton emas, lekin koʻpi-bilan-K monoton: chapdan qisqartirilgan yaroqli window yaroqli qoladi. Har bir `right` unda tugaydigan ≤ K har xilli `right − left + 1` ta window qoʻshadi. Javob = atMost(K) − atMost(K − 1), ikki chiziqli oʻtish.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "'abba' uchun nega tekshiruv prev >= left boʻlishi kerak?", options: ["Performance", "Ikkinchi 'a' kelganda birinchi 'a' window'dan tashqarida", "Katta harflarni hal qilish uchun", "Kerak emas"], answer: 1, explain: "right = 3 da left allaqachon 2. prev + 1 = 1 ga sakrash left'ni orqaga suradi va invariant'ni buzadi." },
+  { q: "Qaysi shart sliding window uchun monoton EMAS?", options: ["Koʻpi bilan k ta har xil belgi", "Barcha belgilar takrorlanmas", "Manfiy sonlar bilan yigʻindi k ga teng", "Manfiy boʻlmagan sonlar bilan yigʻindi ≤ k"], answer: 2, explain: "Manfiylar bilan qisqartirish yoki kengaytirish yigʻindini istalgan tomonga oʻzgartirishi mumkin." },
+  { q: "O(n) da sliding window maximum nimadan foydalanadi?", options: ["Min-heap", "Saralangan array", "Monotonic deque", "Ikki yigʻindi stack'i"], answer: 2, explain: "Qiymatlari kamayib boruvchi indekslar deque'si maksimumni oldida amortized O(1) da beradi." }
+]} />
+
+**Klassik masalalar:** Best Time to Buy and Sell Stock (Easy) · Maximum Average Subarray I (Easy) · Longest Substring Without Repeating Characters (Medium) · Longest Repeating Character Replacement (Medium) · Permutation in String (Medium) · Minimum Window Substring (Hard) · Sliding Window Maximum (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/sliding-window" />

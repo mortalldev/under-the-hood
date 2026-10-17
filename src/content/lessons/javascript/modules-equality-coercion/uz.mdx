@@ -1,0 +1,109 @@
+## TL;DR
+
+**ES modullar** statik (import'lar har qanday kod ishlashidan oldin ma'lum), asinxron yuklanadi, sukut boʻyicha strict va export'lar — <Term id="live-binding">live binding</Term>'lar. **CommonJS** `require` — sinxron funksiya chaqiruvi, u oʻsha paytdagi `module.exports`ning *nusxasini* qaytaradi. Tenglik uchun: `===` hech qachon turlarni oʻzgartirmaydi, `==` <Term id="coercion" /> qoidalarini qoʻllaydi, `Object.is` esa `===`dan faqat `NaN` va `±0` uchun farq qiladi. Interview'lar trivia jadvallarini emas, real kodda tishlaydigan bir nechta coercion holatlarini soʻraydi.
+
+## Vizual model
+
+```text
+ESM hayot sikli: barcha modullarni parse → link (binding'larni yaratish) → evaluate (chuqurlik boʻyicha, har biri bir marta)
+                 import'lar hoist qilinadi; cycle evaluate boʻlguncha initsializatsiyasiz binding'larni (TDZ) koʻradi
+
+CJS:             require("x") → x.js ni hozir bajarish (cache'da boʻlmasa) → module.exports obyektini qaytarish
+                 cycle jarayondagi modulning QISMAN toʻldirilgan exports obyektini qaytaradi
+
+==  null == undefined → true, null'ga boshqa hech narsa == emas
+    son va string     → string ToNumber'ga aylanadi
+    boolean va istalgan → boolean AVVAL songa aylanadi  ("1" == true → 1 == 1 → true)
+    obyekt va primitiv → obyekt ToPrimitive (valueOf / toString / Symbol.toPrimitive)
+```
+
+## Mexanizm
+
+**Live binding'lar**: ESM import — eksport qiluvchi oʻzgaruvchisining faqat oʻqish uchun *koʻrinishi*. Eksport qiluvchi uni keyinroq qayta tayinlasa, har bir import qiluvchi yangi qiymatni koʻradi. CJS destructuring (`const { count } = require("./c")`) qiymatni bir marta nusxalaydi.
+
+```js
+// counter.mjs
+export let count = 0;
+export function inc() { count++; }
+
+// main.mjs
+import { count, inc } from "./counter.mjs";
+inc();
+console.log(count);   // 1 — live binding. (CJS: `const { count } = require(...)` hali ham 0 chiqarardi)
+```
+
+**Cycle'lar**: ESM'da binding'lar linking paytida yaratilgani uchun, binding'lar faqat evaluate'dan keyin *ishlatilsa* (masalan, funksiyalar ichida) cycle baribir ishlashi mumkin. Moduli evaluate boʻlishidan oldin import qilingan `let`/`const`ga tegish TDZ ReferenceError beradi. CJS'da jimgina toʻliq boʻlmagan `exports` obyektini olasiz — koʻpincha `undefined` funksiyalar.
+
+**`+` bilan coercion**: ToPrimitive'dan keyin operandlardan biri string boʻlsa, birlashtiradi; aks holda sonlarni qoʻshadi. `[] + {}` → `"[object Object]"`; `1 + "2"` → `"12"`; `1 - "2"` → `-1` (minus doim songa aylantiradi).
+
+## Kod
+
+```js
+// Haqiqatan kerak boʻladigan tenglik
+x == null                    // idiomatik "null yoki undefined" tekshiruvi — =='ning keng qabul qilingan yagona ishlatilishi
+Number.isNaN(x)              // isNaN(x) emas, u coerce qiladi ("abc" → NaN → true)
+Object.is(NaN, NaN)          // true;  NaN === NaN — false
+Object.is(0, -0)             // false; 0 === -0 — true
+[1, 2].includes(NaN)         // SameValueZero ishlatadi: NaN'ni topadi; indexOf (===) topmaydi
+
+// Bug keltirib chiqaradigan coercion tuzoqlari
+"10" > "9"                   // false — string taqqoslash leksikografik
+[] == false                  // true  ([] → "" → 0, false → 0)
+if ([]) {}                   // truthy — har bir obyekt truthy, hatto boʻsh array'lar
+0.1 + 0.2 === 0.3            // false — IEEE-754; tolerans bilan solishtiring yoki butun sonlar (tiyin) ishlating
+parseInt("08")               // hozir 8; baribir doim radix bering: parseInt(s, 10)
+
+// Interop
+import fs from "node:fs";                       // ESM CJS'ni import qilganda: default = module.exports
+const { readFile } = await import("node:fs/promises");   // dynamic import CJS'dan ham ishlaydi
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Yangi kod uchun ESM'ni afzal koʻring**: statik tahlil tree-shaking, top-level `await` va brauzer hamda Node'da bir xil sintaksisni beradi. **CJS** eski paketlar va ba'zi vositalarda qoladi; interop qoidalarini biling.
+
+**Sukut boʻyicha `===` ishlating**; `== null`ni null/undefined tekshiruvi uchun saqlang. Ilova kodida obyekt va primitivlar orasidagi `==`ga hech qachon tayanmang.
+
+## Trade-off'lar
+
+| | ESM | CommonJS |
+| --- | --- | --- |
+| Yuklash | statik graph, asinxron, parallel boʻlishi mumkin | runtime'da sinxron `require` |
+| Binding'lar | live, import qiluvchilar uchun faqat oʻqish | destructuring'da qiymat nusxalanadi |
+| Tree-shaking | ha (statik import'lar) | cheklangan |
+| Top-level `await` | ha | yoʻq |
+| Shartli yuklash | `import()` (asinxron) | istalgan joyda `require` (sinxron) |
+| Yuqori darajada `this` | `undefined` | `module.exports` |
+
+## Senior nuance
+
+- **Dual-package xavfi**: ESM va CJS build'larini birga joʻnatish bitta jarayonda paketning **ikki nusxasini** yuklashi mumkin (har formatga bitta), shuning uchun `instanceof` tekshiruvlari va singleton'lar buziladi. Shartli yozuvli paket `exports` map'lari buni yumshatadi.
+- **Node endi yangi versiyalarda sinxron ESM graph'lari uchun `require(esm)`ni qoʻllab-quvvatlaydi**, lekin top-level `await` ishlatadigan modullarni baribir require qilib boʻlmaydi — tayanishdan oldin maqsadli Node versiyasini tekshiring.
+- **Side-effect import'lar** (`import "./polyfill"`) har bir modul nusxasiga bir marta ishlaydi; ESM resolve qilingan URL boʻyicha, CJS resolve qilingan fayl nomi boʻyicha cache qiladi — symlink'lar va har xil yoʻllar dublikat yaratishi mumkin.
+- **`typeof null === "object"`** — moslik uchun saqlangan tarixiy bug; `x === null`ni aniq tekshiring.
+
+## Interview savollari
+
+<QA q="Live binding nima?" level="mid">
+ESM import — qiymat nusxasi emas, eksport qiluvchi modul oʻzgaruvchisiga reference. Eksport qiluvchi uni qayta tayinlasa (export let x; keyinroq x = 2), har bir import qiluvchi yangi qiymatni oʻqiydi. Import qiluvchilar unga oʻzlari tayinlay olmaydi.
+</QA>
+
+<QA q="Siklik bogʻliqliklar ESM va CommonJS'da qanday ishlaydi?" level="senior">
+CJS'da require jarayondagi modulning exports obyektini oʻsha paytdagi holatida qaytaradi — odatda toʻliq emas, shuning uchun xatosiz undefined a'zolarni olasiz. ESM'da barcha binding'lar evaluate'dan oldin, linking paytida yaratiladi; evaluate chuqurlik boʻyicha, shuning uchun cycle'dagi modul boshqasi export'larini initsializatsiya qilishidan oldin ishlashi mumkin. Function declaration'lar hoist qilinadi va ishlatish mumkin; let/const/class export'lari juda erta murojaat qilinsa TDZ ReferenceError beradi. Umumiy kodni uchinchi modulga koʻchirish yoki murojaatni funksiyalar ichiga kechiktirish bilan tuzating.
+</QA>
+
+<QA q="Nega [] == ![] true?" level="mid">
+![] — false (obyektlar truthy). Obyektni boolean bilan solishtirish boolean'ni songa aylantiradi: false → 0. Keyin obyekt ToPrimitive'ga aylanadi: [] → "" → 0. 0 == 0 — true. Saboq: aralash turli == intuitsiyaga emas, konvertatsiya algoritmiga boʻysunadi — === ishlating.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "export let n = 0; eksport qiluvchi keyinroq n = 5 qiladi. ESM import qiluvchi n ni nima deb oʻqiydi?", options: ["0", "5", "TypeError", "undefined"], answer: 1, explain: "Import'lar — live binding'lar." },
+  { q: "Qaysi tekshiruv FAQAT null va undefined uchun true?", options: ["x === null", "x == null", "!x", "typeof x === 'undefined'"], answer: 1, explain: "Loose equality null va undefined'ni faqat bir-biriga teng deb hisoblaydi." },
+  { q: "[NaN].indexOf(NaN) va [NaN].includes(NaN) nima qaytaradi?", options: ["0 va true", "−1 va true", "−1 va false", "0 va false"], answer: 1, explain: "indexOf === ishlatadi; includes SameValueZero ishlatadi." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/modules-equality-coercion" />

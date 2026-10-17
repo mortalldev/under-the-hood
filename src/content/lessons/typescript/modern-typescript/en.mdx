@@ -1,0 +1,139 @@
+## TL;DR
+
+TypeScript changed more in 2025–2026 than in the five years before. **TypeScript 6.0** (March 2026) is the last compiler written in TypeScript. It turns on modern defaults (`strict: true`, `module: esnext`, `target` = latest ES, `types: []`) and deprecates legacy options (`target: es5`, `baseUrl`, `moduleResolution: node10`, AMD/UMD/SystemJS output). **TypeScript 7.0** (July 2026) is the same type checker **ported to Go**: about 8–12× faster full builds with the same `tsc` command, but no programmatic API yet. Meanwhile, **Node runs `.ts` files directly** via <Term id="type-stripping" />, which is why <Term id="erasable-syntax-only" /> exists.
+
+## Visual model
+
+```text
+                     TS 5.x (2023–25)            TS 6.0 (Mar 2026)                    TS 7.0 (Jul 2026)
+compiler             JavaScript                  JavaScript (last one)                Go, native, parallel checkers
+strict default       off                         ON                                   ON
+target default       es5                          latest (es2025)                      latest
+deprecated           —                           es5, baseUrl, node10, amd/umd,       removed (hard errors)
+                                                 outFile, module-keyword namespaces
+programmatic API     yes                         yes                                  not yet (planned for 7.1)
+
+Running TypeScript:   tsc → JS → node        vs        node app.ts (types stripped, NOT checked)
+                      bundler (esbuild/Vite/Turbopack) strips types too — type-check separately with `tsc --noEmit`
+```
+
+## Mechanism
+
+**Why a Go port?** The checker is CPU- and memory-bound, and on a single-threaded JS runtime it can't use shared-memory parallelism. Porting the existing code (not rewriting it) to Go keeps behaviour compatible while adding native speed and multiple type-checker threads (`--checkers`). The TS team reports full-build speedups between 7.7× and 11.9× on large open-source codebases. Editor startup for VS Code's own repo dropped from about 17.5 s to under 1.3 s for the first error.
+
+**What doesn't move yet.** TS 7.0 ships without the programmatic API. Tools that embed the compiler (Vue/Svelte/Astro/MDX language tooling, Angular templates, language-service plugins, custom transformers) stay on 6.0 for now. The `@typescript/typescript6` package installs side by side with a `tsc6` binary. This very site keeps TypeScript 6 because its type-puzzle checker uses the compiler API.
+
+**Migrating 5.x → 6 → 7.** First get a clean build on 6.0 **without** `ignoreDeprecations`, and with `--stableTypeOrdering`, which makes 6.0 order types like 7.0 so their error messages line up. Then 7.0 is designed to type-check identically. Typical fixes:
+- add `"types": ["node"]` because `types` now defaults to `[]`
+- replace `baseUrl` path hacks with `paths` or package `imports` (`#/...`)
+- switch `moduleResolution` to `bundler` or `nodenext`
+- replace `module Foo {}` with `namespace Foo {}`
+- replace `import ... assert {}` with `with {}`
+
+**Type stripping.** Node 24 executes `node app.ts` by replacing type annotations with whitespace. Nothing is type-checked and no code is generated, so only **erasable** syntax works. **Enums**, **namespaces with runtime code**, **parameter properties** (`constructor(private x: number)`) and legacy decorators need code generation, so Node throws `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. Enable `"erasableSyntaxOnly": true` (TS 5.8+) and the compiler flags them for you. Use `as const` objects instead of enums.
+
+**Recent language features worth knowing:**
+- `satisfies` (4.9): check without widening.
+- `const` type parameters (5.0)
+- `using` declarations (5.2)
+- `NoInfer<T>` (5.4): block inference from one argument.
+- **Inferred type predicates** (5.5): `filter((x) => typeof x === "string")` now narrows to `string[]`.
+- `--isolatedDeclarations` (5.5): fast `.d.ts` emit.
+- `--rewriteRelativeImportExtensions` (5.7): write `./x.ts` imports and emit `./x.js`.
+
+## Code
+
+```ts
+// 1) Enum → erasable alternative (works under type stripping and erasableSyntaxOnly)
+export const Status = { Active: "active", Banned: "banned" } as const;
+export type Status = (typeof Status)[keyof typeof Status];        // "active" | "banned"
+function canLogin(s: Status) { return s === Status.Active; }
+
+// 2) Parameter properties → explicit fields
+class User {
+  readonly id: string;
+  constructor(id: string) { this.id = id; }                         // not: constructor(readonly id: string)
+}
+
+// 3) Inferred type predicates (5.5): no manual `x is string` needed
+const mixed = [1, "a", 2, "b"];
+const strings = mixed.filter((x) => typeof x === "string");        // string[]
+
+// 4) NoInfer (5.4): the default must be one of the provided values
+function pick<T extends string>(options: T[], fallback: NoInfer<T>): T { return options[0] ?? fallback; }
+pick(["sm", "md", "lg"], "md");          // ok
+// pick(["sm", "md"], "xl");             // error: "xl" is not assignable to "sm" | "md"
+
+// 5) satisfies + const type parameters: keep literal types, still validate the shape
+const routes = { home: "/", lesson: "/learn/:section/:lesson" } satisfies Record<string, `/${string}`>;
+function tuple<const T extends readonly unknown[]>(...xs: T) { return xs; }
+const t = tuple("a", 1);                  // readonly ["a", 1]
+```
+
+```jsonc
+// tsconfig.json for a modern Node 24 project that runs .ts directly and type-checks with tsc
+{
+  "compilerOptions": {
+    "target": "es2025",                   // TS 6 default is the latest edition anyway
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,                       // default in 6.0+, kept explicit for readers
+    "types": ["node"],                    // 6.0 default is [] — list what you need
+    "erasableSyntaxOnly": true,           // forbid enums/namespaces/parameter properties
+    "verbatimModuleSyntax": true,         // `import type` stays explicit, matches stripping
+    "rewriteRelativeImportExtensions": true,
+    "noEmit": true                        // node runs the .ts; tsc only checks
+  }
+}
+// package.json:  "type": "module",  "scripts": { "start": "node src/server.ts", "check": "tsc" }
+```
+
+## When to use / when not to
+
+**Move to TS 6** now if you're on 5.x: the new defaults are what most teams set by hand anyway. **Adopt TS 7** for CLI type-checking in large repos and CI, where the speed pays off immediately. Keep 6.0 for editor integrations or tools that need the compiler API.
+
+**Run `.ts` directly with Node** for scripts, CLIs and servers with no build step, as long as you also run `tsc --noEmit` in CI. **Keep a bundler or compiler** when you need JSX, decorators with metadata, enums in existing code, path aliases, or browser output.
+
+## Trade-offs
+
+| Choice | Gains | Costs |
+| --- | --- | --- |
+| TS 7 native | ~10× faster checks, parallel | no API yet; some tools must stay on 6 |
+| Node type stripping | no build step, fast startup | no checking at runtime; erasable syntax only |
+| `as const` objects vs enums | erasable, plain JS objects | slightly more verbose types |
+| `strict` on | catches null/any bugs | migration work in old code |
+| `types: []` default | faster, no accidental globals | must list `node`, `jest` etc. explicitly |
+
+## Senior nuance
+
+- **Types are erased; they never validate runtime data.** Requests, env vars and JSON still need runtime validation (a schema library or hand-written guards), whatever the TS version.
+- **Plan the 6 → 7 move like a dependency upgrade**: pin versions, run both checkers in CI during the transition, and check that lint (typescript-eslint) and framework tooling support the version you choose.
+- **`noUncheckedSideEffectImports` is now on**: `import "./polyfills"` errors if the file can't be resolved, which catches typos that used to fail silently.
+- **Monorepos benefit most**: project references plus native, parallel checking change what "fast enough" means for type-aware lint and CI.
+
+## Interview questions
+
+<QA q="What does TypeScript 7 change for a team, and what doesn't it change?" level="senior">
+It changes the compiler implementation: TS 7 is a native Go port with parallel type checking and roughly 8–12× faster full builds. It doesn't change the language: it's designed to type-check like TS 6.0 with stableTypeOrdering. 7.0 lacks the programmatic API, so tools embedding the compiler (some framework language tools, plugins) stay on 6.0, and deprecated 6.0 options become errors.
+</QA>
+
+<QA q="Why does `node app.ts` fail on an enum, and how do you fix it?" level="mid">
+Node only strips type syntax; it doesn't generate code. An enum needs a runtime object, so it isn't erasable and Node throws ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX. Replace it with an `as const` object plus a union type, and enable erasableSyntaxOnly so the compiler flags such syntax ahead of time.
+</QA>
+
+<QA q="Does running TypeScript directly in Node mean type errors are caught at runtime?" level="mid">
+No. Type stripping removes annotations without checking them; a program with type errors still runs. You still need tsc --noEmit (or your editor/CI) for checking, and runtime validation for untrusted input.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "TypeScript 6.0 default for `strict` is…", options: ["false", "true", "removed", "warn"], answer: 1, explain: "6.0 enables strict by default." },
+  { q: "Which syntax works under Node's type stripping?", options: ["enum Color { Red }", "constructor(private x: number)", "type Id = string & { __brand: 'id' }", "namespace N { export const a = 1 }"], answer: 2, explain: "Type aliases are erasable; the others need emitted code." },
+  { q: "After upgrading to TS 6, `process` is suddenly unknown. Why?", options: ["Node removed process", "types now defaults to [] — add \"types\": [\"node\"]", "strict mode", "target es2025"], answer: 1, explain: "Global @types packages are no longer included automatically." },
+  { q: "Why might a project stay on TS 6 after TS 7 ships?", options: ["TS 7 has different type rules", "a tool depends on the compiler API, which 7.0 doesn't ship yet", "TS 7 is slower", "TS 7 needs Go installed"], answer: 1, explain: "The API is expected in 7.1; 7.0 ships via npm and needs no Go toolchain." }
+]} />
+
+## Resources
+
+<Resources topic="typescript/modern-typescript" />

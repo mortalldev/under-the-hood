@@ -1,0 +1,114 @@
+## TL;DR
+
+TypeScript <Term id="structural-typing">structural typed</Term>: qiymat kerakli a'zolarning **kamida** hammasiga mos turlar bilan ega boʻlsa, turga tayinlanishi mumkin — nomlar va e'lonlar ahamiyatsiz. Keyin control-flow tahlili siz yozgan tekshiruvlar (`typeof`, `in`, `instanceof`, tenglik, type predicate'lar) asosida branch'lar ichida union turlarni <Term id="narrowing">toraytiradi</Term>. Holatlarni <Term id="discriminated-union" /> sifatida modellashtiring — compiler har bir holatni qayta ishlaganingizni isbotlay oladi.
+
+## Vizual model
+
+```text
+interface Point { x: number; y: number }
+const p3 = { x: 1, y: 2, z: 3 };
+const p: Point = p3;              ✓  x va y bor — ortiqcha z muammo emas (width subtyping)
+const q: Point = { x: 1, y: 2, z: 3 };  ✗  excess property check: noma'lum key'li YANGI literal
+
+type Shape = { kind: "circle"; r: number } | { kind: "square"; size: number };
+if (s.kind === "circle") { s.r }  // circle a'zosiga toraytirildi
+```
+
+## Mexanizm
+
+**Assignability** shakllarni a'zo-ba'zo, rekursiv solishtiradi. `{ x, y, z }` — `{ x, y }`ning subtype'i, chunki unda kerakli hamma narsa bor. Shuning uchun mock'lar va oddiy object literal'lar `implements`siz ishlaydi.
+
+**Excess property check'lar** — ataylab qilingan istisno: object **literal**'ni toʻgʻridan-toʻgʻri tiplangan joyga tayinlaganda noma'lum property'lar xato — ular ehtimol imlo xatosi. Xuddi shu obyektni oʻzgaruvchi orqali tayinlash tekshiruvni chetlab oʻtadi, chunki obyekt endi "yangi" emas.
+
+**Narrowing** oqimga sezgir: compiler koddagi har bir nuqtada oʻzgaruvchi hali qanday turlarga ega boʻlishi mumkinligini kuzatadi. Har bir tekshiruv true va false branch'larda union a'zolarini olib tashlaydi. Tayinlashlar toraytirilgan turni tiklaydi; callback'lar yana e'lon qilingan turni koʻradi (compiler ular qachon ishlashini bila olmaydi).
+
+**Exhaustiveness**: union'ning har bir a'zosi qayta ishlangandan keyin oʻzgaruvchi turi `never`. Uni `never` tipli oʻzgaruvchiga tayinlash kimdir yangi a'zo qoʻshganda build'ni compiler orqali yiqitadi.
+
+## Kod
+
+```ts
+type Result<T> =
+  | { status: "loading" }
+  | { status: "error"; error: Error }
+  | { status: "success"; data: T };
+
+function render(r: Result<string[]>): string {
+  switch (r.status) {
+    case "loading": return "…";
+    case "error":   return r.error.message;      // r: { status: "error"; error: Error }
+    case "success": return r.data.join(", ");    // r: { status: "success"; data: string[] }
+    default: {
+      const unreachable: never = r;               // holat yetishmasa compile xatosi
+      return unreachable;
+    }
+  }
+}
+
+// Narrowing vositalari
+function len(x: string | string[] | null) {
+  if (x == null) return 0;                         // null'ni (va undefined'ni) olib tashlaydi
+  if (typeof x === "string") return x.length;      // string
+  return x.length;                                 // string[]
+}
+
+// Foydalanuvchi aniqlagan type guard (compiler sizga ishonadi — test qiling)
+function isUser(v: unknown): v is { id: string; name: string } {
+  return typeof v === "object" && v !== null && "id" in v && typeof (v as { id: unknown }).id === "string";
+}
+
+// Assertion function: chaqiruvdan KEYINgi hamma narsani toraytiradi
+function assertDefined<T>(v: T, msg: string): asserts v is NonNullable<T> {
+  if (v == null) throw new Error(msg);
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Discriminated union'lar** aniq holatlarga ega har qanday qiymatga mos keladi — request holati, forma bosqichlari, event'lar, Redux uslubidagi action'lar, AST node'lar. Ular imkonsiz kombinatsiyalarga yoʻl qoʻyadigan ixtiyoriy field'lar toʻplamini (`data?`, `error?`, `isLoading?`) almashtiradi.
+
+**Type guard'lar** ishonch chegaralarida (tarmoqdan JSON, `localStorage`, message event'lar): `unknown` tipli ma'lumot toraytirishdan oldin validatsiya qilinishi shart. Production'da ham validatsiya qiladigan, ham turni chiqaradigan schema kutubxonasini afzal koʻring, shunda guard haqiqatdan uzoqlashib ketmaydi.
+
+**"Toraytirish" uchun `as` cast'lardan qoching** — ular hech narsani isbotlamasdan tekshiruvchini jim qiladi.
+
+## Trade-off'lar
+
+| Usul | Compiler tekshiradimi? | Runtime narxi | Xavf |
+| --- | --- | --- | --- |
+| `typeof` / `in` / `instanceof` / `===` | ha | juda kichik | yoʻq |
+| Discriminated union `switch` | ha, exhaustiveness bilan | yoʻq | yoʻq |
+| Foydalanuvchi guard'i `x is T` | implementatsiyangizga ishonadi | sizning tekshiruvingiz | guard yolgʻon gapirishi mumkin |
+| `as T` cast | yoʻq | yoʻq | jim notoʻgʻri turlar |
+| Schema validatsiya (zod'ga oʻxshash) | ha, inference orqali | parsing | bogʻliqlik, hot path'larda narx |
+
+## Senior nuance
+
+- **Structural typing tasodifiy moslikni bildiradi**: `string` deb e'lon qilingan `UserId` va `OrderId` bir-birining oʻrniga ishlatiladi. Ularni aralashtirish haqiqiy bug boʻladigan joyda branded type'lar ishlating.
+- **Metod parametrlarining bivariance'i**: metod sintaksisidagi a'zolar (`handle(x: Dog): void`) `strictFunctionTypes` bilan ham bivariant tekshiriladi, bu xavfsiz boʻlmagan tayinlashlarni oʻtkazib yuborishi mumkin; function-property sintaksisi (`handle: (x: Dog) => void`) contravariant tekshiriladi.
+- **Qayta tayinlanadigan `let` oʻzgaruvchilar uchun narrowing closure'larda saqlanmaydi** — callback'dan oldin `const`ga oling.
+- **Union'larda `in` narrowing** property ba'zi a'zolarda bor, boshqalarida yoʻq boʻlganda ishlaydi; `unknown`da u property'ni turga ham qoʻshadi (TS 4.9 dan beri).
+
+## Interview savollari
+
+<QA q="Structural va nominal typing orasidagi farq nima?" level="mid">
+Nominal typing (Java, C#) turlarni e'lon qilingan nomlar va aniq meros orqali bogʻlaydi; structural typing (TypeScript, Go interface'lari) ularni shakl boʻyicha bogʻlaydi — tur kerakli a'zolarga ega boʻlsa tayinlanadi. TypeScript structural typing'ni tanladi, chunki JavaScript kodi oddiy obyektlarni uzatadi va turlar mavjud pattern'larni oʻramlarsiz tasvirlashi kerak.
+</QA>
+
+<QA q="Nega ortiqcha property'li object literal xato beradi, xuddi shu obyekt oʻzgaruvchi orqali esa yoʻq?" level="mid">
+Excess property check faqat tiplangan target'ga toʻgʻridan-toʻgʻri tayinlangan yangi object literal'larga imlo xatosi detektori sifatida qoʻllaniladi. Oʻzgaruvchidagi obyekt yangi emas; ortiqcha property'larga ruxsat beriladigan oddiy structural assignability qoʻllaniladi.
+</QA>
+
+<QA q="Union ustidagi switch'ni qanday exhaustive qilasiz?" level="senior">
+Default branch'da qiymatni never tipli oʻzgaruvchiga tayinlang (yoki never qabul qiladigan funksiyani chaqiring). Har bir a'zo qayta ishlangan boʻlsa, qiymat turi never va kod kompilyatsiya boʻladi; yangi a'zo qoʻshish turni never'dan boshqa qiladi va build yiqiladi, yangilanishi kerak boʻlgan har bir switch'ni koʻrsatadi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "const a = { x: 1, y: 2, z: 3 }; const p: { x: number; y: number } = a;", options: ["xato: ortiqcha property z", "OK", "xato: z yetishmaydi", "faqat as bilan OK"], answer: 1, explain: "Yangi literal emas, shuning uchun faqat structural assignability qoʻllaniladi." },
+  { q: "v: string | number bilan if (typeof v === 'string') return; dan keyin v…", options: ["string", "number", "never", "unknown"], answer: 1, explain: "True branch union'dan string'ni olib tashladi." },
+  { q: "Guard funksiya v is User qaytaradi, lekin tekshiruvi notoʻgʻri. Compiler…", options: ["uni ushlaydi", "unga ishonadi", "ogohlantiradi", "runtime tekshiruv qoʻshadi"], answer: 1, explain: "Type predicate'larga ishoniladi; ularni test qiling yoki schema'dan chiqaring." }
+]} />
+
+## Resurslar
+
+<Resources topic="typescript/structural-typing-narrowing" />

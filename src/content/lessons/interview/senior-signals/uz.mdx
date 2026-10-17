@@ -1,0 +1,90 @@
+## TL;DR
+
+Senior darajada bir xil interview savollari boshqa rubrika boʻyicha baholanadi. Interviewer'lar **doira** (bitta tiketdan kattaroq muammolar), **mulohaza** (trade-off'larni ongli tanlash va nimadan voz kechayotganingizni aytish), **ownership** (faqat kod emas — production, sifat, natijalar), **muloqot** (suhbatni boshqarish, yozish, odamlarni kelishtirish) va **boshqalarni kuchaytirish** (mentorlik, standartlarni koʻtarish)ni qidiradi. Har bir raund — coding, system design, behavioral — bu signallarni aniq koʻrsatish imkoniyati.
+
+## Vizual model
+
+```text
+                 mid-level signal                         senior signal
+coding           toʻgʻri, samarali yechim                   + toza dekompozitsiya, testlar, soʻralmasdan chegara holatlari
+system design    ishlaydigan arxitektura                    + doirani boshqaradi, miqdorlaydi, nosozlik va trade-off'larni nomlaydi
+behavioral       "vazifalarimni yaxshi bajardim"            + jamoalararo ta'sir, noaniqlik, ta'sir oʻtkazish, oʻrganish
+muloqot          savollarga javob beradi                    + muhokamani tuzadi, kelishuvni tekshiradi, xulosa qiladi
+```
+
+## Mexanizm
+
+**Ergashmang, boshqaring.** Senior system design raundida interviewer kun tartibini siz belgilashingizni kutadi: talablar, baholashlar, yuqori darajadagi dizayn, yaxshi sabablar bilan siz tanlagan chuqur tahlillar va yakun. "Qaysi qismga chuqurroq kirishimni xohlaysiz?" deb faqat oʻz ustuvorliklaringizni taklif qilgandan keyin soʻrang.
+
+**Trade-off'larni aniq qiling.** "Kafka ishlatardim" oʻrniga: "Log ishlatardim, chunki bizga replay va bir nechta consumer group kerak; narxi — operatsion murakkablik va faqat partition boʻyicha tartib; replay kerak boʻlmasa, boshqariladigan queue soddaroq boʻlardi." *Narxi —…* iborasi senior signal.
+
+**Miqdorlang.** Taxminiy hisob-kitoblar (QPS, saqlash, latency budget'lari) fikrlarni muhandislikka aylantiradi. Hisob tasdiqlasa, "Bu bitta mashinaga sigʻadi" kuchli senior bayonot — keraksiz taqsimlashdan qochish ham mulohaza.
+
+**Operatsiyalar haqida oʻylang.** Deploy (feature flag'lar, canary'lar, migratsiyalar), observability (metrikalar, log'lar, trace'lar, SLO'lar), nosozlik rejimlari (cache, region yoki bogʻliqlik ishdan chiqsa nima boʻladi) va xavfsizlik/maxfiylikni eslating. Production tajribasi shu yerda koʻrinadi.
+
+**Bilimingiz chegaralarini biling.** "X'ni production'da ishlatmaganman; tushunishimcha… buni … orqali tekshirardim" deyish — kuchli signal; blef qilish — kuchli salbiy signal.
+
+**Boshqalarni kuchaytiring.** Behavioral raundlarda mentorlik, code review madaniyatini yaxshilash, design doc yozish, onboarding yoki jamoalararo bogʻliqliklarni yechish haqidagi hikoyalar jamoalarni yaxshilashingizni koʻrsatadi — senior rollarning yadrosi.
+
+## Kod
+
+```text
+Senior signal tashiydigan iboralar (rost boʻlganda ishlating):
+
+"Dizayndan oldin arxitekturani belgilaydigan talablarni aniqlab olay: …"
+"Taxminiy sonlar: 50k QPS oʻqish, 500 yozish/s, yiliga 2 TB — demak bitta primary yozishlarni koʻtaradi; oʻqishlarga caching kerak."
+"Y oʻrniga X'ni tanlayapman. Yutamiz …; narxi …; agar … boʻlsa qayta koʻrib chiqaman"
+"Eng xavfli qism — …, shuning uchun uni flag ortida chiqarib, avval 1% ga canary qilardim."
+"Bu buzilganini qanday bilamiz? … SLO'sida … boʻyicha alert qoʻyardim."
+"…ning aniq xatti-harakatini bilmayman — qaror qilishdan oldin hujjatlarni tekshirardim / benchmark qilardim."
+"Oxirgi loyihamda design doc yozdim, ikki jamoadan rozilik oldim va junior muhandisga rollout davomida mentorlik qildim."
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Senior signallarni mutanosib koʻrsating: 45 daqiqalik coding raundida test strategiyasi va chegara holatlariga bir daqiqa yetarli; arxitekturaga chalgʻimang. System design'da koʻp vaqtni berilgan mahsulot uchun haqiqatan qiyin qismlarga sarflang.
+
+Javoblarni buzzword'lar bilan toʻldirmang, ortiqcha murakkablashtirmang (10 GB dataset'ni shard qilish), sodda yechimlarni rad etmang yoki xatti-harakat koʻrsatish oʻrniga lavozimlarni da'vo qilmang.
+
+## Trade-off'lar
+
+| Soha | Past darajadagi javob | Senior javob |
+| --- | --- | --- |
+| Talablar | darhol komponentlarga sakraydi | foydalanuvchilar, masshtab, SLO'lar, doiradan tashqaridagilarni aniqlashtiradi |
+| Ma'lumot | "NoSQL ishlating, u masshtablanadi" | murojaat pattern'lari → schema → narxlari bilan store tanlovi |
+| Nosozliklar | eslatilmaydi | nosozlik rejimlari, retry'lar, idempotency, yomonlashish |
+| Yetkazish | "keyin deploy qilamiz" | migratsiyalar, flag'lar, canary'lar, rollback, observability |
+| Odamlar | "oʻz qismimni qildim" | jamoalarni kelishtirdi, mentorlik qildi, jarayonni yaxshiladi |
+
+## Senior nuance
+
+- **Darajalash raundlar boʻylab kalibrlanadi**: kuchli system design zaif coding yoki behavioral signallarni toʻliq qoplay olmaydi, shuning uchun uchalasiga tayyorlaning.
+- **Senior ≠ hamma narsani biladi**: bu noma'lumliklar ichida xavfsiz harakatlanish demak — eksperimentlar, qaytariladigan qarorlar, toʻgʻri odamlardan soʻrash.
+- **Staff+ signallar** yanada kengayadi: jamoalar boʻylab texnik yoʻnalish belgilash, hech kim tayinlamagan muammolarni aniqlash va choraklar davomida oʻlchanadigan biznes ta'siri.
+- **Darajani pasaytirish** odatda yetishmayotgan faktlardan koʻra passiv xatti-harakatdan — interviewer boshqarishini kutishdan kelib chiqadi.
+
+## Interview savollari
+
+<QA q="Senior muhandisni mid-level muhandisdan nima ajratib turadi?" level="senior">
+Doira va mustaqillik: senior'lar noaniq, koʻp haftalik yoki jamoalararo muammolarni yaqin yoʻl-yoʻriqsiz ta'rifdan production'gacha olib boradi; trade-off'larni ongli tanlab, tushuntiradi; operatsion natijalarga egalik qiladi (ishonchlilik, performance, narx); va mentorlik, review'lar, design doc'lar va jarayon yaxshilanishlari orqali boshqalarni kuchaytiradi. Mid-level muhandislar aniq belgilangan ishni ishonchli bajaradi.
+</QA>
+
+<QA q="Hozir boshqacha qabul qiladigan texnik qaroringiz haqida aytib bering." level="senior">
+Muhim qarorni tanlang; oʻsha paytdagi kontekst va cheklovlarni hamda mulohazani tushuntiring, shunda qaror oʻshanda oqilona boʻlgani aniq boʻlsin; nima oʻzgarganini yoki nimani oʻrganganingizni (ma'lumot, masshtab, jamoa), oqibatlarni, qanday yumshatganingiz yoki migratsiya qilganingizni va hozir qoʻllaydigan umumiy tamoyilni tasvirlang. Bu himoyalanmasdan mulohaza va refleksiyani koʻrsatadi.
+</QA>
+
+<QA q="Boshqa senior muhandis keskin rozi boʻlmagan dizaynni qanday hal qilasiz?" level="senior">
+Avval uning xavotirlarini tushunishga intiling; faktlarni afzalliklardan ajrating; qaror mezonlarini aniq qiling (latency, narx, jamoa tajribasi, qaytariluvchanlik); arzon boʻlgan joyda ma'lumot yigʻing yoki prototip qiling; variantlar va trade-off'larni yozib qoʻying; qaytariladigan tanlovlarni afzal koʻring; hal boʻlmasa, kelishilgan qaror qabul qiluvchiga eskalatsiya qiling — keyin natija qanday boʻlmasin, unga toʻliq sodiq qoling.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Qaysi bayonot eng kuchli senior signal?", options: ["'Microservice'lar ishlatardim.'", "'Bitta Postgres primary ishlatardim; 500 yozish/s da yetarli va tranzaksiyalarni sodda saqlaydi — 10× da qayta koʻrib chiqaman.'", "'NoSQL yaxshiroq masshtablanadi.'", "'Eng yangi framework'dan foydalanaylik.'"], answer: 1, explain: "Miqdorlangan, qayta koʻrib chiqish sharti bilan aniq trade-off." },
+  { q: "Texnologiya nosozlikda qanday ishlashini bilmaysiz. Eng yaxshi harakat?", options: ["ishonch bilan taxmin qilish", "buni aytib, gipotezangiz va uni qanday tekshirishingizni berish", "mavzuni oʻzgartirish", "nosozliklarni eslatmaslik"], answer: 1, explain: "Halol chegaralar + tekshirish rejasi — ijobiy signal." },
+  { q: "Design raundlarida darajani pasaytirishning eng keng tarqalgan sababi?", options: ["bitta API'ni bilmaslik", "interviewer boshqarishini passiv kutish", "sekin chizish", "whiteboard'dan foydalanish"], answer: 1, explain: "Senior'lardan muhokamani boshqarish kutiladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="interview/senior-signals" />

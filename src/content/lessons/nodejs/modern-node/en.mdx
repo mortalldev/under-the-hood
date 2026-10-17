@@ -1,0 +1,178 @@
+## TL;DR
+
+A lot of what used to need npm packages is now **built into Node**. Node 24 LTS ships:
+- a **test runner** (<Term id="node-test-runner" />, `node:test`, mocks, fake timers, coverage)
+- **watch mode** (`--watch`)
+- **.env loading** (`--env-file`, `process.loadEnvFile`)
+- **package script running** (`node --run`)
+- **TypeScript execution** via <Term id="type-stripping" /> (`node app.ts`)
+- **web-standard APIs** (`fetch`, Web Streams, `WebSocket` client, `AbortController`, `structuredClone`)
+- **CLI argument parsing** (`util.parseArgs`)
+- a **permission model** (`--permission`)
+- `require()` of ES modules
+
+For new projects: fewer dependencies, smaller attack surface, faster CI.
+
+## Visual model
+
+```text
+used to install                       now built in (Node 24 LTS)
+nodemon                               node --watch src/server.ts
+dotenv                                node --env-file=.env …   |  process.loadEnvFile()
+ts-node / tsx (simple cases)          node src/server.ts         (types stripped, not checked)
+jest / mocha (many cases)             node --test                 +  node:test, node:assert, mock.timers
+node-fetch, ws (client)               fetch, WebSocket            (global, web-standard)
+yargs / minimist (simple CLIs)        util.parseArgs
+npm run <script>                      node --run <script>         (no npm startup overhead, no pre/post hooks)
+"type": "module" headaches            require(esm) works for synchronous ES module graphs
+```
+
+## Mechanism
+
+**Test runner.** `node --test` finds files named like `*.test.{js,mjs,cjs,ts}` (and a few other patterns) and runs each file in its own process, in parallel by default (`--test-concurrency`). `node:test` provides `test`/`describe`/`it`, hooks, subtests, `t.mock.fn()`, `mock.method()`, and **fake timers** (`mock.timers.enable({ apis: ["setTimeout"] })` then `mock.timers.tick(ms)`), plus snapshot tests. Coverage is available with `--experimental-test-coverage`.
+
+**Watch mode.** `--watch` restarts the process when the entry file or anything it imports changes. `--watch-path` adds other directories.
+
+**Env files.** `--env-file=.env` loads variables before your code runs. Use `--env-file-if-exists` when the file is optional. `process.loadEnvFile(path)` loads them at runtime. Real environment variables win over the file. These only read files; they're not a secret store.
+
+**Running TypeScript.** Node strips erasable type syntax and runs the result. There's no type checking and no transforms, so enums and parameter properties throw `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. Import paths must include the `.ts` extension. Keep `tsc --noEmit` in CI. The TypeScript lesson covers the matching tsconfig.
+
+**Web-standard APIs.** `fetch` is built on undici, and `Response.body` is a Web `ReadableStream`. `Readable.fromWeb` / `Readable.toWeb` bridge to Node streams. Code that only uses web APIs runs unchanged in Node, Deno, Bun, edge runtimes and browsers.
+
+**Permission model.** `node --permission` denies file-system writes and reads, child processes, worker threads and native addons, unless you allow them, e.g. `--allow-fs-read=./data`. Denied calls throw `ERR_ACCESS_DENIED`. It's defence in depth against a compromised dependency, **not a sandbox** for running untrusted code.
+
+**`require(esm)`.** A CommonJS module can `require()` an ES module, as long as that module graph has no top-level `await`. This removed the biggest pain of the CJS-to-ESM migration for library authors.
+
+**`node:sqlite`** gives an embedded SQLite database with no dependency. In Node 24 it's still **experimental** and prints a warning.
+
+## Code
+
+```js
+// src/rate.js — code under test
+export function createLimiter({ max, windowMs }) {
+  const hits = new Map();
+  return function allow(key) {
+    const now = Date.now();
+    const recent = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
+    if (recent.length >= max) { hits.set(key, recent); return false; }
+    recent.push(now);
+    hits.set(key, recent);
+    return true;
+  };
+}
+```
+
+```js
+// src/rate.test.js — run with: node --test   (or: node --test --watch)
+import { test, describe, mock } from "node:test";
+import assert from "node:assert/strict";
+import { createLimiter } from "./rate.js";
+
+describe("createLimiter", () => {
+  test("allows up to max requests per window", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 0 });   // fake clock: no real waiting
+    const allow = createLimiter({ max: 2, windowMs: 1000 });
+    assert.equal(allow("ip1"), true);
+    assert.equal(allow("ip1"), true);
+    assert.equal(allow("ip1"), false);                  // third in the same window
+    t.mock.timers.tick(1000);                           // window passes
+    assert.equal(allow("ip1"), true);
+  });
+
+  test("keys are independent", () => {
+    const allow = createLimiter({ max: 1, windowMs: 1000 });
+    assert.equal(allow("a"), true);
+    assert.equal(allow("b"), true);
+  });
+
+  test("mock.fn records calls", () => {
+    const send = mock.fn((msg) => msg.length);
+    send("hi");
+    assert.equal(send.mock.callCount(), 1);
+    assert.deepEqual(send.mock.calls[0].arguments, ["hi"]);
+  });
+});
+```
+
+```js
+// cli.js — argument parsing + fetch with a timeout, no dependencies
+import { parseArgs } from "node:util";
+
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
+  options: {
+    timeout: { type: "string", short: "t", default: "3000" },
+    verbose: { type: "boolean", short: "v" },
+  },
+});
+
+for (const url of positionals) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(Number(values.timeout)) });
+  if (values.verbose) console.log(res.status, res.headers.get("content-type"));
+  console.log(url, (await res.text()).length, "bytes");
+}
+// node cli.js -v -t 2000 https://example.com
+```
+
+```text
+// package.json
+{
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env src/server.ts",
+    "test": "node --test",
+    "check": "tsc --noEmit"
+  }
+}
+// node --run dev      ← runs the script directly, without npm's startup cost
+```
+
+## When to use / when not to
+
+**Use the built-ins** for services, CLIs and libraries where they cover your needs. Fewer dependencies mean fewer supply-chain risks and fewer upgrades. The built-in test runner is a good default for backend code and libraries.
+
+**Keep specialised tools** where they're clearly better: Vitest/Jest for big front-end suites (JSDOM, rich watch UI, module mocking ergonomics), Playwright for browsers, a real bundler for front-end apps, and `tsc` or a compiler for enums/decorators/JSX. Don't rely on `--permission` to run untrusted code. Use OS-level isolation (containers, VMs) for that.
+
+## Trade-offs
+
+| Built-in | Instead of | Gain | Limitation |
+| --- | --- | --- | --- |
+| `node --test` | Jest/Mocha | zero deps, fast, process isolation | fewer plugins; module mocking is experimental |
+| `--watch` | nodemon | zero config | restarts the whole process |
+| `--env-file` | dotenv | no dependency | no variable expansion tricks some apps relied on |
+| type stripping | ts-node/tsx | no build step | no type checking, erasable syntax only |
+| `--permission` | — | limits damage from compromised deps | not a security sandbox |
+
+## Senior nuance
+
+- **Release lines matter**: even-numbered Node versions become LTS (as of October 2026, 24 is the newest LTS line and 26 is "Current"). Production should run an LTS, and odd versions are for trying features early.
+- **Stability index**: Node docs mark each API as Stable, Experimental or Deprecated. Experimental APIs (like `node:sqlite` in 24) can change in minor versions, so pin and test before relying on them.
+- **Supply-chain hygiene** is the real win: every dependency you remove is code you don't have to audit, patch and trust.
+- **Web-standard code is portable**: preferring `fetch`, Web Streams and `AbortSignal` over Node-only APIs lets the same module run on the server, at the edge and in tests.
+
+## Interview questions
+
+<QA q="What does `node app.ts` do with your types?" level="mid">
+It strips them: type annotations are replaced with whitespace and the remaining JavaScript runs. Nothing is type-checked, so a type error doesn't stop the program, and syntax that needs code generation (enums, parameter properties, namespaces with values) is rejected. Type-check separately with tsc --noEmit.
+</QA>
+
+<QA q="How do you test time-dependent code with the built-in test runner?" level="mid">
+Use mock timers: `t.mock.timers.enable({ apis: ["setTimeout", "Date"] })` replaces the timer and clock APIs, and t.mock.timers.tick(ms) advances them instantly, so the test is fast and deterministic. The mocks are reset automatically after the test when you use t.mock.
+</QA>
+
+<QA q="Is Node's permission model a sandbox for running untrusted code?" level="senior">
+No. It restricts what the process can do (file-system paths, child processes, workers, addons) and so limits damage from a compromised dependency, but the Node docs state it isn't a security boundary against malicious code. Untrusted code needs OS-level isolation: separate processes with limited users, containers, VMs or dedicated sandboxes.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which command reloads your server when files change, without nodemon?", options: ["node --reload", "node --watch server.js", "node --hot", "node --dev"], answer: 1, explain: "--watch restarts on changes to the entry file and its imports." },
+  { q: "`node --env-file=.env app.js` and the shell already has PORT=8080; .env has PORT=3000. process.env.PORT is…", options: ["3000", "8080", "undefined", "an error"], answer: 1, explain: "Existing environment variables take precedence over the file." },
+  { q: "A CommonJS file calls require() on an ES module that uses top-level await. Result?", options: ["works", "throws (ERR_REQUIRE_ASYNC_MODULE)", "returns a promise", "hangs"], answer: 1, explain: "require(esm) only supports synchronous module graphs." },
+  { q: "Best default for a new backend library's tests on Node 24?", options: ["no tests", "node --test with node:assert", "a browser test runner", "manual console.log"], answer: 1, explain: "Built-in, zero dependencies, fast — switch only if you need more." }
+]} />
+
+## Resources
+
+<Resources topic="nodejs/modern-node" />

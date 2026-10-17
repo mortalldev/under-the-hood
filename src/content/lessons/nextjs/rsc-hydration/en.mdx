@@ -1,0 +1,104 @@
+## TL;DR
+
+A first page load in Next.js delivers three things: **HTML** (to show content immediately), the **<Term id="rsc-payload" />** (a serialized description of the Server Component tree, with "holes" referencing Client Components and their props), and **JavaScript** for the Client Components. <Term id="hydration" /> is React in the browser rebuilding the component tree from the payload, matching it against the existing HTML, and attaching event handlers — it does not re-create the DOM. Client navigations later fetch only the RSC payload.
+
+## Visual model
+
+<FlowDiagram height={60} nodes={[
+  { id: "req", label: "GET /product/42", x: 10, y: 8, w: 18, kind: "client" },
+  { id: "rsc", label: "render Server Components", sub: "→ RSC payload", x: 38, y: 8, w: 28 },
+  { id: "ssr", label: "render HTML", sub: "server + client comps", x: 72, y: 8, w: 24 },
+  { id: "html", label: "1. HTML", sub: "content visible", x: 20, y: 34, w: 18, kind: "note" },
+  { id: "payload", label: "2. RSC payload", sub: "inline in the HTML stream", x: 46, y: 34, w: 22, kind: "queue" },
+  { id: "js", label: "3. JS chunks", sub: "client components", x: 74, y: 34, w: 20, kind: "note" },
+  { id: "hydrate", label: "hydrateRoot", sub: "reconcile + attach handlers", x: 46, y: 52, w: 28, kind: "client" }
+]} edges={[
+  { from: "req", to: "rsc" }, { from: "rsc", to: "ssr" }, { from: "ssr", to: "html" }, { from: "rsc", to: "payload" }, { from: "html", to: "hydrate" }, { from: "payload", to: "hydrate" }, { from: "js", to: "hydrate" }
+]} caption="Server Components are not hydrated — they have no client code. Only Client Components get handlers attached." />
+
+## Mechanism
+
+**The RSC payload** is a streamable, line-based format ("Flight"). Each row describes part of the tree: host elements with props, text, references to client component modules (`id`, chunk names, export name) together with the serialized props passed to them, and references to promises that will be filled in later rows as data resolves. Because it is streamed, Suspense boundaries can resolve in any order.
+
+**HTML first**: the same render produces HTML so the browser can paint before JavaScript arrives (good for LCP and for users on slow devices). The payload is inlined into the HTML stream in script tags so the client doesn't need a second request.
+
+**Hydration**: `hydrateRoot` walks the tree the payload describes, runs the Client Components' render functions, and expects the output to match the server HTML node by node. Matches are adopted (no DOM work); event handlers are attached. With streaming SSR and Suspense, hydration is **selective**: boundaries hydrate independently, and a boundary the user interacts with is prioritised.
+
+**Hydration mismatch**: if the client's first render produces different markup (time, random values, `window` checks, locale formatting, invalid HTML nesting like `div` inside `p`, browser extensions), React reports an error and re-renders that part on the client — losing the benefit and sometimes flickering.
+
+**Client navigation**: the router fetches the RSC payload for the target route (often from the prefetch cache) and React reconciles it into the existing tree, keeping client state in shared layouts — no HTML is involved.
+
+## Code
+
+```tsx
+// ✗ Mismatch: server and client produce different text
+function Now() {
+  return <span>{new Date().toLocaleTimeString()}</span>;
+}
+
+// ✓ Render a stable value on the server; update after mount on the client
+"use client";
+import { useEffect, useState } from "react";
+function Now() {
+  const [time, setTime] = useState<string | null>(null);
+  useEffect(() => setTime(new Date().toLocaleTimeString()), []);
+  return <span>{time ?? "—"}</span>;
+}
+
+// ✓ Or opt the subtree out of SSR when it only makes sense in the browser
+import dynamic from "next/dynamic";
+const Map = dynamic(() => import("./Map"), { ssr: false });   // must be used from a Client Component
+
+// Intentional, unavoidable differences on one element:
+<time suppressHydrationWarning>{new Date().toISOString()}</time>   // one level deep only
+```
+
+## When to use / when not to
+
+**Keep components server-only** when they don't need interactivity — they cost nothing to hydrate.
+
+**Make the hydrated surface small**: interactive islands (buttons, forms, menus) as client components, the rest as server components. Big client components at the top of the tree hydrate the whole subtree.
+
+**Skip SSR (`ssr: false`)** only for components that cannot render meaningfully on the server (canvas maps, components relying on `window` sizes). It costs a blank region until JS loads.
+
+## Trade-offs
+
+| Approach | First paint | Interactive (TTI/INP) | JS shipped |
+| --- | --- | --- | --- |
+| Client-only rendering (SPA) | after JS loads | after render | everything |
+| SSR + full hydration | early | after all JS hydrates | everything |
+| RSC + selective hydration | early | client islands hydrate independently | client components only |
+| Static HTML, no JS | early | no interactivity | none |
+
+## Senior nuance
+
+- **Payload duplication**: data passed as props to client components appears in the HTML *and* in the payload. Large props = larger documents; pass IDs or minimal shapes.
+- **`useId`** generates IDs that match between server and client renders — use it for `aria-*`/`htmlFor` pairs instead of random IDs.
+- **Theme flashes**: a theme read from `localStorage` is unknown on the server; inject a tiny blocking script that sets the class before paint (as `next-themes` does) and use `suppressHydrationWarning` on `<html>`.
+- **Browser extensions** (translators, password managers) mutate the DOM before hydration and cause mismatch warnings you can't fix in code; recognise them before chasing ghosts.
+
+## Interview questions
+
+<QA q="What is the RSC payload and why is it needed in addition to HTML?" level="mid">
+It's the serialized output of Server Components: rendered elements, placeholders referencing Client Components (module IDs and serialized props), and streamed promise results. HTML only gives the browser something to paint; React needs the payload to know the component tree so it can hydrate Client Components and, on later navigations, update the UI without full page loads while preserving client state.
+</QA>
+
+<QA q="What causes hydration mismatches and how do you fix them?" level="mid">
+Any difference between server and first client render: Date/Math.random, reading window/localStorage during render, locale/timezone-dependent formatting, invalid HTML nesting, or extensions modifying the DOM. Fix by rendering deterministic output on the server and updating after mount (useEffect), using useId for IDs, moving browser-only components behind ssr: false, or — for single unavoidable cases — suppressHydrationWarning.
+</QA>
+
+<QA q="What is selective hydration?" level="senior">
+With streaming SSR, each Suspense boundary can be hydrated independently as its code and data arrive, instead of hydrating the whole page in one blocking pass. If the user interacts with a not-yet-hydrated boundary, React prioritises hydrating it (and replays the event), improving responsiveness on large pages.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Are Server Components hydrated?", options: ["yes, like any component", "no — they have no client code", "only in dev", "only with 'use client'"], answer: 1, explain: "Only Client Components are hydrated; server output is static markup plus payload." },
+  { q: "A <div> inside a <p> in JSX leads to…", options: ["nothing", "a hydration mismatch (the browser fixes up invalid HTML)", "a build error", "SSR is skipped"], answer: 1, explain: "The parser closes the <p> early, so the DOM differs from React's expectation." },
+  { q: "On a client-side navigation, the router fetches…", options: ["full HTML", "the RSC payload", "only JSON from an API route", "nothing"], answer: 1, explain: "The payload is reconciled into the existing tree." }
+]} />
+
+## Resources
+
+<Resources topic="nextjs/rsc-hydration" />

@@ -1,0 +1,119 @@
+## TL;DR
+
+**Iteration protokoli** — shartnoma: `obj[Symbol.iterator]()` iterator qaytarsa obyekt iterable, `{ value, done }` qaytaradigan `next()`ga ega har narsa esa iterator. `for…of`, spread, destructuring, `Array.from`, `Promise.all` va `new Map(…)` — hammasi shu shartnomani iste'mol qiladi. <Term id="generator" /> uni implementatsiya qilishning eng oson yoʻli: `yield`da **toʻxtab**, keyinroq lokal state'i saqlangan holda **davom etadigan** funksiya. Async iterator'lar protokolga `await` qoʻshadi — `for await…of` stream'larni aynan shunday iste'mol qiladi.
+
+## Vizual model
+
+```text
+chaqiruvchi                generator tanasi
+it = gen()        ──▶      (hali hech narsa ishlamaydi — iterator qaytaradi)
+it.next()         ──▶      birinchi `yield 1`gacha ishlaydi   ──▶ { value: 1, done: false }
+it.next("hi")     ──▶      `yield` ifodasi "hi"ga teng boʻladi, `yield 2`gacha ishlaydi
+it.next()         ──▶      oxirigacha / return x            ──▶ { value: x, done: true }
+it.return(v)      ──▶      toʻxtagan yield'da `return v` boʻlgandek davom etadi (finally bloklari ishlaydi)
+```
+
+## Mexanizm
+
+Generator obyekti toʻxtatilgan **execution context**'ni saqlaydi: lokal oʻzgaruvchilar, tanadagi pozitsiya va oʻz scope chain'i — engine har qanday chaqiruv uchun ishlatadigan tuzilmalar, faqat pauzada tashlab yuborilmaydi. Har bir `next()` oʻsha context'ni call stack'ga qaytaradi, keyingi `yield`gacha bajaradi va yana pop qiladi. Shuning uchun generator'lar callback'larsiz lazy ketma-ketliklar, state machine'lar va coroutine'larni modellashtira oladi.
+
+Lazy'lik — asosiy xossa: iste'molchi tortmaguncha hech narsa hisoblanmaydi. Iste'molchi toʻxtasa, cheksiz generator ham muammo emas.
+
+```js
+function* naturals() { let n = 0; while (true) yield n++; }
+function* take(it, k) { for (const x of it) { if (k-- <= 0) return; yield x; } }
+function* map(it, f) { for (const x of it) yield f(x); }
+
+[...take(map(naturals(), (x) => x * x), 5)];   // [0, 1, 4, 9, 16] — faqat 5 ta kvadrat hisoblandi
+```
+
+Erta chiqish muhim: `for…of` erta toʻxtaganda (`break`, `return`, istisno) u iterator'ning `return()`ini chaqiradi, shuning uchun generator'ning `finally` bloki ishlaydi — resurslar (fayl handle'lari, lock'lar) aynan shunday ozod qilinadi.
+
+## Kod
+
+```js
+// Generator'siz maxsus iterable — xom protokol
+class Range {
+  constructor(start, end) { this.start = start; this.end = end; }
+  [Symbol.iterator]() {
+    let cur = this.start;
+    const end = this.end;
+    return { next: () => (cur < end ? { value: cur++, done: false } : { value: undefined, done: true }) };
+  }
+}
+[...new Range(1, 4)];   // [1, 2, 3]
+
+// Xuddi shu generator bilan
+class Range2 {
+  constructor(start, end) { this.start = start; this.end = end; }
+  *[Symbol.iterator]() { for (let i = this.start; i < this.end; i++) yield i; }
+}
+
+// Iste'molchida recursion chuqurligi tashvishisiz daraxt aylanib chiqish
+function* inorder(node) {
+  if (!node) return;
+  yield* inorder(node.left);   // boshqa iterator'ga topshirish
+  yield node.val;
+  yield* inorder(node.right);
+}
+
+// Async iteration: sahifalangan API bitta lazy stream sifatida
+async function* fetchAll(url) {
+  let next = url;
+  while (next) {
+    const res = await fetch(next);
+    const { items, nextPage } = await res.json();
+    yield* items;
+    next = nextPage;
+  }
+}
+for await (const item of fetchAll("/api/items")) { /* backpressure: keyingi sahifa faqat kerak boʻlganda olinadi */ }
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Generator/iterator'larni ishlating**: lazy yoki cheksiz ketma-ketliklar, katta ma'lumot ustidagi pipeline'lar (xotirada bir vaqtda bitta element), `for…of` bilan ishlashi kerak boʻlgan maxsus kolleksiya turlari, stream sifatida ochilgan daraxt/graph aylanib chiqishlari, `for await` bilan sahifalangan API'lar va stream'lar.
+
+**Qoching**: random access, uzunlik yoki bir necha oʻtish kerak boʻlganda (array'ga aylantiring); juda hot raqamli loop'larda (generator davom etishi oddiy loop'ga nisbatan xarajatli); oddiy array metod zanjiri tushunarliroq va ma'lumot kichik boʻlganda.
+
+## Trade-off'lar
+
+| Yondashuv | Xotira | Lazy'lik | Xarajat |
+| --- | --- | --- | --- |
+| Array + `map/filter` | barcha oraliq array'lar | eager | elementga past, har bosqichda ajratishlar |
+| Generator pipeline | bir vaqtda bitta element | lazy | har elementga davom etish narxi |
+| Iterator helper'lar (`Iterator.prototype.map/filter/take`) | lazy | lazy | oʻrnatilgan; tayanishdan oldin runtime qoʻllab-quvvatlashini tekshiring |
+| Async iterator | bir vaqtda bitta chunk | lazy, tabiiy backpressure | har elementga promise |
+
+## Senior nuance
+
+- **Iterator'lar bir martalik**: generator obyektini bir marta iste'mol qilish mumkin. Iterable'lar (`[Symbol.iterator]`li obyektlar) odatda yangi iterator'lar yarata oladi — API'lardan iterator emas, iterable qaytaring.
+- **Node.js readable stream'lari async iterable**: `for await (const chunk of stream)` backpressure'ni hurmat qiladi, chunki keyingi chunk faqat loop soʻraganda oʻqiladi.
+- **`yield*` topshiradi**, return qiymatlari va `throw()`/`return()` chaqiruvlarini ham — bu sub-funksiyani chaqirishning generator ekvivalenti.
+- **async/await'dan oldin generator'lar + runner (co) xuddi shu gʻoyani implementatsiya qilardi**: `yield promise` promise settled boʻlguncha toʻxtatardi. async/await — tilga oʻrnatilgan oʻsha pattern.
+
+## Interview savollari
+
+<QA q="Obyektni for…of'da ishlatish mumkin qiladigan narsa nima?" level="mid">
+U iterator qaytaradigan `[Symbol.iterator]()`ni implementatsiya qilishi shart — `next()`i `{ value, done }` qaytaradigan obyekt. Array, string, Map, Set va NodeList kabi oʻrnatilganlar allaqachon shunday. Oddiy obyektlar emas, shuning uchun obyekt ustida `for…of` xato beradi (Object.entries ishlating).
+</QA>
+
+<QA q="Generator next() chaqiruvlari orasida state'ini qanday 'eslab qoladi'?" level="senior">
+Generator funksiyasini chaqirish toʻxtatilgan execution context'ni saqlaydigan generator obyektini yaratadi: lokal environment, instruksiya pozitsiyasi va scope chain. next() oʻsha context'ni keyingi yield'gacha call stack'da davom ettiradi, keyin yana toʻxtatadi. Hech narsa nusxalanmaydi — bir xil environment record saqlanib qoladi, xuddi closure environment'ni tirik saqlagani kabi.
+</QA>
+
+<QA q="Cheksiz ketma-ketliklar bilan ishlaydigan lazy `take(iterable, n)` yozing." level="mid">
+`function* take(it, n) { if (n <= 0) return; for (const x of it) { yield x; if (--n === 0) return; } }` — for…of ichida return qilish manba iterator'ning return()ini chaqiradi, shuning uchun yuqoridagi generator tozalanishi mumkin. Tortishdan oldin n ni tekshirish bitta ortiqcha elementni iste'mol qilishdan saqlaydi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "function* g(){ console.log('x') } generator funksiyasini g() deb chaqirish nimani log qiladi?", options: ["darhol 'x'", "next() chaqirilmaguncha hech narsa", "xato", "ikki marta 'x'"], answer: 1, explain: "Tana faqat birinchi next()da ishlay boshlaydi." },
+  { q: "Generator ustidagi for…of ichida `break` nimaga olib keladi?", options: ["hech narsa", "generator'ning return()i chaqiriladi, finally bloklari ishlaydi", "istisno", "generator qayta boshlanadi"], answer: 1, explain: "Iterator yopilishi tozalashni ta'minlaydi." },
+  { q: "Sahifalangan API'ni hammasini yuklamasdan stream qilishning eng yaxshi usuli?", options: ["barcha sahifalarning Promise.all'i", "async generator + for await", "recursion", "array'larni yigʻuvchi while loop"], answer: 1, explain: "Iste'molchiga kerak boʻlgandagina bir vaqtda bitta sahifani tortadi." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/iterators-generators" />

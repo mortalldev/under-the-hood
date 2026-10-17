@@ -1,0 +1,91 @@
+## TL;DR
+
+TypeScript's type system is expressive enough to compute almost anything — but every computed type costs **compile time**, **error-message clarity** and **maintainability**. The checker also has hard limits (instantiation depth, union size, tail-recursion budget). A senior engineer knows when to stop: types should make wrong code hard to write and right code easy to read, not prove theorems.
+
+## Visual model
+
+```text
+value of precise types ──────────────▲───────────── cost (compile time, errors, onboarding)
+                                    sweet spot:
+plain annotations → unions & generics → mapped/conditional helpers → recursive parsers at type level
+     cheap                                                                     expensive, brittle
+```
+
+## Mechanism
+
+**Instantiation**: each use of a generic type creates an instantiation the checker must compute and cache. Recursive types (`Paths<T>`, string parsers) create one instantiation per step. The checker caps nesting depth; tail-recursive conditional types (where the recursive call is the whole branch) get a much higher budget, which is why accumulator-style recursion is preferred.
+
+**Union size**: operations over unions are often quadratic (assignability of union to union compares members). Template literal cross products explode multiplicatively; TypeScript refuses unions above an internal limit (about 100 000 members).
+
+**Error messages**: a mismatch deep inside a computed type surfaces as a long chain of "Type X is not assignable to type Y". Users of a library see these, not the elegant definition.
+
+**Editor latency**: every keystroke re-checks the file; heavy types make completions lag, which developers feel more than CI time.
+
+## Code
+
+```ts
+// ✗ Non-tail recursion: hits the depth limit on long strings
+type Reverse<S extends string> = S extends `${infer H}${infer T}` ? `${Reverse<T>}${H}` : "";
+
+// ✓ Tail-recursive with an accumulator: much higher limit
+type Reverse2<S extends string, Acc extends string = ""> =
+  S extends `${infer H}${infer T}` ? Reverse2<T, `${H}${Acc}`> : Acc;
+
+// Measure instead of guessing
+//   tsc --extendedDiagnostics          → check time, instantiation counts
+//   tsc --generateTrace ./trace         → open in a trace viewer, find hot types
+
+// Escape hatch with intent: keep the public type simple, check internals with tests
+export function getIn(obj: unknown, path: string): unknown { /* runtime implementation */ return undefined; }
+// …plus a few `expectTypeOf`/`Expect<Equal<…>>` tests for the precise overloads you DO expose
+```
+
+## When to use / when not to
+
+**Go deep on types** in shared libraries with many consumers (routers, form libraries, ORMs, design-system components) — the cost is paid once, the benefit by every user.
+
+**Stay shallow** in application code, in rarely changed modules, and anywhere the "precise" type would be harder to read than the runtime check it replaces.
+
+**Prefer runtime validation** (schema libraries) at trust boundaries; types cannot validate data that arrives at runtime.
+
+## Trade-offs
+
+| Signal | Probably too far |
+| --- | --- |
+| Hover tooltip is unreadable | add `Simplify`, name intermediate types, or simplify |
+| "Type instantiation is excessively deep and possibly infinite" | redesign: tail recursion, smaller inputs, or runtime checks |
+| Teammates avoid touching the file | maintainability cost exceeds benefit |
+| Editor completions lag in that module | profile with `--generateTrace` |
+
+## Senior nuance
+
+- **Types are documentation with enforcement** — optimise for the reader: name things, keep public signatures simple, push cleverness into internals with tests.
+- **Test your types**: `Expect<Equal<A, B>>` assertions (or `expect-type`-style libraries) catch regressions in type utilities just like unit tests catch runtime bugs.
+- **Version sensitivity**: type-level tricks sometimes depend on checker behaviour that changes between TypeScript releases; pin and test when you rely on them.
+- **`any` is contagious, `unknown` is honest**: when you must give up precision, `unknown` forces callers to narrow, while `any` silently disables checking downstream.
+
+## Interview questions
+
+<QA q="When is a complex type worth it?" level="senior">
+When it prevents a class of bugs many people would otherwise write (wrong route params, mismatched event payloads), when it lives in shared code used widely, and when the resulting errors are still understandable. If it only saves the author a few annotations or makes call sites harder to read, it isn't.
+</QA>
+
+<QA q="What does 'Type instantiation is excessively deep' mean and how do you fix it?" level="senior">
+The checker hit its recursion/instantiation depth limit while expanding a recursive generic type. Fixes: make recursion tail-recursive with accumulators (higher budget), limit the input size (e.g. depth parameter), split the computation, or move the precision to runtime with a simpler public type.
+</QA>
+
+<QA q="How do you find which types make the build slow?" level="mid">
+Run `tsc --extendedDiagnostics` to see check time and instantiation counts, then `tsc --generateTrace dir` and inspect the trace to find the files and types with the longest check times. Then simplify those types, add explicit annotations at hotspots, or split projects with references.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which recursion style gets the higher depth budget?", options: ["any recursion", "tail-recursive conditional types", "mapped type recursion", "none"], answer: 1, explain: "When the recursive call is the entire branch result, TypeScript can iterate instead of nesting." },
+  { q: "At a trust boundary (JSON from network) the right tool is…", options: ["a clever type", "runtime validation that also produces the type", "as T", "any"], answer: 1, explain: "Types cannot check runtime data." },
+  { q: "A type tooltip shows a 40-line intersection. First fix?", options: ["ignore", "Simplify / named intermediate types", "use any", "delete the type"], answer: 1, explain: "Improve the reader's view before redesigning." }
+]} />
+
+## Resources
+
+<Resources topic="typescript/type-level-limits" />

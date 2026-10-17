@@ -1,0 +1,124 @@
+## TL;DR
+
+Greedy algoritm lokal eng yaxshi tanlovga bogʻlanadi va uni hech qachon qayta koʻrib chiqmaydi. U faqat qandaydir optimal yechim aynan shu tanlov bilan boshlanishini isbotlay olsangizgina toʻgʻri — odatda <Term id="exchange-argument" /> yoki "oldinda qoladi" dalili bilan. Bu bir paragraflik isbotni yoza olmasangiz, greedy notoʻgʻri deb hisoblang va DP'ga murojaat qiling.
+
+## Vizual model
+
+```text
+{1, 5, 10, 25} tangalar bilan 30:   greedy 25 + 5        = 2 tanga  ✓ optimal
+{1, 10, 25}    tangalar bilan 30:   greedy 25 + 1·5      = 6 tanga  ✗ (10 + 10 + 10 = 3)
+Bir xil strategiya, boshqa input → greedy algoritmning emas, MASALAning xossasi.
+```
+
+## Mexanizm
+
+**Exchange argument** (interval scheduling — eng koʻp kesishmaydigan interval'larni tanlash): end vaqti boʻyicha saralang va oxirgi olingan tugagandan keyin boshlanadigan har bir interval'ni oling. Isbot: OPT — istalgan optimal jadval boʻlsin. Uning birinchi interval'ini umuman eng erta tugaydigani bilan almashtiring; u kechroq tugamaydi, shuning uchun OPT'ning ikkinchi interval'i baribir sigʻadi. Qolganida takrorlang. Greedy jadval hech qachon yomonroq emas.
+
+End boʻyicha saralash — start boʻyicha interval'larni birlashtirishdagi kabi birinchi qadam; saralash key'i — butun dizayn:
+
+<IntervalsViz />
+
+**Oldinda qoladi** (Jump Game II): k sakrash bilan yetish mumkin boʻlgan eng uzoq indeksni saqlang. k sakrashli har bir "qatlam"dan keyin greedy'ning yetishi har qanday boshqa strategiyanikidan kam emas, shuning uchun unga koʻproq sakrash kerak emas.
+
+## Kod
+
+```ts
+// Jump Game: oxiriga yeta olasizmi?
+function canJump(nums: number[]): boolean {
+  let reach = 0;
+  for (let i = 0; i < nums.length; i++) {
+    if (i > reach) return false;                   // i dan oldin tiqilib qoldik
+    reach = Math.max(reach, i + nums[i]);
+  }
+  return true;
+}
+
+// Jump Game II: minimal sakrashlar (qatlamlar boʻyicha BFS, O(n))
+function jump(nums: number[]): number {
+  let jumps = 0, end = 0, farthest = 0;
+  for (let i = 0; i < nums.length - 1; i++) {
+    farthest = Math.max(farthest, i + nums[i]);
+    if (i === end) { jumps++; end = farthest; }    // joriy qatlam tugadi
+  }
+  return jumps;
+}
+
+// Gas Station: jami benzin ≥ jami narx boʻlsa, start — bak oxirgi marta manfiy boʻlgan nuqtadan keyin
+function canCompleteCircuit(gas: number[], cost: number[]): number {
+  let total = 0, tank = 0, start = 0;
+  for (let i = 0; i < gas.length; i++) {
+    const d = gas[i] - cost[i];
+    total += d; tank += d;
+    if (tank < 0) { start = i + 1; tank = 0; }    // [eski start, i] dagi hech bir start i dan oʻta olmaydi
+  }
+  return total >= 0 ? start : -1;
+}
+
+// Partition Labels: joriy qismni koʻrilgan har bir belgining oxirgi uchrashuvigacha choʻzish
+function partitionLabels(s: string): number[] {
+  const last = new Map<string, number>();
+  for (let i = 0; i < s.length; i++) last.set(s[i], i);
+  const out: number[] = [];
+  let start = 0, end = 0;
+  for (let i = 0; i < s.length; i++) {
+    end = Math.max(end, last.get(s[i])!);
+    if (i === end) { out.push(end - start + 1); start = i + 1; }
+  }
+  return out;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- Saralash tartibi qarorni ravshan qiladi (eng erta end, eng yuqori nisbat, eng kichigi birinchi).
+- Har qadamdagi eng yaxshi harakatni xavfsiz deb isbotlash mumkin boʻlgan "minimal … soni".
+- DP'ga oʻxshaydigan, lekin holat bitta jamlanib boruvchi qiymatga siqiladigan masalalar (maksimal yetish, bak balansi).
+
+**Qachon kerak emas**
+- Kichik qarshi misollar bor — doim 2–3 ta kichik input'ni sinab koʻring, dushmanonalarini ham (tanga tizimlari, 0/1 knapsack).
+- Tanlovlar bir-biriga ta'sir qiladi (bitta elementni olish boshqalarning qiymatini oʻzgartiradi) → DP.
+
+## Trade-off'lar
+
+| | Greedy | DP |
+| --- | --- | --- |
+| Tezlik | odatda O(n log n) yoki O(n) | holatlar × oʻtishlar |
+| Xotira | O(1) qoʻshimcha | jadval |
+| Toʻgʻrilik | isbot kerak | rekurrent munosabatdan kelib chiqadi |
+| Interview'dagi xavf | ishonarli, lekin notoʻgʻri | sekinroq, lekin xavfsiz |
+
+## Senior nuance
+
+- **Fractional knapsack — greedy (qiymat/vazn boʻyicha), 0/1 knapsack — yoʻq** — masaladagi kichik oʻzgarish greedy xossasini yoʻq qilishining klassik namunasi.
+- **Kanonik tanga tizimlari** (haqiqiy valyutalar kabi) greedy'ni tasodifan optimal qiladi; ixtiyoriy nominallar qilmaydi.
+- **Huffman coding, Dijkstra, Prim va Kruskal — greedy** algoritmlar, qat'iy isbotlari bor — greedy qimor emas, metod ekanini koʻrsatish uchun ularni eslating.
+- Production'da greedy heuristic'lar (bin packing, yuklamani joylashtirish) koʻpincha ataylab optimal emas, lekin tez; imkon boʻlsa approximation ratio'ni miqdoriy ayting.
+
+## Interview savollari
+
+<QA q="Gas Station greedy'sini isbotlang." level="senior">
+s dan boshlab jamlanib boruvchi bak i da manfiy boʻlsa, (s, i] dagi istalgan k dan boshlash ham i da yoki undan oldin muvaffaqiyatsiz: s dan k−1 gacha prefix manfiy boʻlmagan balansga ega edi (aks holda oldinroq qayta boshlagan boʻlardik), shuning uchun uni olib tashlash bakni faqat kamaytiradi. Demak keyingi nomzod — i + 1. Jami balans manfiy boʻlmasa, oxirgi nomzod muvaffaqiyatli, chunki undan oldingi kamomad undan keyingi ortiqcha bilan qoplanadi.
+</QA>
+
+<QA q="Greedy coin change qachon ishlamaydi?" level="mid">
+Nominallar kanonik boʻlmaganda, masalan 6 uchun {1, 3, 4}: greedy 4 + 1 + 1 ni oladi (3 tanga), lekin 3 + 3 — 2 tanga. Umumiy holatda summalar ustida DP ishlating.
+</QA>
+
+<QA q="Task Scheduler: n cooldown bilan minimal vaqt." level="senior">
+f — eng yuqori chastota, m — shu chastotali vazifalar soni boʻlsin. Boʻsh joylar bilan toʻldirilgan ramka (f − 1) ta n + 1 uzunlikdagi blok va oxirida m ta vazifadan iborat: (f − 1)(n + 1) + m. Javob — max(shu, jami vazifalar), chunki har xil vazifalar yetarli boʻlganda boʻsh slotlar kerak emas.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Tangalar {1, 3, 4}, summa 6. Greedy (eng kattasi birinchi) nechta ishlatadi?", options: ["2 tanga", "3 tanga", "6 tanga", "1 tanga"], answer: 1, explain: "4 + 1 + 1. Optimal 3 + 3 — 2 ta; greedy bu yerda ishlamaydi." },
+  { q: "Kesishmaydigan interval'larning maksimal soni: nima boʻyicha saralanadi?", options: ["start", "end", "uzunlik", "tasodifiy"], answer: 1, explain: "Eng erta end, exchange argument boʻyicha." },
+  { q: "O(n) dagi Jump Game II'ni eng yaxshi qanday koʻrish mumkin?", options: ["DFS", "Yetish qatlamlari boʻyicha BFS", "binary search", "saralash"], answer: 1, explain: "Har bir sakrash soni yetib boriladigan indekslarning uzluksiz qatlamiga mos keladi." }
+]} />
+
+**Klassik masalalar:** Jump Game (Medium) · Jump Game II (Medium) · Gas Station (Medium) · Partition Labels (Medium) · Task Scheduler (Medium) · Hand of Straights (Medium) · Non-overlapping Intervals (Medium).
+
+## Resurslar
+
+<Resources topic="dsa/greedy" />

@@ -1,0 +1,97 @@
+## TL;DR
+
+Asynchronous messaging decouples producers from consumers in **time** (consumer can be down), **rate** (buffer bursts) and **knowledge** (producer doesn't know who listens). Two families: **queues** (each message is processed by one consumer, then removed — work distribution) and **logs/streams** (messages are retained in order; many consumer groups read at their own offsets — event distribution and replay). Delivery is almost always **at-least-once**, so consumers must be **idempotent**; ordering is only guaranteed **within a partition**.
+
+## Visual model
+
+<FlowDiagram height={58} nodes={[
+  { id: "orders", label: "order service", sub: "producer", x: 12, y: 10, w: 20 },
+  { id: "outbox", label: "outbox table", sub: "same DB transaction", x: 12, y: 32, w: 20, kind: "store" },
+  { id: "log", label: "log: order-events", sub: "partitions by order_id", x: 46, y: 21, w: 24, kind: "queue" },
+  { id: "email", label: "email service", sub: "group A, offset 1042", x: 82, y: 8, w: 22 },
+  { id: "search", label: "search indexer", sub: "group B, offset 998", x: 82, y: 24, w: 22 },
+  { id: "dlq", label: "dead-letter queue", sub: "poison messages", x: 82, y: 42, w: 22, kind: "note" }
+]} edges={[
+  { from: "orders", to: "outbox" }, { from: "outbox", to: "log", label: "relay" }, { from: "log", to: "email" }, { from: "log", to: "search" }, { from: "search", to: "dlq", dashed: true, label: "after N failures" }
+]} caption="The outbox makes 'save order' and 'publish event' atomic; each consumer group tracks its own position in the log." />
+
+## Mechanism
+
+**Delivery guarantees**:
+- **At-most-once**: ack before processing — crashes lose messages.
+- **At-least-once**: process, then ack — crashes cause redelivery (duplicates). The standard choice.
+- **Exactly-once processing**: achieved end-to-end by at-least-once delivery + <Term id="idempotency" /> (dedupe by message ID, upserts, conditional writes) or by transactional processing within one system.
+
+**Ordering**: a log keeps order per **partition**. Choose the partition key so that messages that must stay ordered (all events of one order) share it. More partitions = more parallelism, but no global order.
+
+**Backpressure and retries**: a queue absorbs bursts, but consumer lag must be monitored. Retries use exponential backoff; messages that keep failing go to a **dead-letter queue** instead of blocking the partition forever.
+
+**The dual-write problem**: writing to the DB and then publishing to the broker can fail in between, leaving them inconsistent. The <Term id="outbox-pattern" /> writes the event into an outbox table in the **same transaction** as the state change; a relay (polling or change-data-capture) publishes it.
+
+## Code
+
+```ts
+// Transactional outbox (producer)
+await db.transaction(async (tx) => {
+  const order = await tx.orders.insert({ userId, items, status: "placed" });
+  await tx.outbox.insert({ topic: "order-events", key: order.id, payload: { type: "OrderPlaced", orderId: order.id } });
+});
+// A separate relay reads unpublished outbox rows, publishes them, marks them sent (at-least-once).
+
+// Idempotent consumer
+async function onOrderPlaced(msg: { id: string; payload: { orderId: string } }) {
+  const firstTime = await db.processed.insertIfAbsent(msg.id);   // unique constraint on message id
+  if (!firstTime) return;                                         // duplicate delivery → no-op
+  await sendConfirmationEmail(msg.payload.orderId);
+}
+```
+
+## When to use / when not to
+
+**Use messaging** for: work that can happen later (emails, thumbnails, reports), smoothing traffic spikes, fan-out of domain events to many services, integrating systems with different availability, event sourcing/CDC pipelines.
+
+**Don't** use it when the caller needs the result now (synchronous request/response is simpler), for tiny systems where a DB table + cron job suffices, or as a way to hide a slow dependency you could fix.
+
+## Trade-offs
+
+| | Queue (e.g. RabbitMQ, SQS) | Log/stream (e.g. Kafka, Kinesis) |
+| --- | --- | --- |
+| Consumption | competing consumers, message removed after ack | consumer groups with offsets, messages retained |
+| Replay | no (once consumed) | yes, within retention |
+| Ordering | per queue (often relaxed with parallel consumers) | per partition |
+| Routing | rich (exchanges, topics, priorities, delays) | by topic/partition |
+| Typical use | task distribution | event streaming, CDC, analytics |
+
+## Senior nuance
+
+- **Poison messages** block a partition in ordered consumers — bound retries and move them to a DLQ with enough context to replay later.
+- **Consumer lag** is the key SLO metric; alert on lag growth, not just on errors.
+- **Schema evolution**: events are a public contract — version them, add fields compatibly, use a schema registry for strongly typed pipelines.
+- **Sagas** coordinate multi-service workflows with compensating actions instead of distributed transactions (e.g. reserve stock → charge → on failure, release stock).
+- **Rebalancing** of consumer groups pauses consumption briefly; keep processing per message short and commit offsets after side effects.
+
+## Interview questions
+
+<QA q="How do you get exactly-once semantics with a message broker?" level="senior">
+Networks only allow at-most-once or at-least-once delivery. Choose at-least-once (ack/commit after processing) and make the effect idempotent: dedupe by a unique message ID stored transactionally with the side effect, use upserts/conditional writes, or keep processing and offset commits in one transaction when both live in the same system. The result is exactly-once effect despite duplicate deliveries.
+</QA>
+
+<QA q="What is the outbox pattern and why is it needed?" level="mid">
+Services often need to update their database and publish an event. Doing both separately risks inconsistency if one fails. The outbox pattern writes the event to an outbox table in the same database transaction as the state change; a relay later publishes outbox entries to the broker (at-least-once), so the event is published if and only if the change committed.
+</QA>
+
+<QA q="How do you preserve ordering per customer while scaling consumers?" level="mid">
+Partition the topic by customer ID so all of a customer's events go to the same partition, which is consumed by one consumer in the group at a time. Scale by increasing partitions; order is guaranteed per partition (per customer), not globally.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Consumer processes, crashes before ack, message is redelivered. Delivery semantics?", options: ["at-most-once", "at-least-once", "exactly-once", "none"], answer: 1, explain: "Duplicates are possible; make processing idempotent." },
+  { q: "To keep events of one order in sequence, choose the partition key…", options: ["random", "order_id", "timestamp", "event type"], answer: 1, explain: "Same key → same partition → ordered." },
+  { q: "A message fails processing forever. Best practice?", options: ["retry infinitely", "drop silently", "bounded retries then dead-letter queue", "restart the broker"], answer: 2, explain: "Don't block the stream; keep it for investigation." }
+]} />
+
+## Resources
+
+<Resources topic="system-design/message-queues" />

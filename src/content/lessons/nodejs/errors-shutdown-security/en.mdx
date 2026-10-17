@@ -1,0 +1,113 @@
+## TL;DR
+
+Production Node services need three disciplines. **Errors**: distinguish *operational* errors (network down, invalid input — handle and continue) from *programmer* errors (bugs, broken invariants — log and restart the process). **<Term id="graceful-shutdown" />**: on `SIGTERM`, stop accepting work, finish in-flight requests, close resources, then exit before the orchestrator's deadline. **Security**: treat all input as hostile (injection, <Term id="prototype-pollution" />, ReDoS, path traversal) and manage the dependency supply chain.
+
+## Visual model
+
+```text
+SIGTERM ─▶ readiness = false ─▶ server.close() (no new conns) ─▶ wait in-flight (≤ timeout) ─▶ close DB/queues ─▶ exit 0
+              ▲ load balancer stops routing here                                    └─ timeout hit ─▶ force exit 1
+
+error ─▶ operational? ── yes ─▶ handle: retry / 4xx / fallback / log
+                       └ no  ─▶ (bug) log with context ─▶ crash fast ─▶ supervisor restarts a clean process
+```
+
+## Mechanism
+
+**Why crash on programmer errors**: after an unexpected exception, the process may hold half-updated state, leaked locks or broken connections. `process.on("uncaughtException")` can log, but continuing to serve requests from a possibly-corrupt state is riskier than restarting. Unhandled promise rejections terminate the process by default in modern Node (`--unhandled-rejections=throw`).
+
+**Graceful shutdown**: orchestrators (Kubernetes, ECS, systemd) send `SIGTERM`, wait a grace period (Kubernetes default 30 s), then `SIGKILL`. `server.close()` stops accepting new connections and calls back when existing ones end — but keep-alive connections can stay open, so close idle ones (`server.closeIdleConnections()`) and set a hard timeout.
+
+**Prototype pollution**: merging untrusted JSON with recursive "deep merge" lets a key like `__proto__` write onto `Object.prototype`, changing behaviour of every object (e.g. `isAdmin` becomes true everywhere). Defend with `Object.create(null)`, `Map`, key allow-lists, schema validation, or `--disable-proto=delete`.
+
+**Injection**: build SQL with parameterised queries, never string concatenation; avoid `child_process.exec` with user input; validate and normalise file paths against a base directory to block `../` traversal. **ReDoS**: catastrophic-backtracking regexes on user input can block the event loop for seconds.
+
+## Code
+
+```js
+const server = app.listen(3000);
+let shuttingDown = false;
+
+app.get("/healthz/ready", (req, res) => res.sendStatus(shuttingDown ? 503 : 200));
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.info({ signal }, "shutting down");
+  const force = setTimeout(() => process.exit(1), 25_000).unref();   // < orchestrator grace period
+  server.close(async () => {                    // waits for in-flight requests
+    await Promise.allSettled([db.end(), queue.close()]);
+    clearTimeout(force);
+    process.exit(0);
+  });
+  server.closeIdleConnections();                // keep-alive sockets with no active request
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+
+process.on("uncaughtException", (err) => {     // programmer error: log, then crash
+  console.error({ err }, "uncaught exception");
+  process.exit(1);
+});
+
+// Safe merge of untrusted input
+function safeAssign(target, input) {
+  for (const key of Object.keys(input)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    target[key] = input[key];
+  }
+  return target;
+}
+
+// Parameterised SQL
+await db.query("SELECT * FROM users WHERE email = $1", [req.body.email]);
+```
+
+## When to use / when not to
+
+**Retry** operational errors that are transient (timeouts, 503s) with exponential backoff, jitter and a cap — and only for idempotent operations or with idempotency keys. **Don't retry** validation errors or programmer errors.
+
+**Supply chain**: commit lockfiles, run `npm audit`/advisories in CI, pin and review new dependencies, prefer well-maintained packages with few transitive deps, use `npm ci` in builds, and consider the Node permission model (`--permission`) to restrict fs/child-process access for risky workloads.
+
+## Trade-offs
+
+| Practice | Protects against | Cost |
+| --- | --- | --- |
+| Crash-and-restart on bugs | serving from corrupt state | brief capacity loss; needs supervisor |
+| Graceful shutdown | dropped requests on deploy | shutdown code + timeouts |
+| Schema validation at boundaries | injection, pollution, bad data | CPU per request, schemas to maintain |
+| Parameterised queries | SQL injection | none |
+| Dependency review/lockfiles | supply-chain attacks | process discipline |
+
+## Senior nuance
+
+- **Readiness vs liveness**: on shutdown, fail the readiness probe first so the load balancer drains traffic, while liveness stays healthy so the orchestrator doesn't kill the process early.
+- **Async error boundaries**: an error thrown inside a `setTimeout` or an event emitter callback escapes `try/catch` around the code that scheduled it; emitters without an `'error'` listener crash the process.
+- **Logging errors**: log `err.stack` and request context (request ID), never secrets; use `cause` (`new Error("x", { cause: err })`) to keep the original chain.
+- **`AbortSignal`** propagates cancellation into fetch, streams and timers so in-flight work stops when a client disconnects or shutdown begins.
+
+## Interview questions
+
+<QA q="Operational vs programmer errors — how do you handle each?" level="mid">
+Operational errors are expected runtime failures (network timeouts, invalid user input, missing files): handle them — return a 4xx/5xx, retry with backoff if idempotent, fall back. Programmer errors are bugs (TypeError on undefined, broken invariants): you can't recover safely, so log with context and let the process crash; a supervisor restarts a clean instance.
+</QA>
+
+<QA q="Describe graceful shutdown for an HTTP service in Kubernetes." level="senior">
+On SIGTERM: mark not-ready so endpoints are removed and new traffic stops; stop accepting connections (server.close), close idle keep-alive sockets, let in-flight requests finish, stop consuming from queues and finish the current messages, close DB pools, then exit 0 — with a hard timeout below terminationGracePeriodSeconds that forces exit. A small preStop delay helps because endpoint removal propagates asynchronously.
+</QA>
+
+<QA q="What is prototype pollution and how do you prevent it?" level="senior">
+An attacker supplies keys like __proto__ or constructor.prototype in input that a recursive merge/set utility writes into, modifying Object.prototype and thus every object's inherited properties — leading to auth bypasses or crashes. Prevent with schema validation that rejects unknown keys, skipping dangerous keys in merges, using Map or Object.create(null) for dictionaries, freezing prototypes, and keeping vulnerable libraries patched.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "A JSON body {\"__proto__\": {\"isAdmin\": true}} is deep-merged into {}. Risk?", options: ["none", "every object may now inherit isAdmin: true", "only that object changes", "JSON.parse throws"], answer: 1, explain: "Naive deep merge walks into __proto__ and writes on Object.prototype." },
+  { q: "After an uncaughtException the safest action is…", options: ["ignore and continue", "log and exit; let the supervisor restart", "restart only the router", "disable GC"], answer: 1, explain: "State may be corrupt." },
+  { q: "Kubernetes sends SIGTERM. First step?", options: ["process.exit(0)", "fail readiness and stop accepting new connections", "close the DB", "ignore it"], answer: 1, explain: "Drain traffic before closing resources." }
+]} />
+
+## Resources
+
+<Resources topic="nodejs/errors-shutdown-security" />

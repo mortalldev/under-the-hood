@@ -1,0 +1,136 @@
+## TL;DR
+
+A binary <Term id="heap" /> is a complete tree stored in a plain array where every parent ≤ its children. It gives O(1) access to the minimum and O(log n) insert/remove — exactly what you need when you repeatedly want "the best remaining item". Two patterns dominate interviews: **Top-K with a heap of size k** (O(n log k)) and **two heaps** for a running median.
+
+## Visual model
+
+```text
+array:  [1, 3, 2, 7, 4, 5]           parent(i) = (i − 1) >> 1
+tree:          1                     children  = 2i + 1, 2i + 2
+            /     \
+           3       2                 no pointers: the shape is implied by indices,
+          / \     /                  and "complete" means no gaps in the array
+         7   4   5
+```
+
+## Mechanism
+
+- **push**: append at the end (keeps the tree complete), then **sift up** — swap with the parent while it is larger. At most height = ⌊log₂ n⌋ swaps.
+- **pop**: take the root, move the last element to the root, then **sift down** — swap with the smaller child while it is larger.
+- **Top-K largest**: keep a **min**-heap of size k. Its root is the weakest of your current top k; anything smaller than it can never enter. Every element costs O(log k).
+
+<TopKViz />
+
+Why min-heap for "largest"? Because you need fast access to the element you would **evict**, which is the smallest of the k kept.
+
+## Code
+
+```ts
+class MinHeap<T> {
+  private a: T[] = [];
+  constructor(private less: (x: T, y: T) => boolean) {}
+  get size() { return this.a.length; }
+  peek(): T | undefined { return this.a[0]; }
+  push(x: T) {
+    const a = this.a;
+    a.push(x);
+    let i = a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (!this.less(a[i], a[p])) break;
+      [a[i], a[p]] = [a[p], a[i]];
+      i = p;
+    }
+  }
+  pop(): T | undefined {
+    const a = this.a;
+    if (a.length === 0) return undefined;
+    const top = a[0];
+    const last = a.pop()!;
+    if (a.length > 0) {
+      a[0] = last;
+      let i = 0;
+      for (;;) {
+        let m = i;
+        for (const c of [2 * i + 1, 2 * i + 2]) if (c < a.length && this.less(a[c], a[m])) m = c;
+        if (m === i) break;
+        [a[i], a[m]] = [a[m], a[i]];
+        i = m;
+      }
+    }
+    return top;
+  }
+}
+
+// Running median: max-heap for the lower half, min-heap for the upper half
+class MedianFinder {
+  private lo = new MinHeap<number>((x, y) => x > y); // max-heap
+  private hi = new MinHeap<number>((x, y) => x < y); // min-heap
+  add(x: number) {
+    this.lo.push(x);
+    this.hi.push(this.lo.pop()!);                     // keep every lo ≤ every hi
+    if (this.hi.size > this.lo.size) this.lo.push(this.hi.pop()!); // lo may hold one extra
+  }
+  median(): number {
+    return this.lo.size > this.hi.size ? this.lo.peek()! : (this.lo.peek()! + this.hi.peek()!) / 2;
+  }
+}
+```
+
+JavaScript has no built-in priority queue — be ready to write the class above in about 25 lines.
+
+## When to use / when not to
+
+**Recognition signals**
+- "k largest / k smallest / k most frequent / k closest".
+- "Repeatedly take the min/max and then add new items" — merge k sorted lists, Dijkstra, task scheduling, event simulation.
+- Running median or "balance two halves".
+
+**When not to**
+- You need the k-th element once and may reorder the array → quickselect, O(n) average.
+- You need to search or delete arbitrary elements → a balanced BST / sorted set (a heap only knows its root).
+- k is close to n → just sort.
+
+## Trade-offs
+
+| Approach for Top-K | Time | Space | Notes |
+| --- | --- | --- | --- |
+| Sort | O(n log n) | O(1)–O(n) | simplest |
+| Min-heap of size k | O(n log k) | O(k) | streams; works online |
+| Quickselect | O(n) average, O(n²) worst | O(1) | mutates input; random pivot |
+| Bucket sort by frequency | O(n) | O(n) | Top-K frequent when counts ≤ n |
+
+## Senior nuance
+
+- **Build-heap is O(n)**, not O(n log n): sifting down from the last parent to the root costs a sum dominated by the many low-height nodes.
+- **Decrease-key** is awkward in a binary heap (you need an index map). Most Dijkstra implementations push duplicates and skip stale entries ("lazy deletion") instead.
+- **Stability**: heaps are not stable; break ties explicitly in the comparator (e.g. by insertion counter) when order of equal keys matters.
+- **Streams**: a size-k heap is the standard way to keep a top-k over an unbounded stream with O(k) memory.
+
+## Interview questions
+
+<QA q="Why is heapify O(n)?" level="senior">
+Sift-down cost is proportional to a node's height. About n/2 nodes are leaves (height 0), n/4 have height 1, n/8 height 2, … The total is n · Σ h/2^(h+1), which converges to O(n). Inserting one by one with sift-up is O(n log n) because the many deep nodes travel far.
+</QA>
+
+<QA q="Top K Frequent Elements in better than O(n log n)." level="mid">
+Count with a hash map (O(n)). Then either a min-heap of size k over (count, value) pairs — O(n log k) — or bucket sort: buckets indexed by count (0..n), walk from the highest bucket down until k values are collected — O(n).
+</QA>
+
+<QA q="Design a scheduler that always runs the highest-priority job next, with ties broken by arrival." level="mid">
+Heap keyed by (priority desc, arrivalSeq asc); push O(log n), pop O(log n). The sequence number makes ordering of equal priorities deterministic, which a heap does not provide on its own.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "For the k largest elements of a stream, keep…", options: ["a max-heap of all elements", "a min-heap of size k", "a max-heap of size k", "a sorted array"], answer: 1, explain: "The min-heap root is the smallest of the current top k — the one to evict." },
+  { q: "Children of index 4 in an array-backed heap are…", options: ["8 and 9", "9 and 10", "5 and 6", "2 and 3"], answer: 1, explain: "2i + 1 = 9 and 2i + 2 = 10." },
+  { q: "Running median: after adding, the heaps' sizes must satisfy…", options: ["equal always", "lo.size − hi.size ∈ {0, 1}", "hi always larger", "no constraint"], answer: 1, explain: "Balanced halves make the median the top of lo or the average of both tops." }
+]} />
+
+**Classic problems:** Kth Largest Element in an Array (Medium) · Top K Frequent Elements (Medium) · K Closest Points to Origin (Medium) · Task Scheduler (Medium) · Find Median from Data Stream (Hard) · Merge k Sorted Lists (Hard).
+
+## Resources
+
+<Resources topic="dsa/heap" />

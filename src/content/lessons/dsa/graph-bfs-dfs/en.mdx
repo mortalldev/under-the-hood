@@ -1,0 +1,126 @@
+## TL;DR
+
+BFS and DFS are the same algorithm with a different container: a **queue** explores in rings of increasing distance (so it finds shortest paths in unweighted graphs), a **stack** (or recursion) dives deep first (so it naturally finds connected components, cycles and finish orders). Both are O(V + E) — provided you mark nodes as visited at the right moment.
+
+## Visual model
+
+Grids are graphs too: each cell is a node, its 4 neighbours are edges. "Number of islands", "rotting oranges" and "shortest path in a maze" are BFS/DFS on an implicit graph.
+
+```text
+adjacency list (preferred)       adjacency matrix
+A: B, C                          ·  A B C D
+B: A, D                          A  0 1 1 0
+C: A, D                          B  1 0 0 1
+D: B, C                          …  O(V²) memory, O(1) edge check
+```
+
+## Mechanism
+
+**BFS** — step through and watch distance badges: every node at distance d is dequeued before any node at d + 1, so the first time a node is discovered is via a shortest path.
+
+<GraphTraversalViz mode="bfs" />
+
+The subtle part: mark a node **when you enqueue it**, not when you dequeue it. Otherwise the same node can be enqueued many times through different neighbours, which in dense graphs blows up both time and memory.
+
+**DFS** — the call stack *is* the path from the start to the current node. A node "finishes" when all its descendants are done; that finish order is what topological sort and many cycle checks rely on.
+
+<GraphTraversalViz mode="dfs" />
+
+## Code
+
+```ts
+function bfs(adj: Map<string, string[]>, start: string): Map<string, number> {
+  const dist = new Map([[start, 0]]);
+  const q = [start];
+  for (let h = 0; h < q.length; h++) {              // head index: O(1) dequeue
+    const u = q[h];
+    for (const v of adj.get(u) ?? []) {
+      if (dist.has(v)) continue;
+      dist.set(v, dist.get(u)! + 1);
+      q.push(v);
+    }
+  }
+  return dist;
+}
+
+// Number of islands — iterative DFS on a grid (no recursion depth issues)
+function numIslands(grid: string[][]): number {
+  const R = grid.length, C = grid[0].length;
+  let islands = 0;
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+    if (grid[r][c] !== "1") continue;
+    islands++;
+    const stack: [number, number][] = [[r, c]];
+    grid[r][c] = "0";                                   // mark on push
+    while (stack.length) {
+      const [y, x] = stack.pop()!;
+      for (const [dy, dx] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ny = y + dy, nx = x + dx;
+        if (ny >= 0 && ny < R && nx >= 0 && nx < C && grid[ny][nx] === "1") {
+          grid[ny][nx] = "0";
+          stack.push([ny, nx]);
+        }
+      }
+    }
+  }
+  return islands;
+}
+
+// Multi-source BFS: start with ALL sources in the queue at distance 0 (rotting oranges, nearest exit)
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- **BFS**: "minimum number of steps/moves/transformations" with unit cost; level-by-level output; multi-source spread over time.
+- **DFS**: "count components", "is there a path", "detect a cycle", "all paths", "flood fill", anything needing post-order or finish times.
+- The graph is implicit: words differing by one letter, board states, grid cells.
+
+**When not to**
+- Weighted edges → Dijkstra (non-negative) or Bellman-Ford; with 0/1 weights → 0-1 BFS with a deque.
+- Connectivity under a stream of edge additions → union-find.
+- Recursion depth may exceed ~10⁴ in JS engines → iterative DFS.
+
+## Trade-offs
+
+| | BFS | DFS |
+| --- | --- | --- |
+| Container | queue | stack / recursion |
+| Memory | O(width of frontier) — can be large | O(depth) |
+| Shortest path (unweighted) | yes | no |
+| Finish order / cycle detection in directed graphs | awkward | natural |
+
+## Senior nuance
+
+- **Directed cycle detection needs three colours** (unvisited / on stack / done). A visited set alone flags harmless "cross edges" as cycles.
+- **Bidirectional BFS** (from start and goal, meeting in the middle) reduces explored nodes from b^d to about 2·b^(d/2) — the standard optimisation for Word Ladder.
+- **State-space graphs**: when "position" alone is not enough (e.g. keys collected, obstacles removed), the node is `(position, extra state)`; visited must be keyed by the full state.
+- **Mutating input to mark visited** (setting grid cells to "0") is fast but destructive — say so and offer a separate visited array if the caller needs the grid.
+
+## Interview questions
+
+<QA q="Why must BFS mark nodes visited at enqueue time?" level="mid">
+If you mark at dequeue, a node can sit in the queue several times (once per neighbour that discovered it before it was processed). Results stay correct for distances but time and memory can grow to O(E) queue entries with duplicate work; in grids it can explode. Marking at enqueue guarantees each node enters the queue once.
+</QA>
+
+<QA q="Word Ladder: shortest transformation sequence length." level="senior">
+BFS over words; neighbours differ in one letter. Generating neighbours by trying 26 letters at each position is O(L·26) per word; precomputing wildcard buckets ("h*t" → [hot, hit]) avoids scanning the whole dictionary. Bidirectional BFS greatly reduces the explored frontier. Remove words from the dictionary (or mark visited) as they are enqueued.
+</QA>
+
+<QA q="Detect a cycle in a directed graph." level="mid">
+DFS with colours: white (unseen), grey (on the current recursion stack), black (finished). An edge to a grey node is a back edge → cycle. Alternatively Kahn's algorithm: if the topological order does not contain every node, there is a cycle.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Fewest moves of a knight between two squares: which traversal?", options: ["DFS", "BFS", "Dijkstra with weights", "Union-find"], answer: 1, explain: "Every move costs 1; BFS discovers nodes in order of distance." },
+  { q: "Rotting oranges spreading from many rotten oranges at once uses…", options: ["one BFS per rotten orange", "multi-source BFS", "DFS", "binary search"], answer: 1, explain: "Seed the queue with all sources at time 0; one pass gives the minute each cell rots." },
+  { q: "Directed graph, visited-set DFS finds an edge to an already visited node. Is that a cycle?", options: ["Always", "Only if that node is still on the recursion stack", "Never", "Only in BFS"], answer: 1, explain: "Finished nodes reached via cross/forward edges do not form cycles." }
+]} />
+
+**Classic problems:** Number of Islands (Medium) · Clone Graph (Medium) · Rotting Oranges (Medium) · Pacific Atlantic Water Flow (Medium) · Shortest Path in Binary Matrix (Medium) · Word Ladder (Hard).
+
+## Resources
+
+<Resources topic="dsa/graph-bfs-dfs" />

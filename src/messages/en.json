@@ -1,0 +1,236 @@
+{
+  "Site": {
+    "name": "Under the Hood",
+    "tagline": "Senior and FAANG interview prep through mechanisms, not memorization",
+    "description": "Interactive, animated lessons on algorithms, JavaScript, TypeScript, React, Next.js, Node.js and system design — explained at the level of how things actually work.",
+    "short": "Interactive, animated lessons for developers",
+    "ogFooter": "76 lessons · uz / en · free"
+  },
+  "Nav": {
+    "skipToContent": "Skip to content",
+    "home": "Home",
+    "learn": "Lessons",
+    "sections": "Sections",
+    "openMenu": "Open navigation",
+    "language": "Language",
+    "switchTo": "Switch to {language}",
+    "toggleTheme": "Toggle dark mode",
+    "primary": "Primary",
+    "lessonNav": "Lesson navigation",
+    "review": "Review",
+    "resources": "Resources",
+    "search": "Search",
+    "glossary": "Glossary",
+    "filterLessons": "Find a lesson",
+    "noMatches": "No lessons match",
+    "overview": "Section overview"
+  },
+  "Languages": {
+    "uz": "Oʻzbekcha",
+    "en": "English"
+  },
+  "Home": {
+    "eyebrow": "Visual · Interactive · Mechanism-level",
+    "title": "Understand how it works — then you can explain it in any interview.",
+    "lead": "Algorithms, JavaScript, TypeScript, React, Next.js, Node.js and system design — each topic explained in plain words first, then shown step by step in an animation you can play, pause and rewind.",
+    "start": "Start here",
+    "browse": "Browse sections",
+    "sectionsTitle": "Sections",
+    "stats": "{lessons} lessons · {viz} interactive visualizers · Uzbek and English",
+    "howTitle": "How every lesson works",
+    "how1": "Plain words first",
+    "how1Body": "Each lesson opens with an everyday analogy, so you know what the idea is before any jargon.",
+    "how2": "Watch it run",
+    "how2Body": "Play the algorithm step by step on your own input. The current line of code and the reason for each step stay in view.",
+    "how3": "Practise and recall",
+    "how3Body": "Real code, trade-offs, interview questions and a short quiz — then the lesson goes into your spaced-repetition list.",
+    "partsTitle": "Ten parts, same order everywhere",
+    "previewTitle": "Sliding window",
+    "previewNote": "right meets a repeated “a” — left jumps past its previous position, so the window stays valid."
+  },
+  "LessonParts": {
+    "tldr": "TL;DR",
+    "visual": "Visual model",
+    "mechanism": "Mechanism (animation)",
+    "code": "Code",
+    "when": "When to use / when not to",
+    "tradeoffs": "Trade-offs",
+    "nuance": "Senior nuance",
+    "interview": "Interview questions",
+    "exercise": "Exercise",
+    "resources": "Resources"
+  },
+  "Sections": {
+    "start": {
+      "title": "Getting started",
+      "description": "How the platform works and how to study with it."
+    },
+    "dsa": {
+      "title": "Algorithms & Data Structures",
+      "description": "Patterns, not problem lists: recognition signals, templates, complexity and classic problems."
+    },
+    "javascript": {
+      "title": "JavaScript",
+      "description": "Event loop, execution contexts, closures, prototypes, GC and V8 — at the mechanism level."
+    },
+    "typescript": {
+      "title": "Advanced TypeScript",
+      "description": "Structural typing, generics and variance, conditional and mapped types, type-level puzzles."
+    },
+    "react": {
+      "title": "React",
+      "description": "Render vs commit, reconciliation, Fiber, hooks internals, concurrency and Server Components."
+    },
+    "nextjs": {
+      "title": "Next.js",
+      "description": "App Router architecture, rendering strategies, RSC payload, hydration and caching."
+    },
+    "nodejs": {
+      "title": "Node.js",
+      "description": "Event loop phases, libuv and the thread pool, streams and backpressure, production hygiene."
+    },
+    "system-design": {
+      "title": "System Design",
+      "description": "Backend and frontend system design with diagrams, plus an interview framework."
+    },
+    "interview": {
+      "title": "Interview preparation",
+      "description": "The coding interview process, behavioral (STAR) and senior-level signals."
+    }
+  },
+  "Lesson": {
+    "lessonsCount": "{count, plural, =0 {No lessons yet} one {# lesson} other {# lessons}}",
+    "prev": "Previous",
+    "next": "Next",
+    "minutes": "{n} min read",
+    "plainTitle": "In plain words",
+    "sectionsTabs": "Lesson sections",
+    "breadcrumb": "Breadcrumb",
+    "lessonOf": "Lesson {n} of {total}"
+  },
+  "Theme": {
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "NotFound": {
+    "title": "Page not found",
+    "body": "This page does not exist (yet).",
+    "home": "Go to home page"
+  },
+  "Footer": {
+    "note": "Content is checked against official documentation. Unverified claims are marked as such."
+  },
+  "Visualizer": {
+    "run": "Run",
+    "presets": "Examples",
+    "code": "Code",
+    "play": "Play",
+    "pause": "Pause",
+    "stepBack": "Previous step",
+    "stepForward": "Next step",
+    "reset": "Back to start",
+    "end": "Jump to end",
+    "speed": "Speed",
+    "timeline": "Timeline",
+    "stepOf": "{current} / {total}",
+    "allSteps": "All steps as text",
+    "keyboardHint": "← → step · Space play",
+    "predictLabel": "Your prediction (output order, space-separated)",
+    "predictCheck": "Check",
+    "predictCorrect": "Correct — you predicted the exact order.",
+    "predictWrong": "Not quite. Actual order: {actual}. Step through to see where your model diverged.",
+    "predictPending": "Predict first, then press Play or jump to the end.",
+    "line": "line"
+  },
+  "Quiz": {
+    "title": "Check yourself",
+    "check": "Check",
+    "correct": "Correct",
+    "incorrect": "Not quite",
+    "score": "{correct} of {total} correct"
+  },
+  "Progress": {
+    "markDone": "Mark as learned",
+    "done": "Learned",
+    "addReview": "Add to review",
+    "inReview": "In review list",
+    "reviewTitle": "Review",
+    "reviewLead": "Spaced repetition: each successful review pushes the next one further out (1 → 3 → 7 → 16 → 35 days). Try to recall the TL;DR and the mechanism before opening the lesson.",
+    "reviewEmpty": "Your review list is empty. Add lessons with “Add to review”.",
+    "due": "Due now",
+    "dueOn": "Next: {date}",
+    "remembered": "I remembered",
+    "forgot": "I forgot",
+    "remove": "Remove",
+    "learnedCount": "{done} of {total} learned"
+  },
+  "Search": {
+    "open": "Search",
+    "placeholder": "Search lessons, patterns, terms…",
+    "noResults": "Nothing found.",
+    "lesson": "Lesson",
+    "term": "Term",
+    "section": "Section",
+    "close": "Close"
+  },
+  "Resources": {
+    "title": "Go deeper",
+    "free": "Free",
+    "paid": "Paid",
+    "verified": "Link checked on {date}",
+    "pageTitle": "Resources",
+    "pageLead": "Courses, books and official documentation for each section. Every link was checked to exist; the date shows when.",
+    "kind": {
+      "docs": "Official docs",
+      "course": "Course",
+      "book": "Book",
+      "article": "Article",
+      "video": "Video",
+      "tool": "Tool"
+    },
+    "level": {
+      "beginner": "Beginner",
+      "intermediate": "Intermediate",
+      "advanced": "Advanced"
+    },
+    "freemium": "Free + paid",
+    "uzNote": "No Uzbek-language resources have been verified yet."
+  },
+  "Puzzle": {
+    "title": "Type puzzle",
+    "check": "Type-check",
+    "checking": "Checking…",
+    "passed": "All assertions pass.",
+    "failed": "Type errors:",
+    "reset": "Reset",
+    "solution": "Show a solution",
+    "limit": "Code is checked on the server with the TypeScript compiler; it is never executed."
+  },
+  "Glossary": {
+    "title": "Glossary",
+    "lead": "Short, plain definitions of the technical terms used in the lessons — from Big-O and closures to Cache Components and CRDTs. Terms stay in English in both languages; only the explanation is translated.",
+    "search": "Search terms",
+    "all": "All",
+    "usedIn": "Used in",
+    "noResults": "No terms match your search.",
+    "count": "{count} terms",
+    "jump": "Jump to letter",
+    "more": "+{n} more",
+    "categories": {
+      "learning": "Learning",
+      "dsa": "Algorithms",
+      "javascript": "JavaScript",
+      "typescript": "TypeScript",
+      "react": "React",
+      "nextjs": "Next.js",
+      "nodejs": "Node.js",
+      "web": "Web platform",
+      "system-design": "System design",
+      "interview": "Interview"
+    }
+  },
+  "Diagram": {
+    "scrollHint": "Swipe sideways to see the whole diagram",
+    "connections": "Connections"
+  }
+}

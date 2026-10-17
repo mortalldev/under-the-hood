@@ -1,0 +1,105 @@
+## TL;DR
+
+JavaScript obyektlari hash map'ga oʻxshaydi, lekin engine'lar property murojaatini tez qilish uchun obyektlarga <Term id="hidden-class" /> beradi (V8 uni *map*, boshqalar *shape* deydi): qaysi key'lar va qaysi xotira offset'ida turishining tavsifi. Call site'da **bir xil shape**'li obyektlarni koʻradigan kod <Term id="inline-cache" />'ga bitta tekshiruv va bitta oʻqish bilan javob berishga imkon beradi; keyin <Term id="jit" /> shu taxmin asosida optimallashtirilgan mashina kodini kompilyatsiya qiladi. Aralash shape'lar yoki hot koddagi shape oʻzgarishlari sizni sekin yoʻllarga itaradi.
+
+## Vizual model
+
+```text
+{}            → S0 {}
+.x = 1        → S1 {x@0}           oʻtish S0 —x→ S1
+.y = 2        → S2 {x@0, y@1}      oʻtish S1 —y→ S2
+
+x keyin y bilan qurilgan boshqa {}  → S0 → S1 → S2 ni qayta ishlatadi   (bir xil shape, umumiy)
+y keyin x bilan qurilgan boshqa {}  → S0 → S3 {y@0} → S4 {y@0, x@1}    (boshqa shape!)
+```
+
+## Mexanizm
+
+Har xil property tartibli bir nechta obyekt quring va transition daraxtini kuzating. Bir xil yaratilgan obyektlar shape'larni boʻlishadi; boshqa tartib parallel tarmoq yaratadi. Oxirida `getX(p)` funksiyasi nechta shape koʻrishini koʻring.
+
+<HiddenClassViz />
+
+**Inline cache'lar** bytecode'dagi har bir property murojaati joyida yashaydi:
+- **monomorphic** — bitta shape koʻrilgan: shape'ni tekshirish, qat'iy offset'dan oʻqish. Eng tez.
+- **polymorphic** — bir nechta shape (V8 kichik roʻyxat, bir necha yozuv saqlaydi): har birini sinash.
+- **megamorphic** — juda koʻp shape: umumiy, sekinroq qidiruvga qaytish.
+
+**Pipeline** (V8): manba → *Ignition* bytecode interpretatori (shu IC'larda tur fikr-mulohazasini yigʻadi) → *Sparkplug* baseline kompilyatori → fikr-mulohaza asosida taxmin qiladigan optimallashtiruvchi kompilyatorlar (*Maglev*, keyin juda issiq kod uchun *TurboFan*). Runtime'da taxmin notoʻgʻri chiqsa (yangi shape paydo boʻlsa, integer double'ga aylansa), engine bytecode'ga **deoptimize** qiladi.
+
+## Kod
+
+```js
+// ✓ Har bir nusxa uchun bir xil shape: barcha field'larni konstruktorda, bir xil tartibda initsializatsiya qiling
+class Point {
+  constructor(x, y) { this.x = x; this.y = y; }
+}
+
+// ✗ Shape aylanishi
+function makeUser(data) {
+  const u = {};
+  if (data.admin) u.role = "admin";     // ba'zi obyektlar avval `role` oladi…
+  u.name = data.name;                   // …boshqalari avval `name` → ikki shape
+  return u;
+}
+// ✓ Qat'iy literal shape
+const makeUser2 = (d) => ({ name: d.name, role: d.admin ? "admin" : null });
+
+// ✗ delete shape'ni oʻzgartiradi (va obyektni sekin "dictionary mode"ga oʻtkazishi mumkin)
+delete user.temp;
+// ✓ buning oʻrniga undefined qiling yoki umuman qoʻshmang
+user.temp = undefined;
+
+// Array'larda ham "elements kinds" bor: ularni bir xil turli va teshiksiz saqlang
+const ints = [1, 2, 3];   // packed small integer'lar — eng tez
+ints.push(1.5);           // double'larga oʻtadi (bir tomonlama)
+const holey = [1, , 3];   // holey — qidiruvlar prototype zanjiriga murojaat qilishi mumkin
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Bu haqda qaygʻuring**: profiling hot funksiyada property murojaati ustunligini koʻrsatsa; parser, render loop, oʻyin engine, ma'lumotlarni qayta ishlash pipeline'i yoki qattiq loop'larda ishlatiladigan kutubxona yozsangiz.
+
+**Oddiy kodni buning uchun buzmang**: avval oʻqilishi, oʻlchang, keyin aniq hot path'ni tuzating. Engine'lar versiyalar orasida heuristic'larini oʻzgartiradi; tamoyillar (barqaror shape'lar, monomorphic hot path'lar, hot obyektlarda `delete` yoʻq) barqaror, aniq chegaralar esa yoʻq.
+
+## Trade-off'lar
+
+| Pattern | Engine'larga ta'siri |
+| --- | --- |
+| Barcha field'larni initsializatsiya qiluvchi konstruktor/class | barqaror umumiy shape ✓ |
+| Property'larni shartli / har xil tartibda qoʻshish | bir nechta shape, polymorphic IC'lar |
+| `delete obj.prop` | shape oʻzgarishi, ehtimol dictionary mode |
+| Bitta obyektda juda katta yoki dinamik key toʻplamlari | buning oʻrniga `Map` — aynan shu uchun yaratilgan |
+| Bitta array'da turlarni aralashtirish | elements-kind oʻtishlari (bir tomonlama) |
+
+## Senior nuance
+
+- **Sovuq joylarda polymorphism normal.** Faqat hot call site'lar muhim; kuniga 100 marta bajariladigan megamorphic joy ahamiyatsiz.
+- **`#private` field'li va field initializer'li class'lar** oldindan aytib boʻladigan shape'lar yaratadi — performance'ga sezgir kodda ular foydasiga bitta amaliy dalil.
+- **Deopt loop'lar**: doimiy optimize va deoptimize qilinadigan kod (masalan, ba'zan string bilan chaqiriladigan raqamli funksiya) hech qachon optimize qilinmaydigandan sekinroq boʻlishi mumkin. `node --trace-deopt` (yoki Chrome'dagi V8 flag'lari) ularni ochib beradi.
+- **Benchmark'lar oson aldaydi**: microbenchmark'lar optimizatsiya qilinib yoʻqoladi yoki IC isinishini oʻlchaydi. Production'dagi kabi shape'li realistik yuklamalarni benchmark qiling.
+
+## Interview savollari
+
+<QA q="Hidden class nima va nega property tartibi muhim?" level="mid">
+Obyekt tuzilishining engine ichki tavsifi: qaysi property'lar va qaysi offset'larda. Property qoʻshish yangi hidden class'ga oʻtkazadi; bir xil property'larni bir xil tartibda qoʻshadigan obyektlar bir xil oʻtishlardan oʻtib, bitta hidden class'ni boʻlishadi. Har xil tartiblar har xil hidden class'lar hosil qiladi, shuning uchun ikkalasini qayta ishlaydigan kod bir nechta shape koʻradi va uning inline cache'lari polymorphic boʻladi.
+</QA>
+
+<QA q="Monomorphic va megamorphic nimani bildiradi?" level="senior">
+Ular aniq property murojaati yoki chaqiruv joyidagi tur fikr-mulohazasini tavsiflaydi. Monomorphic: bitta hidden class koʻrilgan — engine bitta shape tekshiruvi va toʻgʻridan-toʻgʻri oʻqish chiqarishi mumkin. Polymorphic: oz sonli shape — qisqa dispatch. Megamorphic: juda koʻp — joy umumiy qidiruvdan (stub cache / dictionary) foydalanadi va optimallashtiruvchi kompilyatorlar uni ixtisoslashtira olmaydi.
+</QA>
+
+<QA q="Nega performance'ga muhim kodda `delete` tavsiya etilmaydi?" level="senior">
+U obyektning hidden class'ini oʻzgartiradi (koʻpincha umumiy boʻlmagan class'ga) va V8'da obyektni property'lar hash jadvalda saqlanadigan dictionary mode'ga oʻtkazishi mumkin. Bu obyektni koʻradigan har bir joy sekinroq yoki polymorphic boʻladi. Property'ni undefined qilish yoki ixtiyoriy ma'lumotni Map bilan modellashtirish shape oʻzgarishidan saqlaydi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "p1 = {x, y} va p2 = {y, x} (bir xil qiymatlar) bitta hidden class'ni boʻlishadimi?", options: ["ha", "yoʻq", "faqat strict mode'da", "faqat sonlar uchun"], answer: 1, explain: "Har xil qoʻshish tartibi ⇒ har xil oʻtish yoʻli." },
+  { q: "Qaysi biri hot call site'ni monomorphic saqlaydi?", options: ["bitta konstruktor yaratgan obyektlarni uzatish", "ishlatgandan keyin property'larni oʻchirish", "ixtiyoriy property'larni keyinroq qoʻshish", "array va obyektlarni aralashtirish"], answer: 0, explain: "Bir xil qurilish yoʻli ⇒ bir xil shape." },
+  { q: "Taxminiy optimallashtirilgan kod kutilmagan turni koʻrganda engine…", options: ["xato tashlaydi", "interpretator/baseline'ga deoptimize qiladi", "qulaydi", "e'tiborsiz qoldiradi"], answer: 1, explain: "Deoptimization toʻgʻrilikni tiklaydi; funksiya keyinroq yangi fikr-mulohaza bilan qayta optimize qilinishi mumkin." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/v8-internals" />

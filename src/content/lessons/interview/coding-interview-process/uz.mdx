@@ -1,0 +1,102 @@
+## TL;DR
+
+Coding interview faqat yechimga yetishingizni emas, **boshqa muhandis kuzatib turganda masalalarni qanday yechishingizni** oʻlchaydi. Koʻrinadigan jarayonga amal qiling: **aniqlashtirish** → **misollar va chegara holatlari** → **brute force** → **nomlangan pattern bilan optimallashtirish** → **reja boʻyicha kelishish** → **toza kod yozish** → **qoʻlda test qilish** → **complexity tahlili**. Interviewer kuzata olishi, yordam berishi va kod tugallanmagan boʻlsa ham fikrlashingiz uchun baho berishi uchun ovoz chiqarib fikrlang.
+
+## Vizual model
+
+```text
+ 0–5 daq    input/output, constraint'lar, chegara holatlarini aniqlashtirish; 2–3 ta misol yozish
+ 5–12 daq   brute force (complexity'sini ayting) → bottleneck'ni topish → pattern tanlash
+12–15 daq   yondashuv boʻyicha kelishish ("Sliding window ishlataman, chunki…")
+15–35 daq   kod: aniq nomlar, kichik yordamchilar, yozayotganda gapirish
+35–42 daq   misol + chegara holatlari boʻyicha quruq yurish, bug'larni xotirjam tuzatish
+42–45 daq   vaqt/xotira complexity, trade-off'lar, follow-up'lar
+```
+
+## Mexanizm
+
+**Aniqlashtiring** — input hajmi va oraliqlari (ular maqsadli complexity'ga ishora qiladi, Big-O darsiga qarang), dublikatlar, manfiylar, boʻsh input, saralanganlik, javob boʻlmasa nima qaytarish va input'ni oʻzgartirish mumkinligi haqida soʻrang.
+
+**Misollar** — oddiy holat va chegara holatlarini yozing (boʻsh, bitta element, hammasi teng, maksimal qiymatlar). Ular keyinroq testlaringizga aylanadi.
+
+**Avval brute force, qisqacha** — u masalani tushunganingizni isbotlaydi va asos beradi. Keyin soʻrang: *qaysi ishni takrorlayapman?* Bu savol pattern'ga olib boradi: takroriy juftlik qidiruvi → hash map; takroriy oraliq yigʻindilari → prefix sum; uzluksiz window → sliding window; saralangan + juftlik → two pointers; "… boʻladigan minimal X" → binary search on answer; takrorlanuvchi kichik masalalar → DP.
+
+**Kod yozishdan oldin rozilik oling** — reja va complexity'ni ayting; interviewer'lar koʻpincha aynan shu yerda yoʻnaltiradi, bu 20 daqiqalik koddan keyingidan ancha arzon.
+
+**Oʻqish uchun kod yozing** — ma'noli nomlar, erta return'lar, takrorlanadigan blok uchun yordamchi. Qarorlarni gapirib boring ("Indeksni tekshiruvdan keyin saqlayman, element oʻzi bilan juftlashmasligi uchun").
+
+**Muhandis kabi test qiling** — misolni aniq oʻzgaruvchi qiymatlari bilan qatorma-qator kuzating, keyin chegara holatlarini. Oʻz bug'ingizni topish — ijobiy signal; uni vahimasiz tuzating.
+
+**Tahlil qiling** — vaqt va xotira, va nima ustunlik qiladi. Koʻrib chiqadigan follow-up'ni eslating (stream input, xotira chegarasi, parallel murojaat).
+
+## Kod
+
+```ts
+// Yechimni gapirib berish: "Takrorlanuvchi belgilarsiz eng uzun substring"
+// Aniqlashtirish: ASCII? boʻsh string → 0. Misol: "abba" → 2 ("ab" yoki "ba").
+// Brute force: barcha substring'lar, noyoblikni tekshirish → O(n³). Takroriy ish: window'ni qayta skanerlash.
+// Pattern: oxirgi koʻrilgan indeksli variable sliding window → O(n) vaqt, O(alfavit) xotira.
+function lengthOfLongestSubstring(s: string): number {
+  const last = new Map<string, number>();
+  let left = 0;
+  let best = 0;
+  for (let right = 0; right < s.length; right++) {
+    const prev = last.get(s[right]);
+    if (prev !== undefined && prev >= left) left = prev + 1;   // "abba": ikkinchi 'a' left'ni orqaga surmasligi kerak
+    last.set(s[right], right);
+    best = Math.max(best, right - left + 1);
+  }
+  return best;
+}
+// "abba" boʻyicha quruq yurish: r=0 a→best1; r=1 b→best2; r=2 b dup 1da→left=2; r=3 a prev0<left2 → e'tiborsiz, len2.
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Doim gapirib boring**, lekin monolog qilmang — qaror nuqtalarida interviewer fikri uchun toʻxtang. Bir necha daqiqa tiqilib qolganda **maslahat soʻrang**, nima sinaganingizni aytib ("O(n²) koʻryapman; yigʻindilarni qayta hisoblamaslik yoʻlini qidiryapman — prefix sum toʻgʻri yoʻlmi?").
+
+Darhol kod yozishni boshlamang, jim turmang, maslahatlar bilan bahslashmang yoki asoslamagan complexity'ni da'vo qilmang. Toʻgʻri yechimga ega boʻlishdan oldin ortiqcha optimallashtirmang.
+
+## Trade-off'lar
+
+| Xatti-harakat | U yuboradigan signal |
+| --- | --- |
+| Aniqlashtiruvchi savollar | muloqot, notoʻgʻri masala yechimlaridan qochish |
+| Brute force, keyin optimallashtirish | tuzilmali muammo yechish |
+| Pattern'ni nomlash | bilim kengligi |
+| Misollar bilan test qilish | tekshirish odatlari, sifatga egalik |
+| Complexity tahlili | CS asoslari |
+| Maslahatlarni yaxshi qabul qilish | hamkorlik, oʻrganishga moyillik |
+
+## Senior nuance
+
+- **Senior nomzodlar kod sifati boʻyicha ham baholanadi**: dekompozitsiya, nomlash, chegara holatlarini maxsus holat chalkashliksiz hal qilish va production'da uni qanday test qilishini eslatish (unit testlar, property testlar).
+- **Vaqtni boshqarish — sizning vazifangiz**: 30-daqiqada kod yoʻq boʻlsa, soddalashtiring — ishlaydigan O(n log n) tugallanmagan O(n)dan yaxshiroq.
+- **Tilni yaxshi bilish muhim**: tilingizning saralash comparator'i, map/set API'lari, butun son chegaralari va string bilan ishlashni yoddan biling (masalan, JavaScript'ning sukut boʻyicha `sort`i va 32-bit bitwise operatorlari).
+- **Sharoitlarda mashq qiling**: vaqt bilan, ovoz chiqarib, autocomplete'siz oddiy editor'da; mock interview'lar yolgʻiz mashq yashiradigan muloqot kamchiliklarini ochib beradi.
+
+## Interview savollari
+
+<QA q="Masalani qanday yechishni bilmasangiz nima qilasiz?" level="mid">
+Tuzilmani topish uchun aniqlashtiring va misollarni qoʻlda ishlang; brute force va uning complexity'sini ayting; takrorlanadigan ishni aniqlab, uni olib tashlaydigan pattern'larni sinang; interviewer yoʻnaltira olishi uchun ovoz chiqarib fikrlang; tiqilganda aniq savol bering. Aniq fikrlash va yaxshi test bilan toʻgʻri brute force ham baho oladi.
+</QA>
+
+<QA q="Interview'da kodingizni qanday test qilishingiz kerak?" level="mid">
+Uni oddiy misolda oʻzgaruvchi qiymatlarini qadamma-qadam kuzatib quruq yuring, keyin chegara holatlarida (boʻsh, bitta element, dublikatlar, ekstremal qiymatlar, javob yoʻq). Loop chegaralari va off-by-one shartlarini tekshiring. Bu production kodi boʻlganda qanday unit testlar yozishingizni tushuntiring.
+</QA>
+
+<QA q="Interviewer follow-up soʻraydi: input endi xotiraga sigʻmaydi." level="senior">
+Streaming yoki tashqi yondashuvlarni muhokama qiling: chegaralangan state bilan boʻlaklarni qayta ishlash (masalan, stream ustida sliding window, har boʻlakda hash map bilan sanash va birlashtirish), global agregatsiyalar uchun tashqi saralash yoki hash boʻyicha sharding, aniqlik shart boʻlmaganda taxminiy algoritmlar (count-min sketch, HyperLogLog, reservoir sampling) va sof Big-O oʻrnini bosadigan I/O narx modeli.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Masalani oʻqigandan keyin birinchi narsa?", options: ["kod yozishni boshlash", "constraint'larni aniqlashtirib, misollar yozish", "optimallashtirish", "til tanlash"], answer: 1, explain: "Constraint'lar maqsadli complexity'ga ishora qiladi; misollar testlarga aylanadi." },
+  { q: "Test paytida bug topdingiz. Eng yaxshi javob?", options: ["yashirish", "tushuntirib, xotirjam tuzatish", "noldan qayta boshlash", "tilni ayblash"], answer: 1, explain: "Oʻzi topgan bug'lar — ijobiy signal." },
+  { q: "n ≤ 10⁵ nimani maqsad qilishni taklif qiladi?", options: ["O(n²)", "O(n log n) yoki yaxshiroq", "O(2ⁿ)", "O(n³)"], answer: 1, explain: "n² uchun 10¹⁰ amal juda sekin boʻlardi." }
+]} />
+
+## Resurslar
+
+<Resources topic="interview/coding-interview-process" />

@@ -1,0 +1,130 @@
+## TL;DR
+
+URL qisqartiruvchi — klassik isinish mashqi, chunki har bir qaror koʻrinadi: **oʻqishga ogʻir** key→value qidiruvi (redirect'lar yaratishlardan ~100:1 koʻp), qisqa **noyob ID** sxemasi, **cache'ga qulay** redirect yoʻli va redirect'larni sekinlashtirmasligi kerak boʻlgan **analitika** pipeline'i. Bu dars uni 45 daqiqalik interview'da qanday qilsangiz, shunday — sonlar bilan koʻrib chiqadi.
+
+## Vizual model
+
+<FlowDiagram height={62} nodes={[
+  { id: "user", label: "brauzer", x: 8, y: 10, w: 14, kind: "client" },
+  { id: "cdn", label: "CDN / edge", sub: "301/302 cache", x: 28, y: 10, w: 18, kind: "edge" },
+  { id: "lb", label: "load balancer", x: 50, y: 10, w: 18 },
+  { id: "redir", label: "redirect servisi", sub: "stateless", x: 74, y: 10, w: 22 },
+  { id: "cache", label: "Redis", sub: "code → uzun URL", x: 74, y: 30, w: 18, kind: "queue" },
+  { id: "db", label: "key-value DB", sub: "code boʻyicha shard", x: 74, y: 50, w: 22, kind: "store" },
+  { id: "create", label: "yaratish servisi", sub: "ID oraliqlari", x: 26, y: 32, w: 20 },
+  { id: "events", label: "click event'lari", sub: "log / stream → analitika", x: 46, y: 52, w: 26, kind: "queue" }
+]} edges={[
+  { from: "user", to: "cdn" }, { from: "cdn", to: "lb" }, { from: "lb", to: "redir" }, { from: "redir", to: "cache" }, { from: "cache", to: "db", dashed: true, label: "miss" }, { from: "lb", to: "create" }, { from: "create", to: "db" }, { from: "redir", to: "events", dashed: true, label: "async" }
+]} caption="Redirect'lar hech qachon analitikani kutmaydi: click event'lari asinxron chiqariladi." />
+
+## Mexanizm
+
+### 1. Talablar
+
+Funksional: uzun URL uchun qisqa havola yaratish (ixtiyoriy maxsus alias, muddat); qisqadan uzunga redirect; oddiy click analitikasi. Nofunksional: server tomonida redirect'lar p99 ~50 ms dan past, yuqori mavjudlik (redirect nosozliklari hamma joydagi havolalarni buzadi), havolalar hech qachon toʻqnashmaydi, suiiste'moldan himoya (spam/phishing).
+
+### 2. Baholash
+
+- Yozishlar: oyiga 100 M yangi havola ≈ oʻrtacha 40 yozish/s (choʻqqi ~10× → 400/s).
+- Oʻqishlar: 100:1 → oʻrtacha ~4 000 redirect/s, choʻqqi ~40 000/s.
+- Saqlash: har yozuvga ~500 B × yiliga 1.2 mlrd havola ≈ yiliga 600 GB (replication'dan oldin) — shard qilingan key-value store yoki bir nechta ma'lumotlar bazasi shard'i.
+- ID maydoni: 7 belgili base62 (a–z, A–Z, 0–9) = 62⁷ ≈ 3.5 × 10¹² kod — bu tezlikda asrlarga yetadi.
+
+### 3. API
+
+```text
+POST /api/links        { url, alias?, expiresAt? }  →  201 { code, shortUrl }
+GET  /{code}           →  302 Location: <uzun URL>     (har click analitikasi kerak boʻlmasa 301)
+GET  /api/links/{code}/stats  →  { clicks, byDay, byCountry }
+```
+
+### 4. ID generatsiyasi (chuqur tahlil)
+
+- **URL'ni hash qilish** (masalan, hash'ning birinchi 7 ta base62 belgisi): deterministik, lekin toʻqnashuvlarni aniqlash va hal qilish kerak, turli foydalanuvchilardan kelgan bir xil URL bitta kodga tushadi (ba'zan xohlanadi, ba'zan yoʻq).
+- **Global hisoblagich → base62**: toʻqnashuvlar yoʻq; bitta hisoblagich bottleneck, shuning uchun har bir yaratish servisi nusxasi koordinatordan (DB sequence, ZooKeeper/etcd) **oraliq ijaraga oladi** (masalan, 1 000 000 ID). Ketma-ket kodlarni taxmin qilish mumkin — sanab chiqish muhim boʻlsa, ularni bijektiv permutatsiya bilan aralashtiring.
+- **Tasodifiy 7 belgili kodlar**: sodda, lekin toʻqnashuvlarni tekshirish kerak (noyoblik cheklovi bilan insert va retry).
+
+### 5. Oʻqish yoʻli
+
+Redirect servisi `code`ni Redis'da qidiradi, miss boʻlsa DB'ga murojaat qilib, cache'ni toʻldiradi. Mashhur havolalarni CDN'da ham cache qilish mumkin. **302 va 301**: 301 (doimiy) brauzerlar tomonidan cache'lanadi, shuning uchun keyingi click'lar sizga yetib kelmasligi mumkin — kamroq request, lekin har click analitikasini yoʻqotasiz va maqsadni oʻzgartira olmaysiz; 302 har bir click'ni koʻrinadigan saqlaydi.
+
+### 6. Analitika
+
+Redirect handler click event'ini (code, timestamp, mamlakat, user agent) log/stream'ga asinxron chiqaradi va darhol javob beradi. Iste'molchilar time-series/OLAP store'ga agregatsiya qiladi; sanoqlar eventual consistent.
+
+## Kod
+
+```ts
+const ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+function toBase62(n: bigint): string {
+  let s = "";
+  do { s = ALPHABET[Number(n % 62n)] + s; n /= 62n; } while (n > 0n);
+  return s.padStart(7, "0");
+}
+
+// Har bir nusxa ID'lar blokini ijaraga oladi, shuning uchun yaratish har request'da muvofiqlashtirishni talab qilmaydi
+class IdAllocator {
+  private next = 0n; private end = 0n;
+  async nextId(): Promise<bigint> {
+    if (this.next >= this.end) {
+      const start = await db.leaseRange("links", 1_000_000);   // atomik UPDATE … RETURNING
+      this.next = start; this.end = start + 1_000_000n;
+    }
+    return this.next++;
+  }
+}
+
+async function redirect(code: string): Promise<Response> {
+  const url = (await redis.get(`l:${code}`)) ?? (await loadAndCache(code));
+  if (!url) return new Response("Not found", { status: 404 });
+  emitClick({ code, at: Date.now() });                          // event stream'ga yuborib unutish
+  return new Response(null, { status: 302, headers: { Location: url } });
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Xuddi shu skelet — qisqa ID + key-value store + cache + asinxron analitika — paste bin'lar, taklif havolalari, QR kod redirect'lari va kuzatuv havolalariga mos keladi. Ortiqcha murakkablashtirmang: soniyasiga bir nechta request'da `code` boʻyicha indeksli bitta relyatsion ma'lumotlar bazasi va kichik cache — toʻgʻri javob; har bir qismni qachon qoʻshishingizni ayting.
+
+## Trade-off'lar
+
+| Qaror | Tanlov | Nega |
+| --- | --- | --- |
+| ID sxemasi | ijaraga olingan hisoblagich oraliqlari + base62 | toʻqnashuvsiz, har request'da muvofiqlashtirishsiz |
+| Redirect statusi | 302 | analitikani saqlaydi; trafik narxi ustun boʻlsa 301 |
+| Saqlash | code boʻyicha shard qilingan key-value | bitta key qidiruvlari, tekis taqsimlash |
+| Analitika | asinxron event stream | redirect'lar tez qoladi; sanoqlar eventual consistent |
+| Suiiste'mol | yaratishda URL obroʻsini tekshirish, foydalanuvchi/IP boʻyicha rate limit | spam/phishing'ni manbaida toʻxtatish |
+
+## Senior nuance
+
+- **Issiq havolalar** (viral tweet) trafikni bitta key'ga jamlaydi: CDN caching va jarayon ichidagi cache'lar uni yutadi; key'ni cache shard'lari boʻylab replikatsiya qiling.
+- **Maxsus alias'lar** yaratilgan kodlar bilan bitta nomlar maydonini boʻlishadi — ularni noyoblik cheklovi bilan band qiling va yaratilgan kodlarni kesishmaydigan maydonda saqlang (masalan, boshqa uzunlik).
+- **Muddat va oʻchirish** cache va CDN yozuvlarini invalidate qilishi shart; brauzerlar allaqachon cache qilgan 301 javoblarni bekor qilib boʻlmaydi — havolalar oʻzgarishi mumkin boʻlganda 302'ni afzal koʻrishning yana bir sababi.
+- **Ma'lumotlarni saqlash**: click event'lari IP/user agent'larni oʻz ichiga oladi — maxfiylik qoidalari uchun saqlash muddati va anonimlashtirishni belgilang.
+
+## Interview savollari
+
+<QA q="Qisqa kodga nechta belgi kerak?" level="mid">
+Tizimning butun umri davomidagi jami havolalarni baholang va kod maydoni ancha katta boʻladigan uzunlikni tanlang: base62 bilan 6 belgi ≈ 5.7 × 10¹⁰, 7 belgi ≈ 3.5 × 10¹² kod. Yiliga ~1.2 mlrd havola bilan 7 belgi ming yillarga yetadi va tasodifiy kod toʻqnashuvi ehtimolini past saqlaydi.
+</QA>
+
+<QA q="Redirect'lar uchun 301 yoki 302?" level="mid">
+301 doimiy va brauzer hamda proxy'lar tomonidan cache'lanadi: serverlaringizga kamroq request, lekin keyingi click'lar sizga hech qachon yetmasligi mumkin (analitika yoʻq) va maqsadni oʻzgartirib boʻlmaydi. 302 (yoki 307) vaqtinchalik: har bir click servisingizga uriladi, koʻproq trafik evaziga analitika, muddat va maqsad oʻzgarishlarini imkon qiladi.
+</QA>
+
+<QA q="Bottleneck'siz koʻp serverlar boʻylab noyob ID'larni qanday yaratasiz?" level="senior">
+Oraliqlarni oldindan ajrating: har bir server koordinatordan (DB sequence yoki konsensus store) ID'lar blokini atomik ijaraga oladi va ularni lokal beradi, tugaganda yangi blok ijaraga oladi. Muqobillar: Snowflake uslubidagi ID'lar (timestamp + mashina ID + ketma-ketlik) yoki noyoblik cheklovi va retry bilan tasodifiy kodlar. Base62'da kodlang va ixtiyoriy ravishda kodlar ketma-ket boʻlmasligi uchun bijektiv aralashtirish qoʻllang.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "62⁷ taxminan…", options: ["3.5 × 10⁹", "3.5 × 10¹²", "6.2 × 10⁷", "10¹⁵"], answer: 1, explain: "62⁷ ≈ 3.52 × 10¹²." },
+  { q: "Nega click analitikasi asinxron chiqariladi?", options: ["saqlashni tejash uchun", "redirect'lar analitika yozishlari bilan sekinlashmasligi uchun", "consistency uchun", "HTTP talab qiladi"], answer: 1, explain: "Redirect — latency uchun muhim yoʻl." },
+  { q: "100:1 oʻqish va 40 yozish/s bilan oʻrtacha redirect/s ≈", options: ["400", "4 000", "40 000", "40"], answer: 1, explain: "40 × 100 = 4 000." }
+]} />
+
+## Resurslar
+
+<Resources topic="system-design/url-shortener" />

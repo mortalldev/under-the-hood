@@ -1,0 +1,137 @@
+## TL;DR
+
+Rate limiting caps how many requests a client (user, API key, IP, tenant) may make per unit of time, protecting availability, cost and fairness. Four classic algorithms: **fixed window** (simple, bursty at window edges), **sliding window log** (exact, memory-heavy), **sliding window counter** (good approximation, cheap), and **<Term id="token-bucket" />** (allows controlled bursts, smooth long-run rate). In a distributed system, the counter must be **shared and updated atomically** (e.g. atomic Redis `INCR`), and rejected clients get **HTTP 429** with a hint when to retry.
+
+## Visual model
+
+```text
+fixed window (limit 5/min)        sliding window counter               token bucket (cap 3, 1 token/s)
+|·····|·····|                      weight previous window by overlap    ███  burst of 3 allowed
+ ^^^^^^^^^^ 10 requests within      ≈ prev × (1 − elapsed) + current     then 1 per second
+ 2 s across the boundary — allowed  smooth, O(1) memory per key          bounded burst + steady rate
+```
+
+## Mechanism
+
+Watch a token bucket with capacity 3 refilling at 1 token per second. The initial burst passes, then requests are admitted only as tokens refill — the long-run rate can never exceed the refill rate.
+
+<TokenBucketViz />
+
+**Lazy refill**: the bucket doesn't need a timer. On each request compute `tokens = min(capacity, tokens + elapsed × rate)`, then try to spend one. State per key is two numbers (tokens, last timestamp).
+
+**Leaky bucket** is the mirror image: requests enter a queue that drains at a fixed rate — it **smooths** output (useful in front of a fragile downstream) instead of allowing bursts.
+
+**Where to enforce**: at the edge (API gateway / CDN) for coarse protection and DDoS, in services for business limits (per plan, per endpoint), and **client-side** with backoff so well-behaved clients don't hammer you.
+
+## Code
+
+```ts
+// 1) Token bucket in one Node.js process — exact, O(1) memory per key, no timers (lazy refill)
+class TokenBucket {
+  private tokens: number;
+  private last = Date.now();
+  constructor(private capacity: number, private ratePerSec: number) {
+    this.tokens = capacity;
+  }
+  tryTake(now = Date.now()): boolean {
+    this.tokens = Math.min(this.capacity, this.tokens + ((now - this.last) / 1000) * this.ratePerSec);
+    this.last = now;
+    if (this.tokens < 1) return false;
+    this.tokens -= 1;
+    return true;
+  }
+  /** Seconds until one token is available — for the Retry-After header. */
+  retryAfter(): number {
+    return Math.max(0, Math.ceil((1 - this.tokens) / this.ratePerSec));
+  }
+}
+
+const buckets = new Map<string, TokenBucket>();   // evict idle keys in production (e.g. an LRU)
+export function allowLocal(key: string, capacity = 10, rate = 5) {
+  let b = buckets.get(key);
+  if (!b) buckets.set(key, (b = new TokenBucket(capacity, rate)));
+  return { ok: b.tryTake(), retryAfter: b.retryAfter() };
+}
+```
+
+```ts
+// 2) Shared limit across many servers: sliding window counter in Redis (ioredis client).
+// INCR is atomic on the Redis server, so two app servers can never both read "9" and write "10".
+import Redis from "ioredis";
+const redis = new Redis(process.env.REDIS_URL!);
+
+export async function allowShared(key: string, limit: number, windowSec: number): Promise<boolean> {
+  const now = Date.now() / 1000;
+  const current = Math.floor(now / windowSec);
+  const curKey = `rl:${key}:${current}`;
+  const prevKey = `rl:${key}:${current - 1}`;
+  const results = await redis
+    .multi()                                  // one round trip, commands run back to back
+    .incr(curKey)
+    .expire(curKey, windowSec * 2)
+    .get(prevKey)
+    .exec();
+  const cur = Number(results?.[0]?.[1] ?? 0);
+  const prev = Number(results?.[2]?.[1] ?? 0);
+  const elapsed = (now % windowSec) / windowSec;          // 0..1 into the current window
+  const estimate = prev * (1 - elapsed) + cur;            // weight the previous window by overlap
+  return estimate <= limit;
+}
+
+// Express-style middleware
+export async function rateLimit(req: Req, res: Res, next: () => void) {
+  const key = req.user?.id ?? req.ip;
+  if (await allowShared(key, 100, 60)) return next();
+  res.setHeader("Retry-After", "60");
+  res.status(429).json({ error: "rate_limited" });
+}
+```
+
+## When to use / when not to
+
+**Token bucket** for public APIs where short bursts are fine (page load fetches several resources) but sustained abuse is not. **Sliding window counter** when you need "N per minute" semantics without edge bursts. **Leaky bucket / queue** to protect a downstream that can only process at a fixed rate. **Concurrency limits** (max in-flight requests) when the cost is time-in-server, not request count.
+
+Rate limiting is not authentication or authorization, and it doesn't replace capacity planning; it is a fairness and protection layer.
+
+## Trade-offs
+
+| Algorithm | Memory per key | Burst behaviour | Accuracy |
+| --- | --- | --- | --- |
+| Fixed window | 1 counter | up to 2× at boundaries | coarse |
+| Sliding window log | one timestamp per request | exact | exact |
+| Sliding window counter | 2 counters | smoothed | approximate |
+| Token bucket | 2 numbers | bounded by capacity | exact for its model |
+| Leaky bucket (queue) | queue | none (smooths) | exact; adds latency |
+
+## Senior nuance
+
+- **Atomicity**: GET + SET from application code races under concurrency — two servers both see 1 token and both admit. Use atomic server-side operations (`INCR` with expiry inside `MULTI`, as above), a server-side Redis script, or a dedicated limiter service.
+- **Fail open or closed?** If the limiter's store is down, failing open preserves availability but removes protection; failing closed protects the backend but causes an outage. Decide per endpoint (login: closed; reads: open) and alert.
+- **Multi-region**: global exact limits require cross-region coordination; usually limits are enforced per region with a share of the global quota, accepting small overshoot.
+- **Communicate limits**: 429 with `Retry-After` (standardised in RFC 6585 and HTTP semantics); IETF has been standardising `RateLimit` headers — check the current status before relying on them.
+
+## Interview questions
+
+<QA q="Design a rate limiter for an API with 10 million users." level="senior">
+Clarify the limit dimensions (per user/API key/IP/endpoint, per plan), the rate and burst. Enforce at the API gateway and/or a middleware calling a shared Redis cluster sharded by key; implement a sliding window counter (or token bucket) with atomic Redis operations and TTLs so idle keys expire. Return 429 with Retry-After. Handle Redis failure with a local in-memory fallback limiter (fail-open for reads), monitor rejection rates, and use per-region quotas for multi-region deployments. Memory: 10 M active keys × ~100 B ≈ 1 GB — fits easily.
+</QA>
+
+<QA q="Fixed window vs sliding window — what's the problem with fixed windows?" level="mid">
+Counts reset at window boundaries, so a client can send a full window's quota at the end of one window and again at the start of the next — up to 2× the limit within a short interval. Sliding windows (log or weighted counter) evaluate the last N seconds at any moment and avoid the boundary burst.
+</QA>
+
+<QA q="Token bucket vs leaky bucket?" level="mid">
+Token bucket admits requests as long as tokens remain, allowing bursts up to its capacity while bounding the average rate. Leaky bucket queues requests and releases them at a constant rate, producing smooth output with no bursts but adding queueing delay — useful to protect a downstream that needs a steady pace.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Token bucket, capacity 3, refill 1/s, empty at t=0. How many requests can pass at t=2.5?", options: ["0", "1", "2", "3"], answer: 2, explain: "2.5 tokens accumulated → two whole tokens to spend." },
+  { q: "Two app servers read the same Redis counter, then both write +1. Risk?", options: ["none", "over-admitting due to a race", "under-admitting", "Redis crash"], answer: 1, explain: "Read-modify-write must be atomic." },
+  { q: "HTTP status for 'rate limited'…", options: ["403", "429", "503", "418"], answer: 1, explain: "429 Too Many Requests, ideally with Retry-After." }
+]} />
+
+## Resources
+
+<Resources topic="system-design/rate-limiting" />

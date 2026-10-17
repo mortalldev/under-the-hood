@@ -1,0 +1,139 @@
+## TL;DR
+
+TypeScript 2025–2026 yillarda oldingi besh yildagidan koʻproq oʻzgardi. **TypeScript 6.0** (2026 yil mart) — TypeScript'da yozilgan oxirgi kompilyator. U zamonaviy standartlarni yoqadi (`strict: true`, `module: esnext`, `target` = eng yangi ES, `types: []`) va eski opsiyalarni deprecated qiladi (`target: es5`, `baseUrl`, `moduleResolution: node10`, AMD/UMD/SystemJS chiqishi). **TypeScript 7.0** (2026 yil iyul) — xuddi shu type checker'ning **Go'ga koʻchirilgan** versiyasi: bir xil `tsc` buyrugʻi bilan toʻliq build'lar taxminan 8–12× tezroq, lekin hozircha dasturiy API yoʻq. Shu bilan birga **Node `.ts` fayllarni toʻgʻridan-toʻgʻri ishga tushiradi** — bu <Term id="type-stripping" /> orqali ishlaydi, <Term id="erasable-syntax-only" /> ham aynan shu sababdan mavjud.
+
+## Vizual model
+
+```text
+                     TS 5.x (2023–25)            TS 6.0 (2026 mart)                   TS 7.0 (2026 iyul)
+kompilyator          JavaScript                  JavaScript (oxirgisi)                Go, native, parallel checker'lar
+strict standarti     oʻchiq                      YOQIQ                                YOQIQ
+target standarti     es5                         eng yangi (es2025)                   eng yangi
+deprecated           —                           es5, baseUrl, node10, amd/umd,       olib tashlangan (qat'iy xatolar)
+                                                 outFile, module kalit soʻzli namespace'lar
+dasturiy API         bor                         bor                                  hali yoʻq (7.1'da rejalashtirilgan)
+
+TypeScript'ni ishga tushirish:  tsc → JS → node     va     node app.ts (turlar oʻchiriladi, TEKSHIRILMAYDI)
+                     bundler (esbuild/Vite/Turbopack) ham turlarni oʻchiradi — `tsc --noEmit` bilan alohida tekshiring
+```
+
+## Mexanizm
+
+**Nega Go'ga koʻchirildi?** Checker CPU va xotiraga bogʻliq, bitta thread'li JS runtime'ida esa u umumiy xotirali parallelizmdan foydalana olmaydi. Mavjud kodni qayta yozmasdan Go'ga koʻchirish xatti-harakatni mos saqlab qoladi, native tezlik va bir nechta type-checker thread'larini (`--checkers`) qoʻshadi. TS jamoasi katta ochiq kodli loyihalarda toʻliq build 7.7× dan 11.9× gacha tezlashganini e'lon qilgan. VS Code repo'sida muharrir birinchi xatoni koʻrsatishi ~17.5 s dan 1.3 s dan kamga tushgan.
+
+**Hali nima koʻchmaydi.** TS 7.0 dasturiy API'siz chiqdi. Kompilyatorni ichiga oladigan vositalar (Vue/Svelte/Astro/MDX til vositalari, Angular shablonlari, language-service plugin'lari, maxsus transformer'lar) hozircha 6.0'da qoladi. `@typescript/typescript6` paketi `tsc6` binary bilan yonma-yon oʻrnatiladi. Bu saytning oʻzi ham TypeScript 6'da qoladi, chunki type-puzzle tekshiruvchisi kompilyator API'sidan foydalanadi.
+
+**5.x → 6 → 7 migratsiyasi.** Avval 6.0'da `ignoreDeprecations`'**siz** va `--stableTypeOrdering` bilan toza build oling. Bu flag 6.0'da turlarni 7.0 kabi tartiblaydi, shunda xato xabarlari mos keladi. Shundan keyin 7.0 xuddi shunday type-check qilishga moʻljallangan. Odatiy tuzatishlar:
+- `types` endi standart boʻyicha `[]`, shuning uchun `"types": ["node"]` qoʻshing
+- `baseUrl` path hiylalarini `paths` yoki paket `imports` (`#/...`) bilan almashtiring
+- `moduleResolution`'ni `bundler` yoki `nodenext` ga oʻtkazing
+- `module Foo {}` ni `namespace Foo {}` bilan almashtiring
+- `import ... assert {}` ni `with {}` bilan almashtiring
+
+**Type stripping.** Node 24 `node app.ts`'ni type annotatsiyalarini boʻsh joy bilan almashtirib bajaradi. Hech narsa type-check qilinmaydi va kod generatsiya qilinmaydi, shuning uchun faqat **oʻchiriladigan** (erasable) sintaksis ishlaydi. **Enum**'lar, **runtime kodli namespace**'lar, **parameter property**'lar (`constructor(private x: number)`) va eski decorator'lar kod generatsiyasini talab qiladi, shuning uchun Node `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` tashlaydi. `"erasableSyntaxOnly": true` (TS 5.8+) ni yoqing — kompilyator ularni oldindan belgilab beradi. Enum oʻrniga `as const` obyektlardan foydalaning.
+
+**Bilish kerak boʻlgan yangi til xususiyatlari:**
+- `satisfies` (4.9): kengaytirmasdan tekshirish.
+- `const` type parameter'lar (5.0)
+- `using` e'lonlari (5.2)
+- `NoInfer<T>` (5.4): bitta argumentdan inference'ni bloklash.
+- **Xulosa qilingan type predicate'lar** (5.5): `filter((x) => typeof x === "string")` endi `string[]` gacha toraytiradi.
+- `--isolatedDeclarations` (5.5): tez `.d.ts` emit.
+- `--rewriteRelativeImportExtensions` (5.7): `./x.ts` import'larini yozib, `./x.js` emit qilish.
+
+## Kod
+
+```ts
+// 1) Enum → oʻchiriladigan muqobil (type stripping va erasableSyntaxOnly ostida ishlaydi)
+export const Status = { Active: "active", Banned: "banned" } as const;
+export type Status = (typeof Status)[keyof typeof Status];        // "active" | "banned"
+function canLogin(s: Status) { return s === Status.Active; }
+
+// 2) Parameter property'lar → aniq field'lar
+class User {
+  readonly id: string;
+  constructor(id: string) { this.id = id; }                         // emas: constructor(readonly id: string)
+}
+
+// 3) Xulosa qilingan type predicate'lar (5.5): qoʻlda `x is string` kerak emas
+const mixed = [1, "a", 2, "b"];
+const strings = mixed.filter((x) => typeof x === "string");        // string[]
+
+// 4) NoInfer (5.4): standart qiymat berilgan qiymatlardan biri boʻlishi shart
+function pick<T extends string>(options: T[], fallback: NoInfer<T>): T { return options[0] ?? fallback; }
+pick(["sm", "md", "lg"], "md");          // ok
+// pick(["sm", "md"], "xl");             // xato: "xl" "sm" | "md" ga tayinlanmaydi
+
+// 5) satisfies + const type parameter'lar: literal turlarni saqlash, shaklni baribir tekshirish
+const routes = { home: "/", lesson: "/learn/:section/:lesson" } satisfies Record<string, `/${string}`>;
+function tuple<const T extends readonly unknown[]>(...xs: T) { return xs; }
+const t = tuple("a", 1);                  // readonly ["a", 1]
+```
+
+```jsonc
+// .ts'ni toʻgʻridan-toʻgʻri ishga tushirib, tsc bilan type-check qiladigan zamonaviy Node 24 loyihasi uchun tsconfig.json
+{
+  "compilerOptions": {
+    "target": "es2025",                   // TS 6 standarti baribir eng yangi nashr
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,                       // 6.0+ da standart, oʻquvchilar uchun aniq qoldirilgan
+    "types": ["node"],                    // 6.0 standarti [] — keraklisini roʻyxatga oling
+    "erasableSyntaxOnly": true,           // enum/namespace/parameter property'larni taqiqlash
+    "verbatimModuleSyntax": true,         // `import type` aniq qoladi, stripping'ga mos
+    "rewriteRelativeImportExtensions": true,
+    "noEmit": true                        // .ts'ni node ishga tushiradi; tsc faqat tekshiradi
+  }
+}
+// package.json:  "type": "module",  "scripts": { "start": "node src/server.ts", "check": "tsc" }
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+5.x'da boʻlsangiz, hoziroq **TS 6'ga oʻting**: yangi standartlar baribir koʻp jamoalar qoʻlda oʻrnatadigan sozlamalar. Tezlik darhol oʻzini oqlaydigan katta repo va CI'da CLI type-check uchun **TS 7'ni qabul qiling**. Muharrir integratsiyalari yoki kompilyator API'sini talab qiladigan vositalar uchun 6.0'ni saqlang.
+
+Skriptlar, CLI'lar va build qadamisiz serverlar uchun **`.ts`'ni toʻgʻridan-toʻgʻri Node bilan ishga tushiring**, lekin CI'da `tsc --noEmit` ham ishlating. JSX, metadata'li decorator'lar, mavjud koddagi enum'lar, path alias'lar yoki brauzer chiqishi kerak boʻlsa, **bundler yoki kompilyatorni saqlang**.
+
+## Trade-off'lar
+
+| Tanlov | Yutuq | Narx |
+| --- | --- | --- |
+| TS 7 native | ~10× tezroq tekshiruv, parallel | hali API yoʻq; ba'zi vositalar 6'da qolishi kerak |
+| Node type stripping | build qadamisiz, tez ishga tushish | runtime'da tekshiruv yoʻq; faqat erasable sintaksis |
+| enum oʻrniga `as const` obyektlar | oʻchiriladigan, oddiy JS obyektlar | turlar biroz uzunroq |
+| `strict` yoqiq | null/any bug'larini ushlaydi | eski kodda migratsiya ishi |
+| `types: []` standarti | tezroq, tasodifiy global'lar yoʻq | `node`, `jest` va h.k.ni aniq roʻyxatga olish kerak |
+
+## Senior nuance
+
+- **Turlar oʻchiriladi va hech qachon runtime ma'lumotni tekshirmaydi.** TS versiyasidan qat'i nazar, request'lar, env oʻzgaruvchilar va JSON baribir runtime validatsiyani talab qiladi (schema kutubxonasi yoki qoʻlda yozilgan guard'lar).
+- **6 → 7 oʻtishni bogʻliqlikni yangilash kabi rejalashtiring**: versiyalarni qotiring, oʻtish davrida CI'da ikkala checker'ni ishga tushiring va lint (typescript-eslint) hamda framework vositalari tanlagan versiyangizni qoʻllab-quvvatlashini tekshiring.
+- **`noUncheckedSideEffectImports` endi yoqiq**: fayl topilmasa `import "./polyfills"` xato beradi — ilgari jimgina oʻtib ketadigan xato yozuvlar ushlanadi.
+- **Monorepo'lar eng koʻp foyda koʻradi**: project reference'lar va native parallel tekshiruv type-aware lint va CI uchun "yetarlicha tez" tushunchasini oʻzgartiradi.
+
+## Interview savollari
+
+<QA q="TypeScript 7 jamoa uchun nimani oʻzgartiradi va nimani oʻzgartirmaydi?" level="senior">
+U kompilyator implementatsiyasini oʻzgartiradi: TS 7 — parallel type check'li native Go porti, toʻliq build'lari taxminan 8–12× tezroq. Tilni oʻzgartirmaydi: u stableTypeOrdering bilan TS 6.0 kabi type-check qilishga moʻljallangan. 7.0'da dasturiy API yoʻq, shuning uchun kompilyatorni ichiga oladigan vositalar (ba'zi framework til vositalari, plugin'lar) 6.0'da qoladi, 6.0'ning deprecated opsiyalari esa xatoga aylanadi.
+</QA>
+
+<QA q="Nega `node app.ts` enum'da ishlamaydi va qanday tuzatasiz?" level="mid">
+Node faqat type sintaksisini oʻchiradi, kod generatsiya qilmaydi. Enum runtime obyektini talab qiladi, shuning uchun u oʻchiriladigan emas va Node ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX tashlaydi. Uni `as const` obyekt va union tur bilan almashtiring, kompilyator bunday sintaksisni oldindan belgilashi uchun erasableSyntaxOnly'ni yoqing.
+</QA>
+
+<QA q="TypeScript'ni Node'da toʻgʻridan-toʻgʻri ishga tushirish type xatolari runtime'da ushlanadi degani-mi?" level="mid">
+Yoʻq. Type stripping annotatsiyalarni tekshirmasdan olib tashlaydi; type xatoli dastur baribir ishlaydi. Tekshirish uchun baribir tsc --noEmit (yoki muharrir/CI), ishonchsiz input uchun esa runtime validatsiya kerak.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "TypeScript 6.0'da `strict` standarti…", options: ["false", "true", "olib tashlangan", "warn"], answer: 1, explain: "6.0 strict'ni standart boʻyicha yoqadi." },
+  { q: "Node'ning type stripping'i ostida qaysi sintaksis ishlaydi?", options: ["enum Color { Red }", "constructor(private x: number)", "type Id = string & { __brand: 'id' }", "namespace N { export const a = 1 }"], answer: 2, explain: "Type alias'lar oʻchiriladigan; qolganlari emit qilingan kodni talab qiladi." },
+  { q: "TS 6'ga yangilangandan keyin `process` birdan noma'lum boʻlib qoldi. Nega?", options: ["Node process'ni olib tashladi", "types endi standart boʻyicha [] — \"types\": [\"node\"] qoʻshing", "strict mode", "target es2025"], answer: 1, explain: "Global @types paketlari endi avtomatik kiritilmaydi." },
+  { q: "TS 7 chiqqandan keyin loyiha nega TS 6'da qolishi mumkin?", options: ["TS 7'da type qoidalari boshqacha", "vosita 7.0 hali chiqarmagan kompilyator API'siga bogʻliq", "TS 7 sekinroq", "TS 7 uchun Go oʻrnatish kerak"], answer: 1, explain: "API 7.1'da kutilmoqda; 7.0 npm orqali tarqatiladi va Go toolchain'ni talab qilmaydi." }
+]} />
+
+## Resurslar
+
+<Resources topic="typescript/modern-typescript" />

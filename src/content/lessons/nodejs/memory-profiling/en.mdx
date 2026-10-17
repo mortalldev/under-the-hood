@@ -1,0 +1,108 @@
+## TL;DR
+
+A Node.js <Term id="memory-leak" /> is memory that stays reachable after it stops being useful — usually through a global map, a listener, a timer or a closure. You find it by **comparing heap snapshots** taken under a repeated workload and reading the **retainer chain** of objects whose count keeps growing. CPU problems are found with **CPU profiles** (flame graphs), and service health is tracked with **event-loop delay**, heap used vs. limit, and GC pauses.
+
+## Visual model
+
+```text
+heapUsed
+  ▲            leak: sawtooth with a rising floor           healthy: sawtooth around a flat line
+  │        /\  /\  /\
+  │   /\  /  \/  \/  \/                                        /\  /\  /\  /\
+  │  /  \/                                                    /  \/  \/  \/  \
+  └─────────────────────────▶ time (GC lowers the peaks; only a leak raises the troughs)
+```
+
+## Mechanism
+
+**V8 heap layout**: new objects go to the young generation; survivors are promoted to the old generation, which grows until its limit (default depends on the Node version and available memory; configurable with `--max-old-space-size`). When the heap cannot be reduced below the limit, the process crashes with *"JavaScript heap out of memory"*.
+
+**What a heap snapshot contains**: every object, its **shallow size** (the object itself) and **retained size** (memory that would be freed if it were collected), and the edges that keep it alive. The **retainers** view answers "why is this still in memory?" by walking back to a GC root (global, a module, a timer list, an active handle).
+
+**Three-snapshot technique**: warm up, take snapshot 1; run the suspected operation N times; take snapshot 2; repeat N times; take snapshot 3. Objects allocated between 1 and 2 that **still exist in 3** and whose counts scale with N are the leak.
+
+**Memory that isn't on the JS heap**: `Buffer`s and native addons allocate outside V8's heap (`external` / `arrayBuffers` in `process.memoryUsage()`), and RSS includes code, stacks and allocator fragmentation — a growing RSS with a flat `heapUsed` points there.
+
+## Code
+
+```js
+// Common leak: an unbounded cache keyed by request data
+const cache = new Map();
+app.get("/user/:id", async (req, res) => {
+  if (!cache.has(req.params.id)) cache.set(req.params.id, await loadUser(req.params.id)); // grows forever
+  res.json(cache.get(req.params.id));
+});
+// ✓ Bound it (LRU with max size + TTL) or use an external cache
+
+// Common leak: a listener per request on a long-lived emitter
+app.get("/stream", (req, res) => {
+  const onTick = (t) => res.write(`data: ${t}\n\n`);
+  ticker.on("tick", onTick);
+  req.on("close", () => ticker.off("tick", onTick));   // ✓ without this, every client leaks a closure (and res)
+});
+
+// Instrumentation
+const { monitorEventLoopDelay } = require("node:perf_hooks");
+const h = monitorEventLoopDelay({ resolution: 20 });
+h.enable();
+setInterval(() => {
+  const m = process.memoryUsage();
+  console.log({ p99LagMs: h.percentile(99) / 1e6, heapUsedMB: m.heapUsed / 2 ** 20, rssMB: m.rss / 2 ** 20 });
+  h.reset();
+}, 10_000).unref();
+
+// Snapshots and profiles from the CLI
+//   node --inspect app.js                   → Chrome DevTools: Memory / Performance tabs
+//   node --heapsnapshot-signal=SIGUSR2 app.js   → kill -USR2 <pid> writes a .heapsnapshot
+//   node --cpu-prof app.js                  → writes a .cpuprofile on exit
+//   require("node:v8").writeHeapSnapshot()  → programmatic snapshot (pauses the process!)
+```
+
+## When to use / when not to
+
+**Profile memory** when heap usage has a rising floor across GCs, after OOM crashes, or when latency degrades over uptime. **Profile CPU** when event-loop delay is high or a single endpoint is slow without I/O wait.
+
+**Be careful in production**: a heap snapshot stops the process for its duration (seconds for large heaps) and needs roughly the heap size again in memory. Take it from one instance out of rotation, or reproduce in staging.
+
+## Trade-offs
+
+| Tool | Answers | Cost |
+| --- | --- | --- |
+| `process.memoryUsage()` / metrics | is memory growing? which kind? | negligible |
+| Heap snapshot | what is retained and by whom | pause + memory, sensitive data in file |
+| Allocation timeline / sampling heap profiler | where allocations happen | moderate overhead |
+| CPU profile (`--cpu-prof`) | where CPU time goes | low–moderate |
+| Event-loop delay histogram | is the main thread blocked? | negligible |
+
+## Senior nuance
+
+- **Heap snapshots contain data**: tokens, PII and secrets present in memory end up in the file — handle them as sensitive artefacts.
+- **Container limits**: set `--max-old-space-size` below the container's memory limit (leaving room for Buffers, code and native memory), otherwise the kernel OOM-kills the process before V8 can report anything useful.
+- **"Leaks" that are caches working as designed** — unbounded memoization, ORMs' identity maps, HTTP keep-alive agents with many sockets — still need bounds.
+- **GC pressure ≠ leak**: very high allocation rates cause frequent GCs and CPU overhead even without a leak; reduce allocations in hot paths (reuse buffers, avoid intermediate arrays).
+
+## Interview questions
+
+<QA q="How do you find a memory leak in a Node.js service?" level="senior">
+Confirm it with metrics (heap used rising across GC cycles). Reproduce with a repeatable workload, take three heap snapshots (baseline, after N operations, after 2N), and compare: look for constructors whose counts grow with N, sort by retained size, and follow retainers to the GC root — typically a module-level Map, an event listener, a timer, or a closure context. Fix the ownership (remove listeners, bound caches, clear timers) and verify with the same procedure.
+</QA>
+
+<QA q="RSS keeps growing but heapUsed is flat. What could it be?" level="senior">
+Memory outside the JS heap: Buffers/ArrayBuffers (check process.memoryUsage().external and arrayBuffers), native addons, many open sockets/handles, or allocator fragmentation. Inspect buffer usage (e.g. retained Buffers from streams not consumed), native module behaviour, and handle counts.
+</QA>
+
+<QA q="What does 'retained size' mean in a heap snapshot?" level="mid">
+The total memory that would be freed if that object were garbage-collected: the object itself plus everything reachable only through it. Large retained sizes point to the objects responsible for keeping big subgraphs alive.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "heapUsed shows a sawtooth whose troughs rise over hours. This suggests…", options: ["normal GC", "a leak", "high CPU", "network latency"], answer: 1, explain: "After each GC, more memory remains reachable." },
+  { q: "Taking a heap snapshot in production…", options: ["is free", "pauses the process and may expose secrets", "only works on Linux", "fixes leaks"], answer: 1, explain: "It stops the world and dumps memory contents." },
+  { q: "A per-request ticker.on('tick', fn) without off() leaks because…", options: ["fn is large", "the emitter keeps every fn (and what it closes over) reachable", "GC is disabled", "listeners are global"], answer: 1, explain: "The long-lived emitter's listener array retains each closure." }
+]} />
+
+## Resources
+
+<Resources topic="nodejs/memory-profiling" />

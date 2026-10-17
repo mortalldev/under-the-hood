@@ -1,0 +1,108 @@
+## TL;DR
+
+A cache stores copies of expensive-to-get data closer to where it's used, trading **freshness and memory** for **latency and load**. You must decide four things: **where** (browser, CDN, application, distributed cache, database buffer), **how it's filled** (<Term id="cache-aside" />, read-through, write-through, write-behind), **how it's evicted** (LRU, LFU, TTL), and **how it's invalidated** after writes. Most cache bugs are invalidation bugs; most cache outages are **stampedes** and **hot keys**.
+
+## Visual model
+
+<FlowDiagram height={52} nodes={[
+  { id: "client", label: "browser cache", sub: "Cache-Control, ETag", x: 10, y: 10, w: 18, kind: "client" },
+  { id: "cdn", label: "CDN edge", sub: "static + cacheable API", x: 32, y: 10, w: 18, kind: "edge" },
+  { id: "app", label: "app servers", sub: "in-process LRU", x: 54, y: 10, w: 18 },
+  { id: "redis", label: "distributed cache", sub: "Redis / Memcached", x: 54, y: 32, w: 22, kind: "queue" },
+  { id: "db", label: "database", sub: "buffer pool", x: 84, y: 32, w: 18, kind: "store" }
+]} edges={[
+  { from: "client", to: "cdn" }, { from: "cdn", to: "app" }, { from: "app", to: "redis", label: "1. get" }, { from: "redis", to: "db", dashed: true, label: "2. miss → load" }
+]} caption="Each layer absorbs traffic before it reaches the next. The closer to the user, the faster — and the harder to invalidate." />
+
+## Mechanism
+
+**Cache-aside** (the most common): read from cache; on a miss, read from the DB and populate the cache with a TTL. On write, update the DB, then **delete** (not update) the cache entry — the next read repopulates it. Deleting avoids races where two concurrent writers leave the cache with the older value.
+
+**Write-through**: writes go to the cache and the DB synchronously — cache always warm, writes slower. **Write-behind (write-back)**: writes go to the cache and are flushed to the DB asynchronously — fast writes, risk of data loss. **Read-through**: the cache itself loads missing entries (library or cache-provider feature).
+
+**Eviction**: when memory is full, something must go. **LRU** evicts the least recently used item — a good default for recency-driven access. **LFU** keeps frequently used items even if not recent. **TTL** bounds staleness regardless of memory. Step through LRU:
+
+<LruViz />
+
+**Stampede (dogpile)**: a popular key expires and thousands of requests miss simultaneously, all hitting the DB. Mitigations: **request coalescing** (one loader per key, others wait), **stale-while-revalidate** (serve the stale value while one request refreshes), **probabilistic early expiration** (refresh slightly before TTL with increasing probability), and **jittered TTLs** so keys don't expire together.
+
+## Code
+
+```ts
+// Cache-aside with request coalescing (single flight) and jittered TTL
+const inflight = new Map<string, Promise<unknown>>();
+
+async function getCached<T>(key: string, load: () => Promise<T>, ttlSec = 300): Promise<T> {
+  const hit = await redis.get(key);
+  if (hit !== null) return JSON.parse(hit) as T;
+  const pending = inflight.get(key);
+  if (pending) return pending as Promise<T>;                 // coalesce concurrent misses
+  const p = (async () => {
+    try {
+      const value = await load();
+      const ttl = Math.round(ttlSec * (0.9 + Math.random() * 0.2));   // ±10% jitter
+      await redis.set(key, JSON.stringify(value), "EX", ttl);
+      return value;
+    } finally {
+      inflight.delete(key);
+    }
+  })();
+  inflight.set(key, p);
+  return p;
+}
+
+// Write path: update the source of truth, then invalidate
+async function updateUser(id: string, patch: Partial<User>) {
+  await db.users.update(id, patch);
+  await redis.del(`user:${id}`);
+}
+```
+
+## When to use / when not to
+
+**Cache** read-heavy data with a high hit ratio potential (product pages, profiles, configuration, computed aggregates, session lookups), and expensive computations.
+
+**Don't cache** data that must be strongly consistent on every read (balances during transfers, inventory at checkout) unless you design for it, data with very low reuse, or as a substitute for fixing missing indexes.
+
+## Trade-offs
+
+| Strategy | Read latency | Write latency | Consistency risk | Data-loss risk |
+| --- | --- | --- | --- | --- |
+| Cache-aside | miss is slow | normal | stale until TTL/invalidation | none |
+| Read-through | miss is slow | normal | same as cache-aside | none |
+| Write-through | fast | slower (2 writes) | low | none |
+| Write-behind | fast | fast | low for cached reads | yes, if cache dies before flush |
+
+## Senior nuance
+
+- **Hot keys**: one key receiving a huge share of traffic overloads a single cache shard. Replicate the key across shards with suffixes (`key#1..n`), add a small in-process cache, or use a CDN.
+- **Negative caching**: cache "not found" briefly to stop repeated misses (and enumeration attacks) from hitting the DB.
+- **Cache warming** on deploy/failover prevents a cold cache from sending full traffic to the DB.
+- **Consistency across services**: invalidate via events (outbox → message bus → cache invalidation) rather than every service knowing every key.
+- **Metrics that matter**: hit ratio, p99 latency for hits vs misses, eviction rate, memory fragmentation, and DB load during cache incidents.
+
+## Interview questions
+
+<QA q="Why delete the cache entry on write instead of updating it?" level="senior">
+Concurrent writers can race: writer A updates the DB then writer B updates the DB, but their cache updates arrive B then A, leaving A's older value cached indefinitely. Deleting makes the next read load the current DB value. A small race remains (a reader loads an old value just before the delete and writes it after); TTLs, versioned values, or delayed double-delete narrow it.
+</QA>
+
+<QA q="What is a cache stampede and how do you prevent it?" level="mid">
+Many requests miss the same key at once (usually right after it expires) and all go to the database, potentially overloading it. Prevent with request coalescing/locks per key, serving stale data while one request refreshes, probabilistic early refresh, and TTL jitter so many keys don't expire simultaneously.
+</QA>
+
+<QA q="Design a cache layer for a product catalog with 100k QPS reads." level="senior">
+Put static and semi-static pages behind a CDN with short TTLs plus stale-while-revalidate; use a distributed cache (Redis cluster) with cache-aside for product objects keyed by ID and version, plus a small per-instance LRU for the hottest items; invalidate on product updates via change events; protect against stampedes with single-flight loading and jittered TTLs; replicate hot keys; monitor hit ratio and fall back to serving stale content if the DB is degraded.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "LRU with capacity 2: put a, put b, get a, put c. Which is evicted?", options: ["a", "b", "c", "none"], answer: 1, explain: "get a made a recent, so b is least recently used." },
+  { q: "Write-behind caching risks…", options: ["slow writes", "data loss if the cache fails before flushing", "stampedes only", "nothing"], answer: 1, explain: "The DB is updated asynchronously." },
+  { q: "Thousands of keys created at deploy time all expire at once. Fix?", options: ["longer TTL for all", "jitter TTLs", "disable cache", "write-through"], answer: 1, explain: "Randomised expiry spreads the refresh load." }
+]} />
+
+## Resources
+
+<Resources topic="system-design/caching" />

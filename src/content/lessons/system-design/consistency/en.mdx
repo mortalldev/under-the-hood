@@ -1,0 +1,99 @@
+## TL;DR
+
+"Consistency" is a spectrum of guarantees about what readers can see after writes. At the strong end, <Term id="linearizability" />: the system behaves as if there were one copy and every operation happened at a single instant. At the weak end, <Term id="eventual-consistency" />: replicas converge if writes stop. **CAP** says that during a network **partition** you must choose between consistency (linearizability) and availability; **PACELC** adds that even without partitions you trade **latency vs consistency**. <Term id="quorum">Quorums</Term> (R + W > N) are the classic knob in replicated stores.
+
+## Visual model
+
+```text
+strong ◀───────────────────────────────────────────────────────────────▶ weak
+linearizable   sequential   causal   read-your-writes / monotonic reads   eventual
+(one copy)     (one order)  (cause before effect)  (per-session guarantees) (converges eventually)
+
+Quorum, N = 3 replicas:
+W = 2, R = 2  →  R + W = 4 > 3   every read set overlaps the latest write set
+W = 1, R = 1  →  fast, but a read may miss the latest write
+```
+
+## Mechanism
+
+**Why partitions force a choice**: replicas in two partitions can't communicate. If a client writes to one side and another reads from the other side, the system must either refuse one of the operations (**CP**: consistent, not available on the minority side) or accept both and reconcile later (**AP**: available, may return stale data or conflicting writes). Without a partition you can have both — CAP is about failure behaviour, not about choosing two of three in normal operation.
+
+**PACELC**: if Partition → choose A or C; Else → choose Latency or Consistency. Synchronous cross-region replication gives consistency but every write pays the round trip; asynchronous gives low latency but stale reads.
+
+**Quorums**: with N replicas, a write is acknowledged after W replicas accept it; a read queries R replicas and takes the newest version. If R + W > N, the read set and write set intersect, so at least one replica in every read has the latest acknowledged write (assuming no concurrent writes and correct version ordering). Sloppy quorums and hinted handoff trade this guarantee for availability during failures.
+
+**Linearizability needs consensus**: leader election, distributed locks and unique constraints across nodes need agreement protocols (Raft, Paxos) or a single leader per key; these require a majority to be reachable — which is CP.
+
+## Code
+
+```ts
+// Optimistic concurrency: detect lost updates without locks (compare-and-set on a version)
+async function updateBalance(id: string, delta: number) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { balance, version } = await db.accounts.get(id);
+    const ok = await db.accounts.updateWhere(
+      { id, version },                                // only if nobody changed it meanwhile
+      { balance: balance + delta, version: version + 1 },
+    );
+    if (ok) return;
+  }
+  throw new Error("too much contention");
+}
+
+// Idempotency key: retries of the same request don't apply twice
+async function charge(req: { idempotencyKey: string; amount: number }) {
+  const prev = await db.payments.findByKey(req.idempotencyKey);
+  if (prev) return prev;                              // same result as the first attempt
+  return db.payments.create({ key: req.idempotencyKey, amount: req.amount });  // unique index on key
+}
+```
+
+## When to use / when not to
+
+**Strong consistency** for money movements, inventory reservations, uniqueness (usernames), permissions, leader election — anything where two conflicting truths cause real damage.
+
+**Eventual consistency** for feeds, like counts, view counters, recommendations, search indexes, analytics, caches — where a short delay is invisible or acceptable, and availability/latency matter more.
+
+Often you mix: strongly consistent core (orders) + eventually consistent projections (search, emails, analytics) via events.
+
+## Trade-offs
+
+| Model | Guarantees | Costs |
+| --- | --- | --- |
+| Linearizable | latest value, single global order | coordination, latency, unavailable on minority partition |
+| Causal | effects after causes for everyone | metadata (vector clocks), complexity |
+| Read-your-writes / monotonic | per-user sanity | routing/session tracking |
+| Eventual | convergence | stale reads, conflicts to resolve |
+
+## Senior nuance
+
+- **"CP" or "AP" labels for databases are oversimplified**: most systems are tunable per operation (quorum levels, read concerns) and degrade in specific ways. Describe the behaviour you need instead of the label.
+- **Conflict resolution** in AP systems: last-write-wins silently drops writes (and depends on clocks); CRDTs merge deterministically (counters, sets); application-level merges ask the user.
+- **Clocks lie**: wall-clock timestamps across machines drift; ordering by timestamp is unsafe without bounded-uncertainty clocks or logical clocks (Lamport, vector clocks, hybrid logical clocks).
+- **Exactly-once is an illusion at the network level**: build idempotent operations + deduplication to get exactly-once *effects*.
+
+## Interview questions
+
+<QA q="Explain the CAP theorem correctly." level="mid">
+In a distributed system that may suffer network partitions, when a partition happens you must choose, for operations that span it, between consistency (every read sees the latest write — linearizability) and availability (every request to a non-failed node gets a response). Partitions are not optional in real networks, so the practical choice is CP or AP behaviour during partitions; without partitions you can provide both.
+</QA>
+
+<QA q="With N = 5 replicas, which R and W give strongly consistent reads?" level="mid">
+Any with R + W > N, e.g. W = 3, R = 3 (balanced), W = 5, R = 1 (fast reads, slow and fragile writes), or W = 1, R = 5. Also W > N/2 avoids two concurrent writes both succeeding on disjoint sets. The choice shifts latency and availability between reads and writes.
+</QA>
+
+<QA q="How do you prevent double-charging when a client retries a payment request?" level="senior">
+Make the operation idempotent: the client sends a unique idempotency key per logical payment; the server stores the key with the result under a unique constraint, and a retry with the same key returns the stored result instead of charging again. Combine with optimistic concurrency or transactions for the balance update, and propagate the key to downstream processors.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "N = 3, W = 1, R = 1. Reads are…", options: ["always latest", "possibly stale", "impossible", "linearizable"], answer: 1, explain: "R + W = 2 ≤ 3, so read and write sets may not overlap." },
+  { q: "PACELC's 'ELC' means…", options: ["Else: Latency vs Consistency", "Eventual Linearizable Consistency", "Error Leader Commit", "nothing"], answer: 0, explain: "Without partitions you still trade latency for consistency." },
+  { q: "Like counts on a social feed are typically…", options: ["linearizable", "eventually consistent", "sequential", "never cached"], answer: 1, explain: "Small delays are acceptable; availability and latency matter more." }
+]} />
+
+## Resources
+
+<Resources topic="system-design/consistency" />

@@ -1,0 +1,129 @@
+## TL;DR
+
+<Term id="two-pointers" /> replaces "check every pair" (O(n²)) with two indices that move according to a rule. The rule is correct only if **each move provably eliminates candidates that cannot be the answer** — on sorted input that argument is easy, which is why "sorted + pair" is the strongest signal.
+
+## Visual model
+
+Two shapes cover almost every problem:
+
+```text
+opposite ends (converge)          same direction (fast/slow, read/write)
+ l →               ← r             slow →   fast →→
+[1, 2, 4, 7, 11, 15]              [1, 1, 2, 2, 3]  → write unique values at slow
+```
+
+## Mechanism
+
+For a pair sum on a sorted array, start with the smallest (`l`) and largest (`r`) values:
+
+- If `nums[l] + nums[r] < target`, then `nums[l]` paired with the **largest remaining** value is still too small, so `nums[l]` paired with anything smaller is too small as well. `nums[l]` cannot be in any answer → `l++`.
+- Symmetrically, if the sum is too big, `nums[r]` is useless → `r--`.
+
+Each step discards one element forever, so there are at most n steps. Step through it and watch the muted (eliminated) region grow:
+
+<TwoPointersViz />
+
+The same-direction variant keeps an <Term id="invariant" />: "everything left of `slow` is the final answer so far". `fast` scans; when it finds something worth keeping, it is written at `slow` and `slow` advances.
+
+## Code
+
+```ts
+// Opposite ends: pair with target sum in a sorted array
+function twoSumSorted(nums: number[], target: number): [number, number] | null {
+  let l = 0, r = nums.length - 1;
+  while (l < r) {
+    const sum = nums[l] + nums[r];
+    if (sum === target) return [l, r];
+    if (sum < target) l++; else r--;
+  }
+  return null;
+}
+
+// Same direction: remove duplicates in place, return new length
+function dedupe(nums: number[]): number {
+  let slow = 0;
+  for (let fast = 0; fast < nums.length; fast++) {
+    if (fast === 0 || nums[fast] !== nums[fast - 1]) nums[slow++] = nums[fast];
+  }
+  return slow; // nums[0..slow) is the answer
+}
+
+// 3Sum: fix one element, two-pointer the rest, skip duplicates
+function threeSum(nums: number[]): number[][] {
+  nums.sort((a, b) => a - b);
+  const out: number[][] = [];
+  for (let i = 0; i < nums.length - 2; i++) {
+    if (i > 0 && nums[i] === nums[i - 1]) continue;
+    let l = i + 1, r = nums.length - 1;
+    while (l < r) {
+      const s = nums[i] + nums[l] + nums[r];
+      if (s < 0) l++;
+      else if (s > 0) r--;
+      else {
+        out.push([nums[i], nums[l], nums[r]]);
+        while (l < r && nums[l] === nums[l + 1]) l++;
+        while (l < r && nums[r] === nums[r - 1]) r--;
+        l++; r--;
+      }
+    }
+  }
+  return out;
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- Sorted array (or you may sort) + find a pair/triplet with a target relation.
+- Palindromes, reversing in place, merging two sorted arrays.
+- "In place", "O(1) extra space", "remove/partition elements".
+- Container With Most Water–style "area between two lines": move the pointer at the shorter line, because the shorter side caps every area it could still form.
+
+**When not to**
+- Unsorted input and you must return original indices → hash map (sorting loses indices unless you carry them).
+- Need *counts* of subarrays with a sum and negatives are present → prefix sums.
+- The decision of which pointer to move is not justified by an elimination argument — then it is a guess, not an algorithm.
+
+## Trade-offs
+
+| Approach | Time | Space | Keeps original indices? |
+| --- | --- | --- | --- |
+| Brute force pairs | O(n²) | O(1) | yes |
+| Hash map | O(n) | O(n) | yes |
+| Sort + two pointers | O(n log n) | O(1)–O(log n) | no (unless you sort index pairs) |
+| Two pointers on already-sorted input | O(n) | O(1) | yes |
+
+## Senior nuance
+
+- **Prove the move.** Interviewers often ask "why can you move l?". The answer is always an elimination argument; say it before coding.
+- **Duplicates** are where 3Sum/4Sum solutions fail: skip equal neighbours at the outer loop *and* after recording a hit.
+- **`Array.prototype.sort` without a comparator sorts numbers as strings** (`[10, 9, 1].sort()` → `[1, 10, 9]`). Always pass `(a, b) => a - b`.
+- **k-Sum generalises** to O(n^(k−1)) by recursion down to 2Sum; mention it, but do not implement it unless asked.
+
+## Interview questions
+
+<QA q="Why is moving the shorter line correct in Container With Most Water?" level="mid">
+Area = width × min(height[l], height[r]). Width only decreases as pointers move. If height[l] is the shorter line, every container that keeps l and moves r inward has smaller width and height still capped by height[l], so none can beat the current area. Discarding l is therefore safe; moving the taller one can never help.
+</QA>
+
+<QA q="3Sum in better than O(n²)?" level="senior">
+Not meaningfully. Known improvements only shave logarithmic factors off n², and the 3SUM conjecture — widely used as a hardness assumption — states that no O(n^(2−ε)) algorithm exists. Sorting plus two pointers gives O(n²) time and O(1) extra space, which is the expected answer.
+</QA>
+
+<QA q="Merge two sorted arrays in place when the first has enough trailing space." level="mid">
+Fill from the back: pointers at the last real elements of both arrays and a write pointer at the very end; place the larger of the two each step. Writing backwards never overwrites an unread element of the first array. O(n + m), O(1) extra.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Sorted array, sum too small. Which move is justified?", options: ["r--", "l++", "both", "restart"], answer: 1, explain: "nums[l] with the largest remaining value is still too small, so nums[l] can be discarded." },
+  { q: "[10, 9, 1].sort() in JavaScript returns…", options: ["[1, 9, 10]", "[1, 10, 9]", "[10, 9, 1]", "TypeError"], answer: 1, explain: "Default sort compares string representations." },
+  { q: "Valid Palindrome ignoring non-alphanumerics: pointers start…", options: ["both at 0", "at both ends, skipping non-alphanumerics", "in the middle", "with a hash map"], answer: 1, explain: "Converge from both ends; skip characters that do not count." }
+]} />
+
+**Classic problems:** Valid Palindrome (Easy) · Two Sum II - Input Array Is Sorted (Medium) · 3Sum (Medium) · Container With Most Water (Medium) · Remove Duplicates from Sorted Array (Easy) · Trapping Rain Water (Hard).
+
+## Resources
+
+<Resources topic="dsa/two-pointers" />

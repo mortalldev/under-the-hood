@@ -1,0 +1,72 @@
+
+## TL;DR
+
+Every lesson follows the same ten-part shape, every animation is driven by a recorded list of algorithm states, and the fastest way to make it stick is to **predict before you press "next"**.
+
+## Why mechanisms, not definitions
+
+Interviewers at senior level rarely stop at "what is X". The follow-up is almost always "why does it behave like that?" or "what breaks if…?". A memorised definition gives you one sentence; a mental model of the mechanism lets you derive the answer to a follow-up you have never seen.
+
+So each topic is explained at the level where the behaviour comes from. For example, a closure is not "a function inside a function" here — it is a function object that keeps a reference to the lexical environment it was created in, which is why that environment cannot be garbage-collected while the function is reachable.
+
+## The lesson shape
+
+| Part | What it gives you |
+| --- | --- |
+| TL;DR | One or two sentences you could say out loud in an interview |
+| Visual model | The static picture to keep in your head |
+| Mechanism | A step-by-step animation of what happens inside |
+| Code | A reference implementation in TypeScript |
+| When to use / when not to | Recognition signals and anti-patterns |
+| Trade-offs | Time/space complexity, performance, maintainability |
+| Senior nuance | Production gotchas, edge cases, real bugs |
+| Interview questions | Typical questions, follow-ups, what the interviewer is checking |
+| Exercise | Something you do, not something you read |
+| Resources | Verified official docs and courses for going deeper |
+
+## How the animations work
+
+Every animation on this site is produced by a <Term id="step-generator" />: a <Term id="pure-function" /> that runs the real algorithm and records a snapshot after each meaningful step. The player only renders those snapshots.
+
+```ts
+interface Step<State> {
+  state: State;        // full snapshot: array, pointers, stack, queue…
+  line: number;        // code line to highlight
+  explain: { en: string; uz: string }; // why this step happens
+}
+
+function* run(input: number[]): Generator<Step<{ i: number }>> {
+  for (let i = 0; i < input.length; i++) {
+    yield { state: { i }, line: 2, explain: { en: "visit i", uz: "i ga kirish" } };
+  }
+}
+```
+
+Because logic and UI are separated, three useful things follow:
+
+1. You can step **backwards** — going back is just showing the previous snapshot, nothing is "undone".
+2. The animation is testable: the last snapshot must equal the result of the plain algorithm.
+3. With reduced motion enabled, every step is still readable as text; nothing is lost.
+
+Try it — press **Play**, or step with ← / →. Change the input and press **Run**; every step is also available as text under “All steps as text”.
+
+<BinarySearchViz />
+
+## How to study with it
+
+- **Predict, then step.** Before each "next", say what the state will be. When you are wrong, that is the most valuable moment of the lesson.
+- **Use <Term id="active-recall" />.** After a lesson, close it and write the TL;DR and the template from memory.
+- **Use <Term id="spaced-repetition" />.** Come back to a topic after a day, then after a few days, then after a week or two. Re-deriving it each time is the point.
+- **Explain out loud.** Interviews test spoken reasoning. Narrate the mechanism as if to an interviewer.
+
+## About accuracy
+
+Version-dependent behaviour (framework APIs, caching rules, runtime details) is checked against the current official documentation before it is written. When something cannot be verified, it is marked explicitly:
+
+<Callout kind="unverified" title="Needs verification">
+Blocks like this one mark claims that have not been confirmed against an official source yet.
+</Callout>
+
+## Terms stay in English
+
+In the Uzbek version, technical terms such as closure, event loop, microtask, reconciliation or backpressure are kept in English — those are the words you will hear in interviews and read in documentation. Hover or focus a dotted term to see a short definition.

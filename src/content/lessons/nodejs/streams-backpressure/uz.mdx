@@ -1,0 +1,118 @@
+## TL;DR
+
+Stream'lar ma'lumotni **chunk-chunk** qayta ishlaydi, shuning uchun 10 GB fayl hech qachon xotiraga sigʻishi shart emas. <Term id="backpressure" /> — destination manbadan sekinroq boʻlganda buni toʻgʻri saqlab turadigan fikr-mulohaza: `writable.write()` ichki buffer'i <Term id="high-water-mark" />'ga yetgach **`false`** qaytaradi va producer **`'drain'`** event'igacha toʻxtashi shart. Bu signalni e'tiborsiz qoldirsangiz, buffer — va jarayoningiz xotirasi — cheksiz oʻsadi. `pipeline()` backpressure, xatolar va tozalashni siz uchun ulaydi.
+
+## Vizual model
+
+```text
+readable ──chunk'lar──▶ [ writable buffer ░░░░░░▓▓ | highWaterMark ] ──▶ disk / socket (sekin)
+                          write() → true   buffer < highWaterMark ekan
+                          write() → false  buffer ≥ highWaterMark boʻlganda   → producer toʻxtaydi
+                          'drain'          buffer boʻshaganda                → producer davom etadi
+```
+
+## Mexanizm
+
+`write()` qaytargan qiymatni hurmat qiladigan producer'ni uni e'tiborsiz qoldiradigani bilan solishtiring. Eng katta buffer'ni kuzating: birinchi holatda `highWaterMark` atrofida chegaralangan, ikkinchisida chiziqli oʻsadi.
+
+<BackpressureViz />
+
+Muhim tafsilotlar:
+- `write()`ning `false` qaytarishi — rad etish emas, **iltimos**: chunk qabul qilingan va buffer'ga olingan. Yozishda davom etsangiz darhol hech narsa buzilmaydi — shunchaki xotira oʻsadi.
+- **Readable tomon**: flowing mode'dagi readable stream oʻz buffer'i `highWaterMark`ga yetguncha ma'lumot itaradi; `pipe`/`pipeline` writable signallari asosida `pause()`/`resume()` chaqiradi (yoki oʻqishni toʻxtatadi), shuning uchun backpressure fayl deskriptori yoki socket'gacha — TCP uchun esa masofaviy joʻnatuvchi window'igacha — butun yoʻl boʻylab qaytadi.
+- `highWaterMark` sukut boʻyicha **bayt**'larda — Node 22 dan beri Windows boʻlmagan platformalarda 64 KiB, Windows'da 16 KiB (`stream.getDefaultHighWaterMark()` aytib beradi) — yoki object mode'da **obyektlar soni** (sukut boʻyicha 16).
+- **Xatolar va tozalash**: `.pipe()` bilan bitta stream'dagi xato boshqalarini yoʻq qilmaydi — fayl deskriptorlari va socket'lar leak boʻladi. `pipeline()` barcha stream'larni yoʻq qiladi va callback'ni bir marta chaqiradi (yoki promise'ni rad etadi).
+
+## Kod
+
+```js
+const { pipeline } = require("node:stream/promises");
+const fs = require("node:fs");
+const zlib = require("node:zlib");
+
+// ✓ Bitta qatorda backpressure + xatolarni hal qilish + tozalash
+await pipeline(
+  fs.createReadStream("big.log"),
+  zlib.createGzip(),
+  fs.createWriteStream("big.log.gz"),
+);
+
+// ✓ Transform qadami sifatida async generator (u ham backpressure'ni hurmat qiladi)
+await pipeline(
+  fs.createReadStream("events.ndjson"),
+  async function* (source) {
+    let buf = "";
+    for await (const chunk of source) {
+      buf += chunk;
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const line of lines) if (line.includes("ERROR")) yield line + "\n";
+    }
+  },
+  fs.createWriteStream("errors.ndjson"),
+);
+
+// Qoʻlda toʻgʻri yozish
+async function writeMany(ws, rows) {
+  for (const row of rows) {
+    if (!ws.write(JSON.stringify(row) + "\n")) {
+      await new Promise((resolve) => ws.once("drain", resolve));   // buffer boʻshashini kutish
+    }
+  }
+  ws.end();
+}
+
+// HTTP: faylni client'ga stream qilish — sekin client'lar avtomatik backpressure qoʻllaydi
+// http.createServer((req, res) => pipeline(fs.createReadStream(path), res).catch(() => {}));
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Stream'lardan foydalaning**: katta yoki cheksiz ma'lumot uchun (fayllar, yuklashlar, log'lar, ma'lumotlar bazasi eksportlari, proxy'lar), transformatsiya pipeline'lari uchun (siqish, shifrlash, parse qilish) va birinchi baytgacha vaqt muhim boʻlganda (natijani ishlab chiqarilishi bilan yuborish).
+
+**Stream qilmang**: xotiraga oson sigʻadigan kichik payload'larni — `await fs.readFile` va `JSON.parse` soddaroq va koʻpincha tezroq.
+
+**Afzal koʻring**: `.pipe()` zanjirlari va qoʻlda `'data'` listener'lari oʻrniga `pipeline`ni (yoki `for await` + `'drain'`ni kutadigan bitta yozuvchini).
+
+## Trade-off'lar
+
+| Yondashuv | Xotira | Xatolarni hal qilish | Murakkablik |
+| --- | --- | --- | --- |
+| Butun faylni xotiraga oʻqish | O(fayl hajmi) | sodda | eng past |
+| `.pipe()` zanjiri | chegaralangan | har stream uchun qoʻlda; xatoda leak | past |
+| `stream.pipeline` | chegaralangan | avtomatik destroy + bitta callback/promise | past |
+| `'data'` listener + return'ni e'tiborsiz `write` | chegaralanmagan | qoʻlda | aldamchi past |
+| Web Streams (`ReadableStream`) | chegaralangan | oʻrnatilgan, brauzer/fetch'da ham | oʻrta |
+
+## Senior nuance
+
+- **Object mode** bayt'larni emas, obyektlarni sanaydi: 16 ta ulkan obyekt baribir koʻp xotira boʻlishi mumkin — `highWaterMark`ni ma'lumotingizga moslab oʻrnating.
+- **Stream'lardagi async iterator'lar** (`for await (const chunk of readable)`) loop tanangiz await qilayotganda manbani toʻxtatadi — iste'molchilar uchun backpressure olishning sodda usuli.
+- **HTTP javoblari — writable'lar**: client sekin boʻlganda `res.write` false qaytaradi; stream qilish oʻrniga katta javoblarni xotirada quradigan servislar sekin client'lar ostida OOM'ga duch keladi.
+- **Node va Web Streams oʻzaro ishlaydi** (`Readable.fromWeb`, `Readable.toWeb`); `fetch` body'lari — Web Streams.
+
+## Interview savollari
+
+<QA q="Node stream'larida backpressure nima?" level="mid">
+Sekinroq iste'molchi tezroq producer'ni sekinlashtiradigan mexanizm. Writable kelayotgan chunk'larni buffer'ga oladi va buffer'dagi miqdor highWaterMark'ga yetgach write() false qaytaradi; producer toʻxtab, 'drain'da davom etishi kerak. pipe/pipeline buni readable'ni toʻxtatish orqali avtomatik implementatsiya qiladi, shuning uchun ma'lumot hajmidan qat'i nazar xotira chegaralangan qoladi.
+</QA>
+
+<QA q="Nega pipe oʻrniga pipeline ishlatiladi?" level="mid">
+pipe() ma'lumotni uzatadi va backpressure'ni hal qiladi, lekin xatolarni emas: biror stream xato bersa, boshqalari yoʻq qilinmaydi, fayl deskriptorlari yoki socket'lar ochiq qoladi va har bir stream'da error handler kerak. pipeline() stream'larni backpressure bilan ulaydi, xato yoki tugashda hammasini yoʻq qiladi va bitta xatoni callback yoki promise orqali xabar qiladi.
+</QA>
+
+<QA q="Sekin client'larga katta CSV eksport qilganda Node servisining xotirasi oʻsadi. Tashxis qoʻying." level="senior">
+Ehtimol eksport qatorlarni javobga write()'ning qaytgan qiymatini hurmat qilmasdan yozadi (yoki butun CSV'ni xotirada quradi). Sekin client'lar bilan javob buffer'i har qator bilan oʻsadi. Ma'lumotlar bazasi kursoridan transform orqali javobga pipeline bilan stream qilib tuzating, shunda socket tiqilganda DB oʻqish toʻxtaydi; shuningdek parallellikni cheklang va timeout'lar qoʻying.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "write() false qaytardi. Siz uzatgan chunk…", options: ["tashlab yuborildi", "buffer'ga olindi — 'drain'gacha yozishni toʻxtating", "avtomatik qayta uriniladi", "xato tashlaydi"], answer: 1, explain: "false — rad etish emas, toʻxtash iltimosi." },
+  { q: "Object-mode stream uchun sukut boʻyicha highWaterMark…", options: ["16 obyekt", "16 KiB", "64 KiB", "cheksiz"], answer: 0, explain: "Object mode obyektlarni sanaydi." },
+  { q: ".pipe() zanjirining oʻrta stream'ida xato yuz beradi. Qoʻshimcha kodsiz…", options: ["barcha stream'lar yoʻq qilinadi", "boshqa stream'lar ochiq qolishi mumkin (leak)", "jarayon qayta ishga tushadi", "ma'lumot qayta uriniladi"], answer: 1, explain: "pipeline() aynan shuni tuzatish uchun mavjud." }
+]} />
+
+## Resurslar
+
+<Resources topic="nodejs/streams-backpressure" />

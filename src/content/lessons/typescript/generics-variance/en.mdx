@@ -1,0 +1,104 @@
+## TL;DR
+
+<Term id="generics" /> let one definition work for many types **while keeping the relationship between them** — `identity<T>(x: T): T` promises the output has the input's type. Constraints (`T extends …`) say what a type must support. <Term id="variance" /> answers "if `Dog` is a subtype of `Animal`, is `Box<Dog>` a subtype of `Box<Animal>`?" — and the answer depends on whether `Box` **produces** T (covariant), **consumes** T (contravariant), or both (invariant).
+
+## Visual model
+
+```text
+Dog ⊂ Animal
+
+producer:  () => Dog        ⊂  () => Animal          covariant  (same direction)
+consumer:  (a: Animal) => void ⊂ (d: Dog) => void    contravariant (reversed!)
+both:      { get(): T; set(v: T): void }  — neither  invariant
+
+A function that accepts ANY animal can safely stand in for one that accepts only dogs.
+A function that accepts only dogs CANNOT stand in where any animal may be passed.
+```
+
+## Mechanism
+
+**Inference**: at a call site the compiler unifies argument types with parameter types to solve for T. Constraints are checked after inference; if inference picks a wider type than you wanted, you can annotate the call (`f<Literal>(…)`) or use `const` type parameters.
+
+**Why parameters are contravariant**: suppose `handleDog: (d: Dog) => void` were assignable to `(a: Animal) => void`. A caller holding the wider type may pass a `Cat`, and `handleDog` would read `d.bark()` on a cat — a runtime crash. With `strictFunctionTypes` TypeScript rejects that assignment for function-typed properties.
+
+**Arrays are treated covariantly** (`Dog[]` assignable to `Animal[]`), which is technically unsound for writes (`animals.push(cat)` into a dog array). TypeScript accepts that for practicality; `readonly Dog[]` is genuinely safe to treat covariantly.
+
+**Variance annotations**: since TS 4.7 you can mark type parameters `out T` (covariant), `in T` (contravariant) or `in out T` (invariant) on type aliases/interfaces/classes. They document intent and can speed up checking of large types.
+
+## Code
+
+```ts
+// Constraint: T must have a length
+function longest<T extends { length: number }>(a: T, b: T): T {
+  return a.length >= b.length ? a : b;
+}
+longest("ab", "abc");        // T = string
+longest([1, 2], [3]);        // T = number[]
+
+// Relating two type parameters
+function getProp<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+const n = getProp({ a: 1, b: "x" }, "a");   // number
+
+// Generic with a default
+interface ApiResponse<T = unknown> { data: T; status: number }
+
+// Variance annotations document intent
+interface Producer<out T> { get(): T }
+interface Consumer<in T> { accept(value: T): void }
+
+// Method vs function-property syntax: bivariant vs contravariant checks
+interface Bad { handle(x: Dog): void }          // method syntax: checked bivariantly
+interface Good { handle: (x: Dog) => void }     // property syntax: checked contravariantly
+```
+
+## When to use / when not to
+
+**Use generics when** a type parameter connects inputs to outputs (containers, utilities, data fetching helpers, event emitters keyed by event name).
+
+**Don't use generics when** the parameter appears once and connects nothing: `function f<T>(x: T): void` is just `(x: unknown) => void`. "Generics that only appear once are probably wrong" is a good rule.
+
+**Avoid over-constraining**: `T extends object` when you only read one property makes call sites harder for no benefit; constrain to exactly what you use.
+
+## Trade-offs
+
+| Approach | Safety | Flexibility | Readability |
+| --- | --- | --- | --- |
+| `any` | none | maximal | easy, dangerous |
+| `unknown` + narrowing | high | caller must narrow | explicit |
+| Overloads | precise per signature | limited combinations | verbose |
+| Generics | high, keeps relations | high | can get dense |
+
+## Senior nuance
+
+- **Inference sites**: TypeScript infers T from the "best" candidate positions; putting T in a callback parameter first can produce `unknown`. `NoInfer<T>` (TS 5.4) marks positions that should not participate in inference.
+- **Distributivity** of generic conditional types over unions (`T extends U ? X : Y` with a naked T) is a feature that sometimes surprises — wrap in `[T]` to disable it.
+- **Invariance in mutable containers** is the safe default; if your API only reads, expose `readonly`/`ReadonlyArray` to get covariance legitimately.
+- **Generic React components** (`function List<T>(props: { items: T[]; render: (t: T) => ReactNode })`) preserve item types through render props — a frequent senior-level ask.
+
+## Interview questions
+
+<QA q="Explain covariance and contravariance with an example." level="senior">
+If Dog ⊂ Animal, a producer of Dogs can be used where a producer of Animals is expected (covariant: the relation is preserved), e.g. () => Dog ⊂ () => Animal. A consumer is the opposite: a function accepting any Animal can stand in for one accepting Dogs, so (a: Animal) => void ⊂ (d: Dog) => void (contravariant). A type that both reads and writes T must be invariant.
+</QA>
+
+<QA q="Why does TypeScript allow Dog[] to be assigned to Animal[] if it's unsound?" level="senior">
+Arrays are both read and written, so strictly they should be invariant. TypeScript deliberately treats them covariantly because most code only reads, and invariance would make common patterns painful. The hole is that pushing a Cat into what is really a Dog[] type-checks. readonly arrays remove that hole.
+</QA>
+
+<QA q="What does `K extends keyof T` buy you in getProp?" level="mid">
+It restricts K to actual keys of T, so typos are compile errors, and the return type T[K] is the precise property type rather than a union of all property types. The relationship between the two arguments is what generics are for.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which is assignable to (d: Dog) => void under strictFunctionTypes?", options: ["(a: Animal) => void", "(p: Poodle) => void", "both", "neither"], answer: 0, explain: "Parameters are contravariant: accepting more is safe." },
+  { q: "function wrap<T>(x: T): void — what's wrong?", options: ["nothing", "T appears once: it adds nothing over unknown", "T must extend object", "missing return type"], answer: 1, explain: "A type parameter should relate at least two positions." },
+  { q: "interface Box<in out T> marks T as…", options: ["covariant", "contravariant", "invariant", "bivariant"], answer: 2, explain: "Both in and out ⇒ invariant." }
+]} />
+
+## Resources
+
+<Resources topic="typescript/generics-variance" />

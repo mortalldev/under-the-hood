@@ -1,0 +1,101 @@
+## TL;DR
+
+Most React performance problems are **state placement** problems: state that lives too high re-renders too much; state duplicated in two places drifts apart. Classify state first — **server cache** (data owned by the backend), **URL state**, **form state**, **local UI state**, **shared client state** — and give each its natural home. Then **measure** with the React Profiler before optimising anything.
+
+## Visual model
+
+<DecisionTree title="Where should this state live?" start="q1" nodes={[
+  { id: "q1", question: "Is it a copy of data that lives on the server?", options: [{ label: "Yes", next: "server" }, { label: "No", next: "q2" }] },
+  { id: "server", answer: "Server cache", detail: "Fetch in Server Components, or use a data-fetching cache (TanStack Query, SWR, framework loaders). Don't copy it into useState — you'll fight staleness." },
+  { id: "q2", question: "Should a reload, a shared link or the back button restore it?", options: [{ label: "Yes", next: "url" }, { label: "No", next: "q3" }] },
+  { id: "url", answer: "URL (search params / route segments)", detail: "Filters, pagination, selected tab, search query." },
+  { id: "q3", question: "Is it only used by one component or a small subtree?", options: [{ label: "Yes", next: "local" }, { label: "No", next: "q4" }] },
+  { id: "local", answer: "Local state (useState / useReducer), colocated", detail: "Lift it only as far as the nearest common parent that needs it." },
+  { id: "q4", question: "Does it change rarely (theme, locale, current user)?", options: [{ label: "Yes", next: "context" }, { label: "No — it updates often", next: "store" }] },
+  { id: "context", answer: "Context", detail: "Cheap for rarely changing values. Every consumer re-renders when the value changes." },
+  { id: "store", answer: "External store with selectors (Zustand, Redux Toolkit, Jotai…)", detail: "Components subscribe to slices via useSyncExternalStore, so only those whose slice changed re-render." }
+]} />
+
+## Mechanism
+
+**Context propagation**: when a provider's `value` changes (by `Object.is`), every component that reads that context re-renders, regardless of `memo`. A provider value created inline (`value={{ user, setUser }}`) is a new object every render of the provider's parent — so all consumers re-render even if nothing changed.
+
+**External stores with selectors** keep state outside React. Components subscribe through `useSyncExternalStore(subscribe, getSnapshot)`; React re-renders a component only when **its selected snapshot** changes, and the API guarantees consistent snapshots during concurrent rendering (no tearing).
+
+**The Profiler** records each commit: which components rendered, how long they took ("actual duration"), what an ideal memoized render would cost ("base duration"), and — with the setting enabled — *why* each component rendered (props changed, state, hooks, parent).
+
+## Code
+
+```tsx
+// ✗ Unstable provider value → every consumer re-renders on every parent render
+<AuthContext.Provider value={{ user, logout }}>{children}</AuthContext.Provider>
+
+// ✓ Stable value (or split state and actions into two contexts)
+const value = useMemo(() => ({ user, logout }), [user, logout]);
+<AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+
+// Store with selector: only components whose slice changed re-render
+const useCart = create<{ items: Item[]; add: (i: Item) => void }>((set) => ({
+  items: [],
+  add: (i) => set((s) => ({ items: [...s.items, i] })),
+}));
+const count = useCart((s) => s.items.length);       // re-renders only when the count changes
+
+// Measuring in code (also usable in production profiling builds)
+<Profiler id="Feed" onRender={(id, phase, actualMs) => { if (actualMs > 16) report(id, phase, actualMs); }}>
+  <Feed />
+</Profiler>
+
+// Derived state: compute, don't store
+const visible = todos.filter((t) => (filter === "done" ? t.done : true));   // not useState + useEffect sync
+```
+
+## When to use / when not to
+
+**Don't reach for a global store first.** Most apps need: a server-cache library (or Server Components), URL state for navigation-like state, and local state. A global client store is for genuinely shared, frequently changing client state (editors, multi-step builders, real-time dashboards).
+
+**Optimise renders only after profiling** shows them as a cost. Common real bottlenecks: long lists (virtualise), layout thrashing, large bundles, unoptimised images, and request waterfalls.
+
+## Trade-offs
+
+| Approach | Re-render scope | Boilerplate | Good for |
+| --- | --- | --- | --- |
+| Local state | the component + children | none | most UI state |
+| Lifted state | common parent subtree | props drilling | small shared state |
+| Context | all consumers on any change | low | rarely changing values |
+| Store + selectors | only subscribers whose slice changed | medium | frequently changing shared state |
+| Server cache library | components using that query | medium | remote data, dedupe, revalidation |
+| URL state | route segment | low | shareable/restorable state |
+
+## Senior nuance
+
+- **Duplicated state is the root of many bugs**: storing both `items` and `selectedItem` objects drifts when items update — store `selectedId` and derive.
+- **`useReducer`** centralises complex transitions and makes them testable as pure functions; the dispatch identity is stable.
+- **Virtualisation** (render only visible rows) beats memoization for lists of thousands of items.
+- **Performance budgets** (e.g. INP under 200 ms at p75) give the team a definition of "fast enough" so optimisation is driven by user-facing metrics, not micro-benchmarks.
+
+## Interview questions
+
+<QA q="Why can Context cause performance issues, and how do you fix them?" level="mid">
+Every consumer re-renders when the provider value changes, and memo doesn't stop it. Inline object values change on every render. Fixes: memoize the value, split state and dispatch/actions into separate contexts, split contexts by concern, or move frequently changing state into a store with selectors.
+</QA>
+
+<QA q="How would you find why a page feels slow on typing?" level="senior">
+Record with the React Profiler while typing: look for commits with long actual durations and which components rendered and why. Check the browser Performance panel for long tasks, layout and style recalculation. Typical fixes: colocate the input's state so the big tree doesn't re-render, useDeferredValue/transition for the expensive result list, virtualise long lists, memoize expensive children with stable props.
+</QA>
+
+<QA q="Server state vs client state — why separate them?" level="senior">
+Server state is a cache of data owned elsewhere: it can be stale, needs refetching, deduplication, invalidation after mutations, and loading/error states. Client state is owned by the UI and is always authoritative. Treating server data as client state (copying into useState/global stores) creates synchronization bugs; dedicated caches or Server Components handle its lifecycle.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "A filter that should survive reloads and be shareable belongs in…", options: ["useState", "Context", "the URL", "localStorage only"], answer: 2, explain: "URL state is restorable and shareable by design." },
+  { q: "value={{ user }} on a provider inside a component that re-renders often causes…", options: ["nothing", "all consumers to re-render each time", "a hook error", "stale context"], answer: 1, explain: "A new object each render changes the context value." },
+  { q: "10 000-row list is slow even with memo. Best next step?", options: ["more memo", "virtualise the list", "useCallback", "Context"], answer: 1, explain: "Render only the rows on screen." }
+]} />
+
+## Resources
+
+<Resources topic="react/state-performance" />

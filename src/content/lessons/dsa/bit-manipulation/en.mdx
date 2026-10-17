@@ -1,0 +1,109 @@
+## TL;DR
+
+Treat an integer as a vector of bits and a few identities become superpowers: `x & (x − 1)` clears the lowest set bit, `x & −x` isolates it, `a ^ a = 0` cancels pairs, and an n-bit mask enumerates all 2ⁿ subsets. Know **two's complement** and JavaScript's 32-bit quirks, and bit problems turn from tricks into reasoning.
+
+## Visual model
+
+```text
+ x      = 1011 0100      (180)
+ x − 1  = 1011 0011      subtracting 1 flips the lowest 1 and every 0 below it
+ x & (x−1) = 1011 0000   → the lowest set bit is gone
+ x & −x    = 0000 0100   → only the lowest set bit remains (−x = ~x + 1)
+```
+
+## Mechanism
+
+Watch why the trick works — the two rows agree above the lowest 1-bit and disagree from it down, so AND clears exactly that bit. Each iteration removes one 1-bit, so counting bits takes as many steps as there are ones, not as many as there are bits.
+
+<PopcountViz />
+
+**Two's complement**: the negative of x is `~x + 1`. That is why `x & −x` isolates the lowest set bit — everything above it is inverted (AND gives 0), the bit itself survives.
+
+**XOR**: commutative, associative, `a ^ a = 0`, `a ^ 0 = a`. XOR-ing all numbers cancels every pair — the survivor is the single unpaired value.
+
+## Code
+
+```ts
+const isPowerOfTwo = (x: number) => x > 0 && (x & (x - 1)) === 0;
+const lowestBit = (x: number) => x & -x;
+const hasBit = (x: number, i: number) => ((x >>> i) & 1) === 1;
+const setBit = (x: number, i: number) => x | (1 << i);
+const clearBit = (x: number, i: number) => x & ~(1 << i);
+
+function singleNumber(nums: number[]): number {
+  return nums.reduce((acc, x) => acc ^ x, 0);            // pairs cancel
+}
+
+function countBits(n: number): number[] {               // dp: bits(i) = bits(i >> 1) + (i & 1)
+  const res = new Array<number>(n + 1).fill(0);
+  for (let i = 1; i <= n; i++) res[i] = res[i >> 1] + (i & 1);
+  return res;
+}
+
+function subsetsByMask(nums: number[]): number[][] {
+  const out: number[][] = [];
+  for (let mask = 0; mask < 1 << nums.length; mask++) {
+    out.push(nums.filter((_, i) => mask & (1 << i)));
+  }
+  return out;
+}
+
+// Iterate all submasks of a mask (used in bitmask DP): O(3ⁿ) over all masks
+// for (let s = mask; s > 0; s = (s - 1) & mask) { … }
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- "Appears once / twice / three times", "missing number", "single number".
+- "Power of two", "count set bits", "reverse bits", "Hamming distance".
+- Sets over a small universe (n ≤ 20–25): visited masks, feature flags, bitmask DP.
+- Arithmetic without `+`: XOR is addition without carry; `(a & b) << 1` is the carry.
+
+**When not to**
+- Clarity matters more than micro-speed in application code — `Set` is often clearer than a mask.
+- Numbers exceed 32 bits in JavaScript — bitwise operators truncate; use `BigInt` (`1n << 40n`).
+
+## Trade-offs
+
+| Representation | Membership | Union / intersection | Universe size |
+| --- | --- | --- | --- |
+| `Set<number>` | O(1) average | O(n) | unlimited |
+| 32-bit mask | O(1) | O(1) (OR, AND) | ≤ 32 |
+| `BigInt` mask | O(words) | O(words) | unlimited, slower |
+| `Uint32Array` bitset | O(1) | O(n/32) | large, fast |
+
+## Senior nuance
+
+- **JavaScript bitwise operators work on 32-bit signed integers**: `1 << 31` is negative, `2 ** 32 | 0 === 0`. Use `>>>` (unsigned right shift) to read bits, and `>>> 0` to view a result as unsigned.
+- **Single Number II** (every other number appears three times): count each bit position modulo 3, or use the `ones/twos` state-machine trick.
+- **Bitmask DP** cost is O(2ⁿ · n) states-times-transitions; n = 20 → ~2 × 10⁷, fine; n = 30 → too big.
+- Bit tricks appear in real systems: permission flags, Bloom filters, compact bitmaps in databases (roaring bitmaps), and Fenwick trees.
+
+## Interview questions
+
+<QA q="Find the missing number in 0..n with O(1) space." level="mid">
+XOR all indices 0..n with all values; every present number cancels with its index, leaving the missing one. Alternatively n(n+1)/2 − sum, which is also O(1) space (watch overflow in fixed-width languages).
+</QA>
+
+<QA q="Add two integers without + or −." level="senior">
+Repeat: `sum = a ^ b` (addition without carry), `carry = (a & b) << 1`; set `a = sum`, `b = carry` until carry is 0. In JavaScript the bitwise operators work on 32-bit integers, so negatives work automatically and the loop always terminates (with BigInt there is no 32-bit wrap, so you would have to mask with `& 0xffffffffn`).
+</QA>
+
+<QA q="Two numbers appear once, all others twice. Find both." level="senior">
+XOR everything → x = a ^ b (non-zero since a ≠ b). Take any set bit of x, e.g. x & −x; it differs between a and b. Partition all numbers by that bit and XOR each group separately: each group's result is one of the two numbers.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "x & (x − 1) === 0 for x > 0 means…", options: ["x is odd", "x is a power of two", "x is zero", "x is negative"], answer: 1, explain: "Clearing the only set bit leaves zero." },
+  { q: "In JavaScript, 1 << 31 is…", options: ["2147483648", "−2147483648", "0", "Infinity"], answer: 1, explain: "Bitwise operators produce signed 32-bit integers." },
+  { q: "XOR of [4, 1, 2, 1, 2] is…", options: ["0", "4", "10", "1"], answer: 1, explain: "1 and 2 cancel in pairs; 4 remains." }
+]} />
+
+**Classic problems:** Single Number (Easy) · Number of 1 Bits (Easy) · Counting Bits (Easy) · Reverse Bits (Easy) · Missing Number (Easy) · Sum of Two Integers (Medium) · Single Number II (Medium).
+
+## Resources
+
+<Resources topic="dsa/bit-manipulation" />

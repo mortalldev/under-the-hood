@@ -1,0 +1,102 @@
+## TL;DR
+
+A minimum spanning tree connects all V nodes with V − 1 edges of minimum total weight. Both classic algorithms are greedy and both are justified by the <Term id="cut-property" />: **Kruskal** sorts edges and adds the cheapest one that joins two different components (union-find); **Prim** grows one tree, always adding the cheapest edge leaving it (heap).
+
+## Visual model
+
+```text
+cut: split nodes into S and V∖S. Among edges crossing the cut, the lightest one is safe —
+     some MST contains it. Kruskal's components and Prim's tree are just two ways to pick cuts.
+```
+
+## Mechanism
+
+Kruskal processes edges from cheapest to most expensive. An edge whose endpoints are already in the same component would close a cycle — rejected. Otherwise it is the cheapest edge crossing the cut between those two components, so it is safe — accepted. Stop after V − 1 accepted edges.
+
+<KruskalViz />
+
+Why the cut property holds: suppose an MST T does not contain the lightest crossing edge e. Adding e to T creates a cycle that must cross the cut again through some edge f with weight ≥ w(e). Replacing f with e gives a spanning tree no heavier than T. So some MST contains e.
+
+## Code
+
+```ts
+function kruskal(n: number, edges: [number, number, number][]): number {
+  edges.sort((a, b) => a[2] - b[2]);
+  const dsu = new DSU(n);
+  let total = 0, used = 0;
+  for (const [u, v, w] of edges) {
+    if (dsu.union(u, v)) { total += w; if (++used === n - 1) break; }
+  }
+  return used === n - 1 ? total : -1;            // −1: graph is disconnected
+}
+
+// Prim on a dense graph (e.g. all points in the plane): O(V²) without a heap
+function primDense(points: [number, number][]): number {
+  const n = points.length;
+  const best = new Array<number>(n).fill(Infinity);
+  const inTree = new Array<boolean>(n).fill(false);
+  best[0] = 0;
+  let total = 0;
+  for (let k = 0; k < n; k++) {
+    let u = -1;
+    for (let i = 0; i < n; i++) if (!inTree[i] && (u === -1 || best[i] < best[u])) u = i;
+    inTree[u] = true;
+    total += best[u];
+    for (let v = 0; v < n; v++) {
+      if (inTree[v]) continue;
+      const d = Math.abs(points[u][0] - points[v][0]) + Math.abs(points[u][1] - points[v][1]);
+      if (d < best[v]) best[v] = d;
+    }
+  }
+  return total;
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**: "connect all … with minimum total cost", "minimum cost to connect all points/cities", network/cable/road design, clustering (remove the k − 1 heaviest MST edges to get k clusters).
+
+**When not to**: shortest path between two nodes (an MST path is **not** necessarily shortest); directed graphs (needs a minimum arborescence — Chu–Liu/Edmonds).
+
+## Trade-offs
+
+| Algorithm | Time | Best for |
+| --- | --- | --- |
+| Kruskal + DSU | O(E log E) | sparse graphs, edge lists |
+| Prim + binary heap | O(E log V) | adjacency lists |
+| Prim, array-based | O(V²) | dense/complete graphs (all pairs of points) |
+
+## Senior nuance
+
+- **Complete graphs** (every pair of points) have E = V²/2; generating and sorting all edges for Kruskal costs O(V² log V), while array-based Prim is O(V²) with O(V) memory.
+- **Uniqueness**: if all edge weights are distinct, the MST is unique. With ties, several MSTs may exist with the same total weight.
+- **Critical vs pseudo-critical edges**: an edge is critical if removing it increases the MST weight; pseudo-critical if forcing it in keeps the weight optimal. Test each by rerunning Kruskal — O(E² α) — fine for interview sizes.
+- The **minimax path** between two nodes in an undirected graph (minimise the largest edge) always lies on an MST.
+
+## Interview questions
+
+<QA q="Prove Kruskal is optimal in one minute." level="senior">
+Every accepted edge is the lightest edge crossing the cut between its two current components (any lighter edge across that cut was processed earlier and would have joined them already). By the cut property each such edge belongs to some MST consistent with the edges chosen so far, so by induction the final tree is minimal.
+</QA>
+
+<QA q="Min Cost to Connect All Points — Kruskal or Prim?" level="mid">
+It is a complete graph with Manhattan distances. Kruskal must create ~n²/2 edges and sort them; array-based Prim is O(n²) time and O(n) memory, so Prim is the better default. Both are acceptable for n ≈ 1000.
+</QA>
+
+<QA q="Is the path between two nodes in an MST the shortest path?" level="mid">
+No. The MST minimises total weight of the tree, not the distance between any particular pair. Counterexample: a triangle with edges 2, 2, 3 — the MST drops the 3-edge, making the path between its endpoints cost 4.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Kruskal rejects an edge when…", options: ["it is the heaviest so far", "its endpoints are already connected", "it is negative", "V − 1 edges are left"], answer: 1, explain: "Same component ⇒ adding it would form a cycle." },
+  { q: "An MST of V nodes has how many edges?", options: ["V", "V − 1", "E", "V/2"], answer: 1, explain: "Any spanning tree of a connected graph has exactly V − 1 edges." },
+  { q: "Complete graph of 2 000 points: which is usually better?", options: ["Kruskal with all edges", "array-based Prim O(V²)", "Bellman-Ford", "BFS"], answer: 1, explain: "Avoids materialising ~2 × 10⁶ edges and sorting them." }
+]} />
+
+**Classic problems:** Min Cost to Connect All Points (Medium) · Connecting Cities With Minimum Cost (Medium) · Find Critical and Pseudo-Critical Edges in Minimum Spanning Tree (Hard).
+
+## Resources
+
+<Resources topic="dsa/mst" />

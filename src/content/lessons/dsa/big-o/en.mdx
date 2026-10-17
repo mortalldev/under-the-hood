@@ -1,0 +1,99 @@
+## TL;DR
+
+<Term id="big-o" /> describes how cost **grows**, not how fast code is. In interviews you use it twice: first to read the constraints and pick a target complexity, then to justify your solution. <Term id="amortized" /> analysis explains why some structures (dynamic arrays, hash maps) are O(1) "on average over a sequence" even though a single operation can be O(n).
+
+## Visual model
+
+Drag `n` and watch how the families separate. The point is not the exact numbers but the **shape**: at n = 10⁵, an O(n²) algorithm does ~10¹⁰ operations — minutes or hours — while O(n log n) does ~1.7 × 10⁶.
+
+<ComplexityChart />
+
+## Mechanism
+
+### Why constants disappear
+
+`3n + 20` and `n` are both O(n) because as n grows, doubling n doubles both. Big-O is a statement about the *ratio* cost(2n)/cost(n): O(n) → 2×, O(n²) → 4×, O(log n) → +1 step, O(2ⁿ) → squared. That ratio is what decides whether a solution survives a 10× larger input.
+
+### Where log n comes from
+
+A log appears whenever each step **divides the problem by a constant**. Binary search halves the range: after k steps n/2ᵏ elements remain, which reaches 1 when k = log₂ n. A balanced tree of n nodes has height log n, so a heap push or a BST lookup walks log n levels.
+
+### Why n log n is the sorting barrier
+
+A comparison sort must distinguish all n! orderings. Each comparison has two outcomes, so a decision tree with k comparisons has at most 2ᵏ leaves. You need 2ᵏ ≥ n!, i.e. k ≥ log₂(n!) ≈ n log₂ n. That is a lower bound for **comparison** sorts — counting sort and radix sort beat it by not comparing (they exploit a bounded key range).
+
+### Amortized O(1): the doubling array
+
+Pushing into a full array costs a copy of everything. If capacity doubles each time, copies happen at sizes 1, 2, 4, 8 … and sum to less than 2n. Total work for n pushes is < 3n, so each push is O(1) **amortized**. Step through it — watch the running average stay below 3:
+
+<DynamicArrayViz />
+
+If the array grew by a constant (+10) instead of ×2, copies would sum to ~n²/20 — O(n) per push. Geometric growth is what makes the amortization work.
+
+## Code
+
+Reading constraints into a target complexity (rule of thumb at ~10⁸ simple operations per second):
+
+```ts
+// n ≤ 10          → O(n!) / O(2ⁿ · n) — brute force, permutations, bitmask
+// n ≤ 20          → O(2ⁿ)             — subsets, bitmask DP
+// n ≤ 500         → O(n³)             — interval DP, Floyd–Warshall
+// n ≤ 5 000       → O(n²)             — 2D DP, all pairs
+// n ≤ 10⁶         → O(n log n)        — sorting, heaps, binary search
+// n ≤ 10⁸         → O(n)              — one pass, two pointers, prefix sums
+// n > 10⁸         → O(log n) / O(1)   — math, binary search on the answer
+```
+
+## When to use / when not to
+
+**Use this lens when** the interviewer gives constraints, asks "can you do better?", or you are choosing between two approaches.
+
+**Do not over-apply it:**
+- Big-O hides constants. An O(n) pass over a linked list can lose to an O(n log n) sort of a contiguous array because of cache misses.
+- For tiny n, the "worse" algorithm is often faster (insertion sort inside many library sorts for small runs).
+- Average vs worst case matters: hash map lookups are O(1) on average but O(n) in the worst case with adversarial keys.
+
+## Trade-offs
+
+| Notation | Meaning | Typical source |
+| --- | --- | --- |
+| O(1) | constant | array index, hash lookup (average) |
+| O(log n) | halving | binary search, balanced tree, heap op |
+| O(n) | one pass | scanning, two pointers, sliding window |
+| O(n log n) | divide + linear merge, or n heap ops | sorting, n pushes into a heap |
+| O(n²) | all pairs | nested loops, 2D DP |
+| O(2ⁿ) | all subsets | backtracking without pruning |
+
+## Senior nuance
+
+- **Space counts too**, including the recursion stack: a recursive DFS on a 10⁵-deep path can overflow the stack even though it is "O(n)".
+- **Amortized ≠ average.** Amortized is a worst-case guarantee over a sequence; average-case is an expectation over inputs. A latency-sensitive system may still care about the single O(n) resize (incremental rehashing exists for that reason).
+- **Output-sensitive bounds**: generating all subsets is Ω(2ⁿ) simply because the output is that large. Say so instead of apologising for it.
+- `Array.prototype.shift()` is O(n) in general — using it as a queue silently turns BFS into O(n²). Use a head index.
+- String concatenation in a loop and `arr.includes` inside a loop are classic hidden O(n²).
+
+## Interview questions
+
+<QA q="Your solution is O(n log n). Can it be O(n)?" level="mid">
+First ask what is forcing the log: usually a sort or a heap. If it is a sort, check whether the keys are bounded (counting/bucket sort), whether you only need the k-th element (quickselect, O(n) average), or whether the order is irrelevant and a hash map suffices. If none apply, argue the lower bound: for comparison-based sorting, Ω(n log n) is tight.
+</QA>
+
+<QA q="Why is pushing to a dynamic array O(1) if resizing copies everything?" level="mid">
+Because resizes are geometric. With doubling, the copies across n pushes total 1 + 2 + 4 + … < 2n, so total work < 3n and each push costs O(1) amortized. The follow-up interviewers like: growing by a constant amount makes it O(n) per push; growing by any factor > 1 (e.g. 1.5×) keeps O(1) amortized with a different constant and less wasted memory.
+</QA>
+
+<QA q="Is a hash map lookup O(1)?" level="senior">
+Expected O(1) under a good hash function and bounded load factor; worst case O(n) if many keys collide. Real implementations mitigate this (Java 8's HashMap converts long buckets to balanced trees, giving O(log n) worst case per bucket). Hash flooding attacks are why some languages randomize string hash seeds.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "n ≤ 2 × 10⁵. Which target complexity is realistic?", options: ["O(n²)", "O(n log n)", "O(2ⁿ)", "O(n³)"], answer: 1, explain: "4 × 10¹⁰ operations for n² is far too slow; n log n is ≈ 3.5 × 10⁶." },
+  { q: "A loop runs while (n > 1) n = n / 3. Its complexity is…", options: ["O(n)", "O(n/3)", "O(log n)", "O(√n)"], answer: 2, explain: "Dividing by a constant each step gives log base 3 of n, which is O(log n)." },
+  { q: "BFS uses queue.shift() on a JS array. Worst-case complexity for V nodes?", options: ["O(V + E)", "O(V² + E)", "O(E log V)", "O(V)"], answer: 1, explain: "shift() re-indexes the array: O(V) per dequeue, so V dequeues cost O(V²)." }
+]} />
+
+## Resources
+
+<Resources topic="dsa/big-o" />

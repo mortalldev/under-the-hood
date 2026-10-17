@@ -1,0 +1,2217 @@
+{
+  "$comment": "Every URL returned HTTP 200 (or, when bots were blocked, was confirmed by a manual fetch) on lastVerified. Re-check with `npm run verify:resources`.",
+  "resources": [
+    {
+      "id": "techinterviewhandbook",
+      "title": "Tech Interview Handbook",
+      "url": "https://www.techinterviewhandbook.org/",
+      "kind": "article",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Yangshun Tay",
+      "topics": [
+        "dsa",
+        "interview"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "neetcode-roadmap",
+      "title": "NeetCode Roadmap",
+      "url": "https://neetcode.io/roadmap",
+      "kind": "course",
+      "access": "freemium",
+      "level": "intermediate",
+      "language": "en",
+      "author": "NeetCode",
+      "topics": [
+        "dsa"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "cp-algorithms",
+      "title": "cp-algorithms (E-Maxx translation)",
+      "url": "https://cp-algorithms.com/",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "topics": [
+        "dsa"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mit-6006",
+      "title": "MIT 6.006 Introduction to Algorithms (Spring 2020)",
+      "url": "https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/",
+      "kind": "course",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Erik Demaine, Jason Ku, Justin Solomon",
+      "topics": [
+        "dsa",
+        "dsa/big-o"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "algs4",
+      "title": "Algorithms, 4th Edition — book site",
+      "url": "https://algs4.cs.princeton.edu/home/",
+      "kind": "book",
+      "access": "freemium",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Robert Sedgewick, Kevin Wayne",
+      "topics": [
+        "dsa"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "visualgo",
+      "title": "VisuAlgo",
+      "url": "https://visualgo.net/en",
+      "kind": "tool",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Steven Halim",
+      "topics": [
+        "dsa"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ctci",
+      "title": "Cracking the Coding Interview",
+      "url": "https://www.crackingthecodinginterview.com/",
+      "kind": "book",
+      "access": "paid",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Gayle Laakmann McDowell",
+      "topics": [
+        "dsa",
+        "interview"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "cpa-fenwick",
+      "title": "Fenwick Tree",
+      "url": "https://cp-algorithms.com/data_structures/fenwick.html",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "topics": [
+        "dsa/segment-fenwick"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "cpa-segtree",
+      "title": "Segment Tree",
+      "url": "https://cp-algorithms.com/data_structures/segment_tree.html",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "topics": [
+        "dsa/segment-fenwick"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "cpa-dsu",
+      "title": "Disjoint Set Union",
+      "url": "https://cp-algorithms.com/data_structures/disjoint_set_union.html",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "topics": [
+        "dsa/union-find",
+        "dsa/mst"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "cpa-dijkstra",
+      "title": "Dijkstra Algorithm",
+      "url": "https://cp-algorithms.com/graph/dijkstra.html",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "topics": [
+        "dsa/shortest-paths"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "cpa-bellman",
+      "title": "Bellman-Ford Algorithm",
+      "url": "https://cp-algorithms.com/graph/bellman_ford.html",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "topics": [
+        "dsa/shortest-paths"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "cpa-topo",
+      "title": "Topological Sorting",
+      "url": "https://cp-algorithms.com/graph/topological-sort.html",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "topics": [
+        "dsa/topological-sort"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "cpa-kruskal",
+      "title": "Minimum spanning tree — Kruskal's algorithm",
+      "url": "https://cp-algorithms.com/graph/mst_kruskal.html",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "topics": [
+        "dsa/mst"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "cpa-bits",
+      "title": "Bit manipulation",
+      "url": "https://cp-algorithms.com/algebra/bit-manipulation.html",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "topics": [
+        "dsa/bit-manipulation"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-execution-model",
+      "title": "JavaScript execution model",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Execution_model",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/event-loop",
+        "javascript/execution-context-closures"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-microtasks",
+      "title": "Using microtasks in JavaScript with queueMicrotask()",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/HTML_DOM_API/Microtask_guide",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/event-loop"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "whatwg-event-loop",
+      "title": "HTML Standard — Event loops",
+      "url": "https://html.spec.whatwg.org/multipage/webappapis.html#event-loops",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "WHATWG",
+      "topics": [
+        "javascript/event-loop"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "v8-fast-async",
+      "title": "Faster async functions and promises",
+      "url": "https://v8.dev/blog/fast-async",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "V8 team",
+      "topics": [
+        "javascript/event-loop"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-closures",
+      "title": "Closures",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Closures",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/execution-context-closures"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-tdz",
+      "title": "let — temporal dead zone",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let#temporal_dead_zone_tdz",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/execution-context-closures"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-this",
+      "title": "this",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/this",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/this-prototypes"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-prototypes",
+      "title": "Inheritance and the prototype chain",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Inheritance_and_the_prototype_chain",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/this-prototypes"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-memory",
+      "title": "Memory management",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Memory_management",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/memory-gc"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "v8-trash-talk",
+      "title": "Trash talk: the Orinoco garbage collector",
+      "url": "https://v8.dev/blog/trash-talk",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "V8 team",
+      "topics": [
+        "javascript/memory-gc"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "chrome-memory",
+      "title": "Fix memory problems (Chrome DevTools)",
+      "url": "https://developer.chrome.com/docs/devtools/memory-problems",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Chrome DevTools",
+      "topics": [
+        "javascript/memory-gc",
+        "nodejs/memory-profiling"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "v8-fast-properties",
+      "title": "Fast properties in V8",
+      "url": "https://v8.dev/blog/fast-properties",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "V8 team",
+      "topics": [
+        "javascript/v8-internals"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "v8-elements-kinds",
+      "title": "Elements kinds in V8",
+      "url": "https://v8.dev/blog/elements-kinds",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "V8 team",
+      "topics": [
+        "javascript/v8-internals"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "shapes-ics",
+      "title": "JavaScript engine fundamentals: Shapes and Inline Caches",
+      "url": "https://mathiasbynens.be/notes/shapes-ics",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Mathias Bynens, Benedikt Meurer",
+      "topics": [
+        "javascript/v8-internals"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-iterators",
+      "title": "Iterators and generators",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Iterators_and_generators",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/iterators-generators"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-proxy",
+      "title": "Proxy",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/proxy-reflect-weak"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-weakmap",
+      "title": "WeakMap",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakMap",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/proxy-reflect-weak"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-weakref",
+      "title": "WeakRef",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakRef",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/proxy-reflect-weak"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-modules",
+      "title": "JavaScript modules",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/modules-equality-coercion"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-equality",
+      "title": "Equality comparisons and sameness",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Equality_comparisons_and_sameness",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "javascript/modules-equality-coercion"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ecma262",
+      "title": "ECMAScript Language Specification",
+      "url": "https://tc39.es/ecma262/",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "TC39",
+      "topics": [
+        "javascript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "javascript-info",
+      "title": "The Modern JavaScript Tutorial",
+      "url": "https://javascript.info/",
+      "kind": "course",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Ilya Kantor",
+      "topics": [
+        "javascript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ydkjs",
+      "title": "You Don't Know JS Yet (book series)",
+      "url": "https://github.com/getify/You-Dont-Know-JS",
+      "kind": "book",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Kyle Simpson",
+      "topics": [
+        "javascript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "exploringjs",
+      "title": "Exploring JS (books)",
+      "url": "https://exploringjs.com/",
+      "kind": "book",
+      "access": "freemium",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Axel Rauschmayer",
+      "topics": [
+        "javascript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-handbook",
+      "title": "The TypeScript Handbook",
+      "url": "https://www.typescriptlang.org/docs/handbook/intro.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-compat",
+      "title": "Type Compatibility",
+      "url": "https://www.typescriptlang.org/docs/handbook/type-compatibility.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/structural-typing-narrowing",
+        "typescript/generics-variance"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-narrowing",
+      "title": "Narrowing",
+      "url": "https://www.typescriptlang.org/docs/handbook/2/narrowing.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/structural-typing-narrowing"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-generics",
+      "title": "Generics",
+      "url": "https://www.typescriptlang.org/docs/handbook/2/generics.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/generics-variance"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-conditional",
+      "title": "Conditional Types",
+      "url": "https://www.typescriptlang.org/docs/handbook/2/conditional-types.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/conditional-types"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-mapped",
+      "title": "Mapped Types",
+      "url": "https://www.typescriptlang.org/docs/handbook/2/mapped-types.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/mapped-template-types"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-template",
+      "title": "Template Literal Types",
+      "url": "https://www.typescriptlang.org/docs/handbook/2/template-literal-types.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/mapped-template-types"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-utility",
+      "title": "Utility Types",
+      "url": "https://www.typescriptlang.org/docs/handbook/utility-types.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/utility-types-from-scratch"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-49",
+      "title": "TypeScript 4.9 release notes (satisfies)",
+      "url": "https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/branded-satisfies-const"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-50",
+      "title": "TypeScript 5.0 release notes (const type parameters)",
+      "url": "https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-0.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/branded-satisfies-const"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "type-challenges",
+      "title": "type-challenges",
+      "url": "https://github.com/type-challenges/type-challenges",
+      "kind": "tool",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "topics": [
+        "typescript",
+        "typescript/type-level-limits",
+        "typescript/utility-types-from-scratch"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "total-typescript",
+      "title": "Total TypeScript",
+      "url": "https://www.totaltypescript.com/",
+      "kind": "course",
+      "access": "freemium",
+      "level": "advanced",
+      "language": "en",
+      "author": "Matt Pocock",
+      "topics": [
+        "typescript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "effective-ts",
+      "title": "Effective TypeScript",
+      "url": "https://effectivetypescript.com/",
+      "kind": "book",
+      "access": "paid",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Dan Vanderkam",
+      "topics": [
+        "typescript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-learn",
+      "title": "react.dev — Learn React",
+      "url": "https://react.dev/learn",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-render-commit",
+      "title": "Render and Commit",
+      "url": "https://react.dev/learn/render-and-commit",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/rendering-reconciliation"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-preserving-state",
+      "title": "Preserving and Resetting State",
+      "url": "https://react.dev/learn/preserving-and-resetting-state",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/rendering-reconciliation",
+        "react/fiber-architecture"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-lists",
+      "title": "Rendering Lists (keys)",
+      "url": "https://react.dev/learn/rendering-lists",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/rendering-reconciliation"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "fiber-architecture",
+      "title": "React Fiber Architecture (2016 design notes)",
+      "url": "https://github.com/acdlite/react-fiber-architecture",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Andrew Clark",
+      "topics": [
+        "react/fiber-architecture"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-rules-of-hooks",
+      "title": "Rules of Hooks",
+      "url": "https://react.dev/reference/rules/rules-of-hooks",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/hooks-internals"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-effects",
+      "title": "Synchronizing with Effects",
+      "url": "https://react.dev/learn/synchronizing-with-effects",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/hooks-internals"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-no-effect",
+      "title": "You Might Not Need an Effect",
+      "url": "https://react.dev/learn/you-might-not-need-an-effect",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/hooks-internals",
+        "react/state-performance"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "overreacted-useeffect",
+      "title": "A Complete Guide to useEffect",
+      "url": "https://overreacted.io/a-complete-guide-to-useeffect/",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Dan Abramov",
+      "topics": [
+        "react/hooks-internals"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-memo",
+      "title": "memo",
+      "url": "https://react.dev/reference/react/memo",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/memoization-compiler"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-usememo",
+      "title": "useMemo",
+      "url": "https://react.dev/reference/react/useMemo",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/memoization-compiler"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-compiler",
+      "title": "React Compiler",
+      "url": "https://react.dev/learn/react-compiler",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/memoization-compiler"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-compiler-1",
+      "title": "React Compiler v1.0 announcement",
+      "url": "https://react.dev/blog/2025/10/07/react-compiler-1",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/memoization-compiler"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-usetransition",
+      "title": "useTransition",
+      "url": "https://react.dev/reference/react/useTransition",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/concurrent-suspense"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-suspense",
+      "title": "<Suspense>",
+      "url": "https://react.dev/reference/react/Suspense",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/concurrent-suspense"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-deferred",
+      "title": "useDeferredValue",
+      "url": "https://react.dev/reference/react/useDeferredValue",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/concurrent-suspense"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-activity",
+      "title": "<Activity>",
+      "url": "https://react.dev/reference/react/Activity",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/concurrent-suspense"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-rsc",
+      "title": "Server Components",
+      "url": "https://react.dev/reference/rsc/server-components",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/server-components",
+        "nextjs/rsc-hydration"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-use-client",
+      "title": "'use client'",
+      "url": "https://react.dev/reference/rsc/use-client",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/server-components"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-managing-state",
+      "title": "Managing State",
+      "url": "https://react.dev/learn/managing-state",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/state-performance"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-profiler",
+      "title": "<Profiler>",
+      "url": "https://react.dev/reference/react/Profiler",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/state-performance"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "patterns-dev",
+      "title": "patterns.dev",
+      "url": "https://www.patterns.dev/",
+      "kind": "book",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Lydia Hallie, Addy Osmani",
+      "topics": [
+        "react",
+        "system-design/frontend-system-design"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-docs",
+      "title": "Next.js Documentation",
+      "url": "https://nextjs.org/docs",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-learn",
+      "title": "Next.js Learn course",
+      "url": "https://nextjs.org/learn",
+      "kind": "course",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-layouts",
+      "title": "Layouts and Pages",
+      "url": "https://nextjs.org/docs/app/getting-started/layouts-and-pages",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/app-router-architecture"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-server-client",
+      "title": "Server and Client Components",
+      "url": "https://nextjs.org/docs/app/getting-started/server-and-client-components",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/rsc-hydration",
+        "nextjs/app-router-architecture"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-caching",
+      "title": "Caching (getting started)",
+      "url": "https://nextjs.org/docs/app/getting-started/caching",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/caching",
+        "nextjs/rendering-strategies"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-cache-components",
+      "title": "cacheComponents",
+      "url": "https://nextjs.org/docs/app/api-reference/config/next-config-js/cacheComponents",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/caching",
+        "nextjs/rendering-strategies"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-use-cache",
+      "title": "'use cache'",
+      "url": "https://nextjs.org/docs/app/api-reference/directives/use-cache",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/caching"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-caching-legacy",
+      "title": "Caching without Cache Components",
+      "url": "https://nextjs.org/docs/app/guides/caching-without-cache-components",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/caching"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-proxy",
+      "title": "Proxy",
+      "url": "https://nextjs.org/docs/app/getting-started/proxy",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/server-actions-proxy-runtime"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-segment-config",
+      "title": "Route Segment Config",
+      "url": "https://nextjs.org/docs/app/api-reference/file-conventions/route-segment-config",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/server-actions-proxy-runtime"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-hydration-error",
+      "title": "Text content does not match server-rendered HTML",
+      "url": "https://nextjs.org/docs/messages/react-hydration-error",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/production-problems",
+        "nextjs/rsc-hydration"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "next-bundling",
+      "title": "Optimizing package bundling",
+      "url": "https://nextjs.org/docs/app/guides/package-bundling",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Vercel",
+      "topics": [
+        "nextjs/production-problems"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-event-loop",
+      "title": "The Node.js Event Loop",
+      "url": "https://nodejs.org/learn/asynchronous-work/event-loop-timers-and-nexttick",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/event-loop-phases"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-nexttick",
+      "title": "Understanding process.nextTick()",
+      "url": "https://nodejs.org/learn/asynchronous-work/understanding-processnexttick",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/event-loop-phases"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-setimmediate",
+      "title": "Understanding setImmediate()",
+      "url": "https://nodejs.org/learn/asynchronous-work/understanding-setimmediate",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/event-loop-phases"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-dont-block",
+      "title": "Don't Block the Event Loop (or the Worker Pool)",
+      "url": "https://nodejs.org/learn/asynchronous-work/dont-block-the-event-loop",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/libuv-thread-pool",
+        "nodejs/workers-cluster-processes"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "libuv-design",
+      "title": "libuv — Design overview",
+      "url": "https://docs.libuv.org/en/v1.x/design.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "libuv",
+      "topics": [
+        "nodejs/libuv-thread-pool",
+        "nodejs/event-loop-phases"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "libuv-threadpool",
+      "title": "libuv — Thread pool work scheduling",
+      "url": "https://docs.libuv.org/en/v1.x/threadpool.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "libuv",
+      "topics": [
+        "nodejs/libuv-thread-pool"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-backpressure",
+      "title": "Backpressuring in Streams",
+      "url": "https://nodejs.org/learn/modules/backpressuring-in-streams",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/streams-backpressure"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-stream-api",
+      "title": "Stream API",
+      "url": "https://nodejs.org/api/stream.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/streams-backpressure"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-worker-threads",
+      "title": "Worker threads",
+      "url": "https://nodejs.org/api/worker_threads.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/workers-cluster-processes"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-cluster",
+      "title": "Cluster",
+      "url": "https://nodejs.org/api/cluster.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/workers-cluster-processes"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-child-process",
+      "title": "Child process",
+      "url": "https://nodejs.org/api/child_process.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/workers-cluster-processes"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-memory",
+      "title": "Understanding and tuning memory",
+      "url": "https://nodejs.org/learn/diagnostics/memory",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/memory-profiling"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-security",
+      "title": "Security Best Practices",
+      "url": "https://nodejs.org/learn/getting-started/security-best-practices",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/errors-shutdown-security"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-signals",
+      "title": "process — Signal events",
+      "url": "https://nodejs.org/api/process.html#signal-events",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/errors-shutdown-security"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "sd-primer",
+      "title": "The System Design Primer",
+      "url": "https://github.com/donnemartin/system-design-primer",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Donne Martin",
+      "topics": [
+        "system-design"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ddia",
+      "title": "Designing Data-Intensive Applications",
+      "url": "https://dataintensive.net/",
+      "kind": "book",
+      "access": "paid",
+      "level": "advanced",
+      "language": "en",
+      "author": "Martin Kleppmann",
+      "topics": [
+        "system-design",
+        "system-design/consistency",
+        "system-design/sharding-replication",
+        "system-design/message-queues"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "sre-books",
+      "title": "Google SRE books",
+      "url": "https://sre.google/books/",
+      "kind": "book",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Google",
+      "topics": [
+        "system-design",
+        "system-design/load-balancing",
+        "system-design/rate-limiting"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "builders-library",
+      "title": "The Amazon Builders' Library",
+      "url": "https://builder.aws.com/learn/topics/builders-library",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Amazon",
+      "topics": [
+        "system-design"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "dynamo-paper",
+      "title": "Dynamo: Amazon's Highly Available Key-value Store (SOSP 2007)",
+      "url": "https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "DeCandia et al.",
+      "topics": [
+        "system-design/sharding-replication",
+        "system-design/consistency"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "jepsen-consistency",
+      "title": "Consistency Models",
+      "url": "https://jepsen.io/consistency",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Jepsen",
+      "topics": [
+        "system-design/consistency"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "redis-docs",
+      "title": "Redis documentation",
+      "url": "https://redis.io/docs/latest/",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Redis",
+      "topics": [
+        "system-design/caching",
+        "system-design/rate-limiting"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "kafka-docs",
+      "title": "Apache Kafka documentation",
+      "url": "https://kafka.apache.org/documentation/",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Apache Software Foundation",
+      "topics": [
+        "system-design/message-queues"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "rfc6585-429",
+      "title": "RFC 6585 §4 — 429 Too Many Requests",
+      "url": "https://datatracker.ietf.org/doc/html/rfc6585#section-4",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "IETF",
+      "topics": [
+        "system-design/rate-limiting"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-429",
+      "title": "429 Too Many Requests",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/429",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "MDN",
+      "topics": [
+        "system-design/rate-limiting"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "bytebytego",
+      "title": "ByteByteGo",
+      "url": "https://bytebytego.com/",
+      "kind": "course",
+      "access": "freemium",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Alex Xu",
+      "topics": [
+        "system-design",
+        "system-design/interview-framework"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "web-dev-perf",
+      "title": "Learn Performance",
+      "url": "https://web.dev/learn/performance",
+      "kind": "course",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "web.dev (Google)",
+      "topics": [
+        "system-design/frontend-system-design",
+        "react/state-performance"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "web-vitals",
+      "title": "Web Vitals",
+      "url": "https://web.dev/articles/vitals",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "web.dev (Google)",
+      "topics": [
+        "system-design/frontend-system-design",
+        "nextjs/production-problems"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "wcag",
+      "title": "WCAG 2 Overview",
+      "url": "https://www.w3.org/WAI/standards-guidelines/wcag/",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "W3C WAI",
+      "topics": [
+        "system-design/frontend-system-design"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "aria-apg",
+      "title": "ARIA Authoring Practices Guide",
+      "url": "https://www.w3.org/WAI/ARIA/apg/",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "W3C WAI",
+      "topics": [
+        "system-design/frontend-system-design"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "greatfrontend",
+      "title": "GreatFrontEnd",
+      "url": "https://www.greatfrontend.com/",
+      "kind": "course",
+      "access": "freemium",
+      "level": "intermediate",
+      "language": "en",
+      "author": "GreatFrontEnd",
+      "topics": [
+        "system-design/frontend-system-design",
+        "interview"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "chrome-perf",
+      "title": "Analyze runtime performance (Chrome DevTools)",
+      "url": "https://developer.chrome.com/docs/devtools/performance",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Chrome DevTools",
+      "topics": [
+        "react/state-performance",
+        "system-design/frontend-system-design"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "tih-behavioral",
+      "title": "Behavioral interviews — Tech Interview Handbook",
+      "url": "https://www.techinterviewhandbook.org/behavioral-interview/",
+      "kind": "article",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Yangshun Tay",
+      "topics": [
+        "interview/behavioral-star"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "amazon-lp",
+      "title": "Amazon Leadership Principles",
+      "url": "https://www.amazon.jobs/content/en/our-workplace/leadership-principles",
+      "kind": "article",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Amazon",
+      "topics": [
+        "interview/behavioral-star",
+        "interview/senior-signals"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "staffeng",
+      "title": "StaffEng guides",
+      "url": "https://staffeng.com/guides/",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Will Larson",
+      "topics": [
+        "interview/senior-signals"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "interviewing-io",
+      "title": "interviewing.io",
+      "url": "https://interviewing.io/",
+      "kind": "tool",
+      "access": "freemium",
+      "level": "intermediate",
+      "language": "en",
+      "author": "interviewing.io",
+      "topics": [
+        "interview",
+        "interview/mock-interview"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-array-sort",
+      "title": "Array.prototype.sort()",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "dsa/js-toolkit"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-max-safe-integer",
+      "title": "Number.MAX_SAFE_INTEGER",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_SAFE_INTEGER",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "dsa/js-toolkit"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-bigint",
+      "title": "BigInt",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "dsa/js-toolkit"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-map",
+      "title": "Map",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "dsa/js-toolkit"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-using-promises",
+      "title": "Using promises",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Using_promises",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "javascript/async-patterns"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-allsettled",
+      "title": "Promise.allSettled()",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/allSettled",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "javascript/async-patterns"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-abortcontroller",
+      "title": "AbortController",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/AbortController",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "javascript/async-patterns"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-abortsignal-any",
+      "title": "AbortSignal.any()",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "javascript/async-patterns"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "aws-backoff-jitter",
+      "title": "Timeouts, retries and backoff with jitter",
+      "url": "https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/",
+      "kind": "article",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Marc Brooker",
+      "topics": [
+        "javascript/async-patterns",
+        "system-design/rate-limiting"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "tc39-finished",
+      "title": "TC39 finished proposals",
+      "url": "https://github.com/tc39/proposals/blob/main/finished-proposals.md",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TC39",
+      "topics": [
+        "javascript/modern-javascript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "tc39-process",
+      "title": "The TC39 Process",
+      "url": "https://tc39.es/process-document/",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TC39",
+      "topics": [
+        "javascript/modern-javascript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-temporal",
+      "title": "Temporal",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "javascript/modern-javascript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-using",
+      "title": "using",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/using",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "javascript/modern-javascript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-iterator",
+      "title": "Iterator (helpers)",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "javascript/modern-javascript",
+        "javascript/iterators-generators"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-set-union",
+      "title": "Set.prototype.union()",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set/union",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "javascript/modern-javascript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "mdn-tosorted",
+      "title": "Array.prototype.toSorted()",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/toSorted",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "MDN Web Docs",
+      "topics": [
+        "javascript/modern-javascript",
+        "dsa/js-toolkit"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-60",
+      "title": "Announcing TypeScript 6.0",
+      "url": "https://devblogs.microsoft.com/typescript/announcing-typescript-6-0/",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/modern-typescript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-70",
+      "title": "Announcing TypeScript 7.0",
+      "url": "https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/modern-typescript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-typescript",
+      "title": "Node.js — Modules: TypeScript",
+      "url": "https://nodejs.org/api/typescript.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "typescript/modern-typescript",
+        "nodejs/modern-node"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "ts-erasable",
+      "title": "TSConfig: erasableSyntaxOnly",
+      "url": "https://www.typescriptlang.org/tsconfig/#erasableSyntaxOnly",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "TypeScript team",
+      "topics": [
+        "typescript/modern-typescript"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-19-blog",
+      "title": "React v19",
+      "url": "https://react.dev/blog/2024/12/05/react-19",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/react-19-actions"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-19-2-blog",
+      "title": "React 19.2",
+      "url": "https://react.dev/blog/2025/10/01/react-19-2",
+      "kind": "article",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/react-19-actions"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-useactionstate",
+      "title": "useActionState",
+      "url": "https://react.dev/reference/react/useActionState",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/react-19-actions"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-useoptimistic",
+      "title": "useOptimistic",
+      "url": "https://react.dev/reference/react/useOptimistic",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/react-19-actions"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-useformstatus",
+      "title": "useFormStatus",
+      "url": "https://react.dev/reference/react-dom/hooks/useFormStatus",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/react-19-actions"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-use",
+      "title": "use",
+      "url": "https://react.dev/reference/react/use",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/react-19-actions"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "react-useeffectevent",
+      "title": "useEffectEvent",
+      "url": "https://react.dev/reference/react/useEffectEvent",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "React team",
+      "topics": [
+        "react/react-19-actions",
+        "react/hooks-internals"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-test",
+      "title": "Node.js — Test runner",
+      "url": "https://nodejs.org/api/test.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/modern-node"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-cli",
+      "title": "Node.js — Command-line API",
+      "url": "https://nodejs.org/api/cli.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/modern-node"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-env",
+      "title": "Node.js — Environment variables",
+      "url": "https://nodejs.org/api/environment_variables.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/modern-node"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-permissions",
+      "title": "Node.js — Permissions",
+      "url": "https://nodejs.org/api/permissions.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "advanced",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/modern-node"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-modules",
+      "title": "Node.js — CommonJS modules (require(esm))",
+      "url": "https://nodejs.org/api/modules.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/modern-node"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-util",
+      "title": "Node.js — util (parseArgs)",
+      "url": "https://nodejs.org/api/util.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/modern-node"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-releases",
+      "title": "Node.js releases",
+      "url": "https://nodejs.org/en/about/previous-releases",
+      "kind": "docs",
+      "access": "free",
+      "level": "beginner",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/modern-node"
+      ],
+      "lastVerified": "2026-10-15"
+    },
+    {
+      "id": "node-sqlite",
+      "title": "Node.js — SQLite",
+      "url": "https://nodejs.org/api/sqlite.html",
+      "kind": "docs",
+      "access": "free",
+      "level": "intermediate",
+      "language": "en",
+      "author": "Node.js",
+      "topics": [
+        "nodejs/modern-node"
+      ],
+      "lastVerified": "2026-10-15"
+    }
+  ]
+}

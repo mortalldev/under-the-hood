@@ -1,0 +1,116 @@
+## TL;DR
+
+A <Term id="proxy" /> wraps a target object and intercepts its **fundamental operations** — `get`, `set`, `has`, `deleteProperty`, `ownKeys`, `apply`, `construct` and more — through handler "traps". `Reflect` exposes the default behaviour of each operation, so a trap can do its extra work and then forward correctly. **Weak** collections (`WeakMap`, `WeakSet`) and `WeakRef` hold <Term id="weak-reference">weak references</Term>: they never keep their target alive for the garbage collector.
+
+## Visual model
+
+```text
+code: proxy.user.name = "Ada"
+        │
+        ▼
+  handler.get(target, "user", receiver)  ── your logic (log, validate, track) ──▶ Reflect.get(...)
+        │
+        ▼
+  target.user  (the real object)
+
+WeakMap:  key ─(weak)─▶ entry ─(strong)─▶ value      key unreachable elsewhere ⇒ entry disappears
+Map:      key ─(strong)─▶ value                        key stays alive as long as the Map does
+```
+
+## Mechanism
+
+Every property access in JavaScript is defined by internal methods (`[[Get]]`, `[[Set]]`, `[[HasProperty]]`, …). A Proxy replaces those internal methods with your traps. This is why Proxy can do things getters cannot: intercept **any** key (including ones that do not exist yet), `in` checks, deletes, enumeration and function calls.
+
+**Invariants**: the engine checks that traps do not lie about the target's non-configurable or non-extensible state (e.g. a `get` trap cannot report a different value for a non-writable, non-configurable property). Violating an invariant throws a TypeError.
+
+**Why `Reflect` + `receiver`**: with getters and inheritance, `this` inside a getter should be the proxy (the receiver), not the raw target. `Reflect.get(target, key, receiver)` preserves that; `target[key]` does not.
+
+**Weak references and GC**: a WeakMap entry is held by its key. If the key is reachable only through the WeakMap, the collector may remove the entry. That is why WeakMaps are **not iterable** and have no `size` — their contents depend on GC timing.
+
+## Code
+
+```js
+// Validation
+const user = new Proxy({}, {
+  set(target, key, value, receiver) {
+    if (key === "age" && !Number.isInteger(value)) throw new TypeError("age must be an integer");
+    return Reflect.set(target, key, value, receiver);   // must return true on success (strict mode)
+  },
+});
+
+// Dependency tracking — the core idea behind Vue 3 reactivity and MobX-style stores
+function reactive(obj, onChange) {
+  return new Proxy(obj, {
+    get(t, k, r) {
+      const v = Reflect.get(t, k, r);
+      return typeof v === "object" && v !== null ? reactive(v, onChange) : v; // lazy deep wrapping
+    },
+    set(t, k, v, r) { const ok = Reflect.set(t, k, v, r); onChange(k, v); return ok; },
+  });
+}
+
+// Private per-object data without keeping objects alive
+const privateData = new WeakMap();
+class Account {
+  constructor(balance) { privateData.set(this, { balance }); }
+  get balance() { return privateData.get(this).balance; }
+}
+
+// Cache keyed by DOM nodes / request objects that disappears with them
+const layoutCache = new WeakMap();
+function measure(el) {
+  if (!layoutCache.has(el)) layoutCache.set(el, el.getBoundingClientRect());
+  return layoutCache.get(el);
+}
+```
+
+## When to use / when not to
+
+**Proxy is a good fit for**: reactivity/observability, validation layers, logging/tracing in development, virtual objects (lazy-loaded configs, API clients where `api.users.get()` builds a URL), negative array indices, revocable access (`Proxy.revocable`).
+
+**Avoid Proxy**: in hot paths (every access goes through a trap — much slower than a plain property), when a getter/setter or a class does the job, and for identity-sensitive code (`proxy !== target`; private `#fields` of a class do **not** work through a proxy because the brand check sees the proxy, not the instance).
+
+**Weak collections fit**: metadata or caches associated with objects you do not own (DOM nodes, framework instances), private data per instance. Not for: primitive keys (not allowed), anything you need to enumerate, caches that need an eviction policy (use LRU).
+
+## Trade-offs
+
+| Tool | Holds key strongly? | Iterable / size | Typical use |
+| --- | --- | --- | --- |
+| `Map` | yes | yes | general dictionary, LRU |
+| `WeakMap` | no (keys: objects, non-registered symbols) | no | per-object metadata, private data |
+| `WeakSet` | no | no | "have I seen this object?" without leaking |
+| `WeakRef` | no | n/a | optional caches of large objects; check `deref()` |
+| `FinalizationRegistry` | no | n/a | best-effort cleanup notifications — never for correctness |
+
+## Senior nuance
+
+- **Proxy performance**: traps disable many engine fast paths (inline caches can't see through a handler). Frameworks wrap lazily and cache proxies per target (often in a WeakMap) to avoid repeated wrapping.
+- **`this` in methods called on proxies** is the proxy, so methods that touch internal slots (Map, Set, Date, class `#private`) break unless you bind them to the target in the `get` trap.
+- **GC is non-deterministic**: `WeakRef.deref()` may return the object long after it became unreachable, or `undefined` sooner than you expect. Code must be correct in both cases.
+- **WeakMap ≠ ephemeral cache**: if the value references the key, the entry is still collectable (WeakMaps are ephemerons — the value does not keep the key alive).
+
+## Interview questions
+
+<QA q="What can a Proxy do that getters/setters cannot?" level="mid">
+Intercept operations on keys that do not exist yet, `in` checks, `delete`, `Object.keys`/enumeration, function calls (`apply`) and `new` (`construct`), and do it for every key generically without declaring each property up front.
+</QA>
+
+<QA q="Why use Reflect inside traps instead of target[key]?" level="senior">
+Reflect methods mirror the internal operations exactly, return booleans for success where the operation can fail (set, defineProperty), and accept the receiver, so getters/setters defined up the prototype chain see the proxy as `this`. Using target[key] bypasses the receiver and can break inheritance and reactivity tracking.
+</QA>
+
+<QA q="When would you choose WeakMap over Map?" level="mid">
+When keys are objects whose lifetime you do not control and the associated data should die with them — DOM node metadata, per-request context, private fields emulation. A Map would keep those keys alive and leak; a WeakMap lets the GC reclaim entries once the key is otherwise unreachable.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "A set trap in strict-mode code returns false. Result?", options: ["silently ignored", "TypeError", "value is set anyway", "undefined"], answer: 1, explain: "In strict mode a [[Set]] that reports failure throws." },
+  { q: "Why is WeakMap not iterable?", options: ["performance", "its contents depend on GC timing", "spec oversight", "keys are symbols"], answer: 1, explain: "Iteration would expose non-deterministic collection." },
+  { q: "Accessing a class's #private field through a Proxy of the instance…", options: ["works", "throws TypeError", "returns undefined", "returns the proxy"], answer: 1, explain: "The brand check sees the proxy object, which does not have the private slot." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/proxy-reflect-weak" />

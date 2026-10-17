@@ -1,0 +1,106 @@
+## TL;DR
+
+<Term id="load-balancer" /> request'larni serverlar pool'i boʻylab taqsimlaydi, **health check**'lar orqali nosozlarini olib tashlaydi va pool'ni bitta endpoint'dek koʻrsatadi. **L4** balancer'lar TCP/UDP ulanishlarini manzil va port boʻyicha yoʻnaltiradi (tez, protokoldan mustaqil); **L7** balancer'lar HTTP'ni tushunadi (path/host/header boʻyicha yoʻnaltirish, TLS'ni tugatish, retry, rate-limit). Request'lar notekis boʻlganda algoritm muhim: **round-robin** yuklamani e'tiborsiz qoldiradi; **least-connections** unga moslashadi.
+
+## Vizual model
+
+<FlowDiagram height={56} nodes={[
+  { id: "dns", label: "DNS / Anycast", sub: "region tanlash", x: 12, y: 8, w: 20, kind: "edge" },
+  { id: "l4", label: "L4 LB", sub: "TCP, juda yuqori throughput", x: 38, y: 8, w: 22 },
+  { id: "l7a", label: "L7 LB / proxy", sub: "TLS, routing, retry", x: 30, y: 28, w: 22 },
+  { id: "l7b", label: "L7 LB / proxy", sub: "(zaxira juftlik)", x: 56, y: 28, w: 22 },
+  { id: "s1", label: "api-1", x: 20, y: 48, w: 14, kind: "service" },
+  { id: "s2", label: "api-2", x: 43, y: 48, w: 14, kind: "service" },
+  { id: "s3", label: "api-3 ✗", sub: "health check'dan oʻtmadi", x: 66, y: 48, w: 16, kind: "note" }
+]} edges={[
+  { from: "dns", to: "l4" }, { from: "l4", to: "l7a" }, { from: "l4", to: "l7b" }, { from: "l7a", to: "s1" }, { from: "l7a", to: "s2" }, { from: "l7b", to: "s3", dashed: true }
+]} caption="Qatlamli balancing: DNS region tanlaydi, L4 ulanishlarni taqsimlaydi, L7 request'larni yoʻnaltiradi; nosoz backend'lar rotatsiyadan chiqariladi." />
+
+## Mexanizm
+
+Bir xil notekis yuklamani (uzun va qisqa request'lar navbatma-navbat) ikkala siyosat orqali ishga tushiring. Round-robin navbat boʻyicha tayinlaydi va uzun request'larni bitta serverga yigʻadi; least-connections har bir request'ni jarayondagi request'lari eng kam serverga yuboradi.
+
+<LoadBalancerViz policy="round-robin" />
+
+<LoadBalancerViz policy="least-connections" />
+
+**Algoritmlar**:
+- **Round-robin / weighted round-robin** — sodda, request'lar va serverlar bir xil boʻlganda yaxshi (kattaroq mashinalar uchun vaznlar).
+- **Least connections / least outstanding requests** — sekin request'lar va har xil serverlarga moslashadi.
+- **Power of two choices** — ikkita tasodifiy server tanlab, kamroq yuklanganiga yuborish: global state'siz least-connections'ga yaqin sifat, koʻp LB nusxalari uchun ideal.
+- **Consistent hashing** (foydalanuvchi/sessiya/key boʻyicha) — client'ni bir xil backend'da saqlaydi (cache locality, sticky session'lar) va serverlar oʻzgarganda qayta taqsimlashni minimallashtiradi.
+
+**Health check'lar**: faol (LB `/healthz`ni davriy tekshiradi) va passiv (haqiqiy trafikdagi xato/timeout'larni sanab, chetga chiqqanlarni chiqaradi). Ishga tushayotgan yoki trafikdan chiqarilayotgan server trafik olmasligi uchun alohida **liveness** va **readiness** semantikasidan foydalaning.
+
+**Yagona nosozlik nuqtasidan qochish**: LB'larni zaxira juftlik sifatida yoki boshqariladigan, gorizontal masshtablanadigan servis sifatida ishga tushiring; regionlar boʻylab DNS yoki anycast ishlating; istalgan server istalgan request'ni hal qila olishi uchun backend'larni stateless saqlang.
+
+## Kod
+
+```ts
+// Power of two choices — LB nusxalari orasida umumiy state kerak emas
+function pick(servers: { id: string; inFlight: number; healthy: boolean }[]) {
+  const live = servers.filter((s) => s.healthy);
+  const a = live[Math.floor(Math.random() * live.length)];
+  const b = live[Math.floor(Math.random() * live.length)];
+  return a.inFlight <= b.inFlight ? a : b;
+}
+
+// LB/client'dagi retry'lar cheklangan va faqat xavfsiz/idempotent request'lar uchun boʻlishi shart
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let i = 0; ; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (i === attempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, 2 ** i * 100 * (0.5 + Math.random())));  // backoff + jitter
+    }
+  }
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**L4** xom TCP servislar (ma'lumotlar bazalari, MQTT, oʻyin serverlari), ekstremal throughput yoki TLS balancer'da tugatilishini xohlamaganingizda. **L7** HTTP API'lar uchun: servislarga path boʻyicha yoʻnaltirish, header/foiz boʻyicha canary relizlar, auth'ni yuklab olish, siqish, har route boʻyicha kuzatuvchanlik.
+
+**Sticky session'lar** faqat sessiya state'ini tashqariga chiqara olmaganingizda — ular yuklamani notekis qiladi va server oʻlganda sessiyalarni yoʻqotadi; sessiyalarni Redis/DB'da yoki imzolangan token'larda saqlashni afzal koʻring.
+
+## Trade-off'lar
+
+| Algoritm | State kerakmi | Notekis request'larni hal qiladimi | Cache bogʻliqligi |
+| --- | --- | --- | --- |
+| Round-robin | hisoblagich | yoʻq | yoʻq |
+| Least connections | har backend uchun jonli sonlar | ha | yoʻq |
+| Power of two choices | lokal sonlar | asosan | yoʻq |
+| Consistent hashing | halqa | yoʻq (hot key'lar!) | ha |
+
+## Senior nuance
+
+- **Retry boʻronlari**: har bir qatlam 3× retry qilsa, bitta nosoz backend 27× trafik koʻrishi mumkin. Bitta qatlamda, byudjetlar bilan (masalan, koʻpi bilan 10% qoʻshimcha request) va jitter bilan retry qiling.
+- **Sekin start**: cache'i boʻsh yangi qoʻshilgan server trafikni asta-sekin olishi kerak.
+- **Ulanishlarni chiqarish (draining)**: deploy'larda nusxaga yangi request'lar yuborishni toʻxtating va mavjudlari tugashiga yoʻl qoʻying (graceful shutdown bilan bogʻliq).
+- **Global load balancing** foydalanuvchilarni eng yaqin sogʻlom regionga yoʻnaltiradi; failover sigʻimni hisobga olishi shart — omon qolgan region nosozining trafigi uchun zaxiraga ega boʻlishi kerak.
+
+## Interview savollari
+
+<QA q="L4 va L7 load balancing?" level="mid">
+L4 transport darajasidagi ma'lumot (IP, port) bilan ishlaydi va protokolni tushunmasdan ulanishlarni uzatadi: juda tez, istalgan TCP/UDP servis uchun ishlaydi, lekin URL boʻyicha yoʻnaltira olmaydi yoki header'larni tekshira olmaydi. L7 HTTP kabi ilova protokollarini parse qiladi: TLS'ni tugatishi, host/path/header boʻyicha yoʻnaltirishi, qayta yozishi, retry, rate-limit qilishi va har route boʻyicha metrikalar yigʻishi mumkin — koʻproq CPU va murakkablik evaziga.
+</QA>
+
+<QA q="Nega round-robin bitta serverni ortiqcha yuklashi mumkin?" level="mid">
+U request'larni narx boʻyicha emas, soni boʻyicha taqsimlaydi. Request davomiyliklari har xil boʻlsa (yoki serverlar sigʻimi farq qilsa), bir server koʻp uzoq ishlaydigan request'larni yigʻishi, boshqalari esa boʻsh turishi mumkin. Least-connections, least-outstanding-requests yoki power-of-two-choices joriy yuklama asosida yoʻnaltiradi.
+</QA>
+
+<QA q="Load balancer yagona nosozlik nuqtasi boʻlib qolishidan qanday qochasiz?" level="senior">
+Uni failover'li (VRRP/floating IP) zaxira juftlik sifatida yoki gorizontal masshtablanadigan boshqariladigan servis sifatida ishga tushiring; bir nechta LB IP'ni DNS yoki anycast ortiga qoʻying; availability zone'lar boʻylab tarqating; backend'larni stateless saqlang; va failover'ni muntazam test qiling. Global masshtabda salomatlikni hisobga oladigan region failover'li DNS/anycast asosidagi global load balancing'dan foydalaning.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "2 ta serverda request'lar 6 s va 1 s orasida almashadi. Qaysi siyosat choʻqqilarni pastroq saqlaydi?", options: ["round-robin", "least connections", "tasodifiy", "ikkalasi teng"], answer: 1, explain: "Least connections uzun request'larni bitta serverga yigʻishdan qochadi." },
+  { q: "/api/* va /static/* ni har xil backend'larga yoʻnaltirish uchun nima kerak?", options: ["L4", "L7", "faqat DNS", "consistent hashing"], answer: 1, explain: "Path boʻyicha yoʻnaltirish HTTP'ni parse qilishni talab qiladi." },
+  { q: "3 ta qatlamning har biri 3 marta retry qiladi. Nosoz backend'da eng yomon kuchayish?", options: ["3×", "9×", "27×", "1×"], answer: 2, explain: "3 × 3 × 3 — byudjet bilan bitta qatlamda retry qiling." }
+]} />
+
+## Resurslar
+
+<Resources topic="system-design/load-balancing" />

@@ -1,0 +1,102 @@
+## TL;DR
+
+Production'dagi sekin yoki buzilgan Next.js ilovalarining koʻpiga uchta muammo sabab boʻladi: **hydration mismatch'lar** (server HTML ≠ birinchi client render), **bundle shishishi** (juda koʻp JavaScript yuboriladi va hydrate qilinadi) va **request waterfall'lar** (parallel yoki ertaroq ishlashi mumkin boʻlgan ketma-ket await'lar). Har birining mexanizmi, aniqlash usuli va standart tuzatishi bor.
+
+## Vizual model
+
+```text
+WATERFALL (ketma-ket)                        PARALLEL / KOʻTARILGAN
+user  ████████                               user  ████████
+posts         ████████                       posts ████████
+stats                 ████████               stats ████████
+      ─────────────────────────▶ 3× latency        ─────────▶ 1× latency (+ har birini Suspense bilan stream)
+```
+
+## Mexanizm
+
+**Hydration mismatch**: client'ning birinchi render'i server yuborgan markup'ni aynan hosil qilishi shart. Manbalar: render paytida `Date.now()`/`Math.random()`, `typeof window` tarmoqlari, locale/vaqt zonasi formatlash farqlari, brauzer avtomatik tuzatadigan notoʻgʻri HTML ichma-ichligi va DOM'ni oʻzgartiradigan brauzer kengaytmalari. React mismatch'ni log qiladi va ta'sirlangan subtree'ni client'da qayta render qiladi (sekinroq, miltillashi, input'ni yoʻqotishi mumkin).
+
+**Bundle shishishi**: `'use client'` moduli (tranzitiv) import qiladigan hamma narsa yuboriladi va hydrate qilinadi. Odatiy sabablar: yuqori darajadagi komponentni client deb belgilash, butun icon/sana/utility kutubxonasini import qilish, ularga muhtoj boʻlmagan sahifalarda yuklanadigan ogʻir chart kutubxonalari va takrorlangan bogʻliqliklar.
+
+**Waterfall'lar**: keyingi mustaqil fetch'ni boshlashdan oldingi har bir `await` toʻliq aylanish qoʻshadi. Server Component'larda ichma-ichlik buni yomonlashtiradi: faqat otasining fetch'i tugagandan keyin fetch qiladigan bola. Client'da avvalgi fetch tugagach, render'dan keyin fetch qiladigan effect'lar xuddi shunday zanjir yaratadi.
+
+## Kod
+
+```tsx
+// ✗ Waterfall
+const user = await getUser(id);
+const posts = await getPosts(id);          // user'ga bogʻliq emas
+const stats = await getStats(id);
+
+// ✓ Birga boshlash, birga await qilish
+const [user, posts, stats] = await Promise.all([getUser(id), getPosts(id), getStats(id)]);
+
+// ✓ UX uchun yanada yaxshi: erta boshlang, har bir qismni mustaqil stream qiling
+export default function Page({ params }: PageProps<"/u/[id]">) {
+  const postsPromise = params.then(({ id }) => getPosts(id));   // shell'ni bloklamasdan ishga tushirish
+  return (
+    <>
+      <Suspense fallback={<HeaderSkeleton />}><UserHeader params={params} /></Suspense>
+      <Suspense fallback={<PostsSkeleton />}><Posts promise={postsPromise} /></Suspense>
+    </>
+  );
+}
+
+// Bundle: client chegarasini bargda saqlang, ogʻir widget'larni talab boʻyicha yuklang
+"use client";
+import dynamic from "next/dynamic";
+const Chart = dynamic(() => import("./HeavyChart"), { loading: () => <ChartSkeleton /> });
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tuzatishdan oldin oʻlchang**:
+- Hydration: brauzer konsol xatosini (u farq qiladigan matn/atributni koʻrsatadi) va development'dagi Next.js error overlay'ini oʻqing.
+- Bundle: bundle analyzer'ni ishga tushiring (Turbopack bilan `next experimental-analyze` yoki `@next/bundle-analyzer`) va koʻp re-export'li kutubxonalar uchun `optimizePackageImports`ni tekshiring.
+- Waterfall'lar: server timing / tracing'ga (OpenTelemetry instrumentatsiyasi) va brauzer Network panelidagi waterfall koʻrinishiga qarang.
+- Foydalanuvchiga ta'sir: faqat laboratoriyadagi Lighthouse emas, real foydalanuvchilardan Core Web Vitals (LCP, INP, CLS).
+
+## Trade-off'lar
+
+| Tuzatish | Nimaga yordam beradi | Narx |
+| --- | --- | --- |
+| `Promise.all` / fetch'larni erta boshlash | latency | qisman muvaffaqiyatsizliklarni hal qilish kerak |
+| Har hudud uchun Suspense | sezilgan tezlik, streaming | loyihalash kerak boʻlgan koʻproq loading holatlari |
+| Umumiy ma'lumotga `'use cache'` | server vaqti | eskirishni boshqarish |
+| `'use client'`ni barglarga surish | JS hajmi, hydration vaqti | koʻproq props uzatish |
+| Ogʻir widget'lar uchun `next/dynamic` | dastlabki JS | loading holati, keyinroq yuklash |
+| `optimizePackageImports` | barrel-export kutubxonalari uchun bundle hajmi | har paket uchun config |
+
+## Senior nuance
+
+- **`Promise.all` tez yiqiladi**: bitta rad etish butun guruhni rad etadi; qismlar mustaqil boʻlsa, `Promise.allSettled` yoki har hudud uchun error boundary'lardan foydalaning.
+- **Render ichida request'larni deduplicate qiling** — React `cache()` bilan (fetch boʻlmagan ma'lumot uchun), shunda bir xil foydalanuvchini soʻraydigan layout va page ikki marta fetch qilmaydi.
+- **Uchinchi tomon skriptlari** (analytics, chat widget'lar) koʻpincha main thread vaqtida ustunlik qiladi — `next/script` strategiyalari (`afterInteractive`, `lazyOnload`) yoki worker bilan yuklang.
+- **Rasmlar va shriftlar**: oʻlchamsiz rasmlar CLS keltirib chiqaradi; oʻlchamli `next/image` va layout siljishisiz shriftlarni self-host qilish uchun `next/font` ishlating.
+- **Uzoq ishlaydigan serverlardagi memory leak'lar** (modul darajasidagi cache'lar, har request'da qoʻshiladigan event listener'lar) oʻsib boruvchi xotira va sekinlashuvchi javoblar sifatida namoyon boʻladi — heap snapshot'lar bilan profil qiling.
+
+## Interview savollari
+
+<QA q="Production'dagi hydration mismatch'ni qanday debug qilasiz?" level="mid">
+React va Next.js farq qiladigan kontentni chiqaradigan development'da qayta yarating; deterministik boʻlmagan render qiymatlarini (vaqt, tasodif, locale), render paytida window/localStorage oʻqishni, notoʻgʻri HTML ichma-ichligini va faqat client state'iga asoslangan shartli render'ni tekshiring. Server natijasini deterministik qilib, mount'dan keyin yangilash, faqat brauzer qismlarini ssr: false bilan dynamic import ortiga koʻchirish yoki bitta ataylab qilingan farq uchun suppressHydrationWarning bilan tuzating.
+</QA>
+
+<QA q="Sahifaning JS bundle'i 900 KB. Nima qilasiz?" level="senior">
+Eng katta modullarni va ularni qaysi client chegarasi tortib kirayotganini koʻrish uchun bundle analyzer'ni ishga tushiring. Katta render-only kutubxonalar serverda qolishi uchun 'use client'ni interaktiv barglarga tushiring; ogʻir bogʻliqliklarni almashtiring yoki tree-shake qiling (nomli import'lar, optimizePackageImports, yengilroq muqobillar); ekrandan pastdagi yoki faqat oʻzaro ta'sirda kerak boʻladigan widget'larni next/dynamic bilan lazy-load qiling; takrorlangan versiyalarni dedupe qiling; va regress boʻlmasligi uchun CI'da performance budget oʻrnating.
+</QA>
+
+<QA q="Ichma-ich Server Component'lardagi waterfall'larni qanday yoʻq qilasiz?" level="senior">
+Mustaqil request'larni iloji boricha erta (page yoki layout'da) boshlang va promise'larni ularga muhtoj komponentlarga uzatib, Suspense chegaralari ichida await qiling; birga kerak boʻlgan ma'lumot uchun Promise.all ishlating; umumiy oʻqishlarni React cache() bilan dedupe qiling; va takroriy request'lar origin'ga urilmasligi uchun umumiy ma'lumotni 'use cache' bilan cache qiling.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Mustaqil a va b bilan await a(); await b(); qancha vaqt oladi?", options: ["max(a, b)", "a + b", "min(a, b)", "0"], answer: 1, explain: "Ketma-ket await'lar latency'larni qoʻshadi; Promise.all uni max(a, b) qiladi." },
+  { q: "Qaysi oʻzgarish client JS'ni eng koʻp kamaytiradi?", options: ["hamma joyda memo", "'use client'ni sahifadan interaktiv tugmaga koʻchirish", "koʻproq Suspense qoʻshish", "useCallback ishlatish"], answer: 1, explain: "Faqat client chegarasi ostidagi modullar yuboriladi." },
+  { q: "Server 'Monday' (UTC), client 'Tuesday' (lokal TZ) render qiladi. Bu…", options: ["normal", "hydration mismatch", "waterfall", "bundle muammosi"], answer: 1, explain: "Vaqt zonasiga bogʻliq render server va client orasida farq qiladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="nextjs/production-problems" />

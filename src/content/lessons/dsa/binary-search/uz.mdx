@@ -1,0 +1,109 @@
+
+## TL;DR
+
+Binary search — "saralangan array'da x ni topish" emas. U **monoton predikat chegarasini topish**: `pred(i)` false'dan true'ga oʻtadigan birinchi indeks. Aniq <Term id="invariant" />'li bitta shablon yozing — xuddi shu kod lower/upper bound, aylantirilgan array'lar va "binary search on answer"ni yechadi.
+
+## Vizual model
+
+```text
+indeks:    0    1    2    3    4    5    6
+nums:      1    3    3    5    8   13   21        target = 5
+pred:      F    F    F    T    T    T    T        pred(i) = nums[i] >= target
+                          ↑ lower bound = 3
+```
+
+Indekslar *yoki nomzod javoblar* oraligʻi ustida shunday F…FT…T pattern'ni aniqlash mumkin boʻlgan har qanday masala — binary search.
+
+## Mexanizm
+
+Shablon yarim ochiq `[lo, hi)` oraligʻini va **"javob [lo, hi] da"** invariant'ini saqlaydi (hi'ning oʻzi ham mumkin: "hech bir element mos kelmaydi"). Har qadamda `mid` tekshiriladi:
+- `pred(mid)` false → javob mid'dan oʻngda → `lo = mid + 1`.
+- `pred(mid)` true → mid birinchi true boʻlishi mumkin → uni saqlaymiz: `hi = mid`.
+
+Oraliq har iteratsiyada qisqaradi va loop `lo === hi` boʻlganda tugaydi — bu *aynan* javob. Yoʻq, takrorlangan, minimumdan kichik va maksimumdan katta target'larni sinab koʻring:
+
+<BinarySearchViz />
+
+## Kod
+
+```ts
+// [lo, hi) da pred true boʻlgan birinchi indeks; yoʻq boʻlsa hi. pred F…FT…T boʻlishi shart.
+function firstTrue(lo: number, hi: number, pred: (i: number) => boolean): number {
+  while (lo < hi) {
+    const mid = lo + ((hi - lo) >> 1);
+    if (pred(mid)) hi = mid; else lo = mid + 1;
+  }
+  return lo;
+}
+
+const lowerBound = (a: number[], x: number) => firstTrue(0, a.length, (i) => a[i] >= x);
+const upperBound = (a: number[], x: number) => firstTrue(0, a.length, (i) => a[i] > x);
+const count = (a: number[], x: number) => upperBound(a, x) - lowerBound(a, x);
+
+// Binary search on answer: minimal yeyish tezligi (Koko)
+function minSpeed(piles: number[], hours: number): number {
+  const hoursAt = (k: number) => piles.reduce((h, p) => h + Math.ceil(p / k), 0);
+  return firstTrue(1, Math.max(...piles) + 1, (k) => hoursAt(k) <= hours); // feasible k boʻyicha monoton
+}
+
+// Aylantirilgan saralangan array (har xil qiymatlar): minimumni topish
+function findMin(a: number[]): number {
+  const last = a[a.length - 1];
+  return a[firstTrue(0, a.length - 1, (i) => a[i] <= last)];   // F…F (chap qism) T…T (oʻng qism)
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- Saralangan input yoki qismlarga boʻlib saralangan input (aylantirilgan array, tog' shaklidagi array).
+- "… mumkin boʻladigan minimal x" / "… boʻladigan maksimal x" — x boʻyicha monoton tekshiruv funksiyasi bilan (sigʻim, tezlik, kunlar, masofa).
+- n 10⁹–10¹⁸ gacha yoki javoblar ulkan raqamli oraliqda: faqat log-vaqtli qidiruv sigʻadi.
+
+**Qachon kerak emas**
+- Bitta soʻrovli saralanmagan ma'lumot → chiziqli skan O(n); avval saralash O(n log n) turadi.
+- Qoʻshish/oʻchirish bilan koʻp soʻrovlar → balanslangan BST yoki saralangan konteyner.
+- Predikat monoton emas → binary search jimgina axlat qaytaradi. Kod yozishdan oldin monotonlikni tekshiring.
+
+## Trade-off'lar
+
+| Variant | Vaqt | Izoh |
+| --- | --- | --- |
+| Saralangan array'da indeks qidirish | O(log n) | random access kerak (linked list emas) |
+| Javob boʻyicha qidirish | O(log R · cost(check)) | R = javob oraligʻi |
+| Floating-point javoblar | O(iteratsiyalar · check) | `lo < hi` oʻrniga qat'iy marta (masalan 100) aylantiring |
+
+## Senior nuance
+
+- **Overflow**: ikkalasi katta boʻlganda `(lo + hi) / 2` 32-bit int'dan oshadi (Java kutubxonasida yillar davomida yashagan mashhur bug). `lo + (hi − lo) / 2` xavfsiz. JS'da `>> 1` 32 bitga qirqadi, shuning uchun 2³¹ dan katta oraliqlar uchun `Math.floor((lo + hi) / 2)` ishlating.
+- **Cheksiz loop'lar** konvensiyalarni aralashtirishdan kelib chiqadi: `hi = mid` bilan `lo < hi` va floor mid ishlatish shart. Agar `lo = mid` yozsangiz (oxirgi true'ni qidirish), ceiling mid ishlating, aks holda `hi − lo === 1` da cheksiz aylanishingiz mumkin.
+- **Aylantirilgan array'lardagi dublikatlar** "oxirgisi bilan solishtirish" hiylasini buzadi: `a[mid] === a[hi]` boʻlganda faqat bittaga qisqartira olasiz, eng yomon holat O(n) ga aylanadi.
+- JavaScript'da oʻrnatilgan saralangan qidiruv yoʻq (standart kutubxonada `bisectLeft` yoʻq) — lower/upper bound shablonlarini yoddan biling va kichik yordamchi funksiya sifatida yozing.
+
+## Interview savollari
+
+<QA q="Masala 'binary search on answer' ekanini qanday bilasiz?" level="mid">
+Sizdan minimal yoki maksimal qiymat soʻraladi va arzon `feasible(x)` yoza olasiz, bunda feasibility monoton: x ishlasa, har bir kattaroq x ham ishlaydi (yoki har bir kichikroq). Shunda mumkin boʻlgan javoblar oraligʻi ustida chegarani binary search qilasiz — bitta tekshiruv narxi log(oraliq) ga koʻpaytiriladi.
+</QA>
+
+<QA q="Saralangan array'da target'ning birinchi va oxirgi pozitsiyasini toping." level="mid">
+Ikki chegara qidiruvi: first = lowerBound(target), last = upperBound(target) − 1. Agar first oraliqdan tashqarida yoki a[first] ≠ target boʻlsa, u yoʻq. Ikkalasi O(log n); topilgan nuqta atrofida chiziqli kengaytirish dublikatlarga toʻla array uchun O(n) boʻlardi.
+</QA>
+
+<QA q="Ikki saralangan array medianasi O(log(min(m, n))) da." level="senior">
+Qisqaroq array'dan olinadigan elementlar soni i ni binary search qiling; ikkinchisidan j = half − i. Boʻlinish toʻgʻri, agar A[i−1] ≤ B[j] va B[j−1] ≤ A[i]. Agar A[i−1] > B[j] boʻlsa, A dan kamroq oling; aks holda koʻproq. "A[i−1] ≤ B[j]" predikati i boʻyicha monoton — aynan shu uni binary search qiladi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "lo = 0, hi = n va true'da hi = mid bilan qaysi loop sharti toʻgʻri?", options: ["lo <= hi", "lo < hi", "lo < hi − 1", "hi − lo > 2"], answer: 1, explain: "Yarim ochiq [lo, hi) oraligʻi lo === hi da boʻsh; oʻsha indeks — javob." },
+  { q: "lowerBound([1,2,2,2,5], 2) va upperBound(..., 2) nimaga teng?", options: ["1 va 3", "1 va 4", "2 va 4", "0 va 4"], answer: 1, explain: "≥ 2 boʻlgan birinchi indeks 1; > 2 boʻlgan birinchi indeks 4. Soni = 3." },
+  { q: "'D kun ichida joʻnatish' masalasini sigʻim boʻyicha qidiriladigan qiladigan shart qaysi?", options: ["days(capacity) monoton oʻsmaydigan (non-increasing)", "array saralangan", "sigʻim juft", "vaznlar har xil"], answer: 0, explain: "Koʻproq sigʻim hech qachon koʻproq kun talab qilmaydi, shuning uchun feasibility bir marta almashadi." }
+]} />
+
+**Klassik masalalar:** Binary Search (Easy) · Find First and Last Position of Element in Sorted Array (Medium) · Search in Rotated Sorted Array (Medium) · Find Minimum in Rotated Sorted Array (Medium) · Koko Eating Bananas (Medium) · Capacity To Ship Packages Within D Days (Medium) · Median of Two Sorted Arrays (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/binary-search" />

@@ -1,0 +1,120 @@
+## TL;DR
+
+A <Term id="sliding-window" /> keeps a contiguous range `[left, right]` and an <Term id="invariant" /> about it ("all characters unique", "sum ≤ k", "at most k distinct"). `right` always moves forward; `left` moves forward only to restore the invariant. Because neither pointer ever moves back, each element enters and leaves at most once: **O(n)** instead of checking all O(n²) subarrays.
+
+## Visual model
+
+```text
+fixed size k = 3          variable size (shrink when the invariant breaks)
+[2 1 5] 1 3 2             a b c [a b c] b b
+ 2 [1 5 1] 3 2                    ↑ duplicate 'a' → move left past the old 'a'
+```
+
+## Mechanism
+
+Step through "longest substring without repeating characters". The map stores the last index of each character; when `right` meets a character already **inside** the window, `left` jumps just past its previous occurrence.
+
+<SlidingWindowViz />
+
+Why it is correct: when the window `[left, right]` becomes invalid because `s[right]` duplicates `s[prev]`, any window that contains both `prev` and `right` is invalid too. So every start in `[left, prev]` is useless for this `right` **and for every later right** — they can be skipped forever. That monotonic argument is what makes the window legal.
+
+Notice the `prev >= left` check: a character seen *before* the window (try `abba`) is stale and must not move `left` backwards.
+
+## Code
+
+```ts
+// Template: variable window, maximize length while the window stays valid
+function longestValid(s: string): number {
+  const state = new Map<string, number>();     // whatever the invariant needs
+  let left = 0, best = 0;
+  for (let right = 0; right < s.length; right++) {
+    add(state, s[right]);                       // 1. expand
+    while (!valid(state)) remove(state, s[left++]); // 2. shrink until valid again
+    best = Math.max(best, right - left + 1);    // 3. record
+  }
+  return best;
+}
+
+// Fixed window of size k: maximum sum
+function maxSumK(nums: number[], k: number): number {
+  let sum = 0;
+  for (let i = 0; i < k; i++) sum += nums[i];
+  let best = sum;
+  for (let i = k; i < nums.length; i++) {
+    sum += nums[i] - nums[i - k];               // one in, one out
+    best = Math.max(best, sum);
+  }
+  return best;
+}
+
+// Minimum window: shortest subarray with sum ≥ target (non-negative numbers)
+function minLen(nums: number[], target: number): number {
+  let left = 0, sum = 0, best = Infinity;
+  for (let right = 0; right < nums.length; right++) {
+    sum += nums[right];
+    while (sum >= target) {                     // valid → try to shrink
+      best = Math.min(best, right - left + 1);
+      sum -= nums[left++];
+    }
+  }
+  return best === Infinity ? 0 : best;
+}
+```
+
+Note the two shapes: **maximize** → shrink *while invalid*, record after; **minimize** → shrink *while valid*, record inside the loop.
+
+## When to use / when not to
+
+**Recognition signals**
+- "Longest / shortest / count of **contiguous** subarray or substring" such that a condition holds.
+- The condition is **monotonic**: if a window is valid, every smaller window inside it is valid (or for minimize problems: if valid, every larger one is valid).
+- Fixed size k explicitly given (moving average, max sum of k).
+
+**When not to**
+- Subsequences (not contiguous) → DP.
+- Negative numbers with a sum target → validity is not monotonic; use prefix sums + hash map.
+- "Exactly k distinct" → not monotonic directly, but `exactly(k) = atMost(k) − atMost(k − 1)`, two windows.
+
+## Trade-offs
+
+| Approach | Time | Space | Requirement |
+| --- | --- | --- | --- |
+| All subarrays | O(n²)–O(n³) | O(1) | none |
+| Sliding window | O(n) | O(alphabet) or O(k) | monotonic validity |
+| Prefix sums + hash map | O(n) | O(n) | sum/XOR-like aggregates |
+| Monotonic deque (window max/min) | O(n) | O(k) | window extremes |
+
+## Senior nuance
+
+- **The `while` inside the `for` does not make it O(n²)**: count pointer moves, not loop nesting. `left` moves at most n times in total. Say this explicitly — it is the most common follow-up.
+- **Stale entries**: store last indices and compare with `left`, or decrement counts on removal. Mixing the two styles causes bugs like `abba`.
+- **Window maximum** needs a monotonic deque, not a heap (a heap gives O(n log k) and lazy deletion).
+- **Unicode**: iterating a JS string by index walks UTF-16 code units; emoji and some characters are surrogate pairs. If the problem says "characters", clarify or use `[...s]` (code points).
+
+## Interview questions
+
+<QA q="Prove your sliding window solution is O(n)." level="mid">
+Each iteration of the outer loop advances right once: n iterations. Every iteration of the inner loop advances left once, and left never moves back and never exceeds right, so across the whole run the inner loop executes at most n times. Total pointer moves ≤ 2n, each O(1) with a hash map → O(n).
+</QA>
+
+<QA q="Minimum Window Substring: what is the invariant and how do you check it in O(1)?" level="senior">
+Valid = the window contains every required character with at least the required multiplicity. Keep `need` counts and a single integer `missing` (or `formed`) that changes only when a character's count crosses its required threshold. Then validity is `missing === 0`, checked in O(1) instead of comparing two maps each step.
+</QA>
+
+<QA q="Count subarrays with exactly K distinct integers." level="senior">
+Exactly-K is not monotonic, but at-most-K is: a valid window shrunk from the left stays valid. Each `right` contributes `right − left + 1` windows ending at it with ≤ K distinct. Answer = atMost(K) − atMost(K − 1), two linear passes.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "For 'abba', why must the check be prev >= left?", options: ["Performance", "The first 'a' is outside the window when the second 'a' arrives", "To handle uppercase", "It is not necessary"], answer: 1, explain: "When right = 3, left is already 2. Jumping to prev + 1 = 1 would move left backwards and break the invariant." },
+  { q: "Which condition is NOT monotonic for a sliding window?", options: ["At most k distinct characters", "All characters unique", "Sum equals k with negative numbers", "Sum ≤ k with non-negative numbers"], answer: 2, explain: "With negatives, shrinking or growing can move the sum either way." },
+  { q: "Sliding window maximum in O(n) uses…", options: ["A min-heap", "A sorted array", "A monotonic deque", "Two stacks of sums"], answer: 2, explain: "A deque of indices with decreasing values gives the max at the front in O(1) amortized." }
+]} />
+
+**Classic problems:** Best Time to Buy and Sell Stock (Easy) · Maximum Average Subarray I (Easy) · Longest Substring Without Repeating Characters (Medium) · Longest Repeating Character Replacement (Medium) · Permutation in String (Medium) · Minimum Window Substring (Hard) · Sliding Window Maximum (Hard).
+
+## Resources
+
+<Resources topic="dsa/sliding-window" />

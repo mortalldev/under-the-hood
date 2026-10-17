@@ -1,0 +1,104 @@
+## TL;DR
+
+<Term id="generics" /> bitta ta'rifni koʻp turlar uchun **ular orasidagi bogʻliqlikni saqlagan holda** ishlatishga imkon beradi — `identity<T>(x: T): T` output input turiga ega boʻlishini va'da qiladi. Constraint'lar (`T extends …`) tur nimani qoʻllab-quvvatlashi kerakligini aytadi. <Term id="variance" /> "agar `Dog` `Animal`ning subtype'i boʻlsa, `Box<Dog>` `Box<Animal>`ning subtype'imi?" savoliga javob beradi — javob `Box` T ni **ishlab chiqaradimi** (covariant), **iste'mol qiladimi** (contravariant) yoki ikkalasimi (invariant), shunga bogʻliq.
+
+## Vizual model
+
+```text
+Dog ⊂ Animal
+
+producer:  () => Dog        ⊂  () => Animal          covariant  (bir yoʻnalish)
+consumer:  (a: Animal) => void ⊂ (d: Dog) => void    contravariant (teskari!)
+ikkalasi:  { get(): T; set(v: T): void }  — hech biri  invariant
+
+ISTALGAN hayvonni qabul qiladigan funksiya faqat itlarni qabul qiladigan funksiya oʻrnida xavfsiz ishlay oladi.
+Faqat itlarni qabul qiladigan funksiya istalgan hayvon uzatilishi mumkin boʻlgan joyda ishlay OLMAYDI.
+```
+
+## Mexanizm
+
+**Inference**: chaqiruv joyida compiler T ni topish uchun argument turlarini parametr turlari bilan birlashtiradi. Constraint'lar inference'dan keyin tekshiriladi; inference siz xohlagandan kengroq tur tanlasa, chaqiruvga annotatsiya qoʻyishingiz (`f<Literal>(…)`) yoki `const` type parametrlaridan foydalanishingiz mumkin.
+
+**Nega parametrlar contravariant**: faraz qilaylik `handleDog: (d: Dog) => void` `(a: Animal) => void`ga tayinlanishi mumkin. Kengroq turni ushlab turgan chaqiruvchi `Cat` uzatishi mumkin va `handleDog` mushukda `d.bark()`ni oʻqiydi — runtime qulashi. `strictFunctionTypes` bilan TypeScript function-tipli property'lar uchun bunday tayinlashni rad etadi.
+
+**Array'lar covariant koʻriladi** (`Dog[]` `Animal[]`ga tayinlanadi), bu yozish uchun texnik jihatdan noxavfsiz (it array'iga `animals.push(cat)`). TypeScript buni amaliylik uchun qabul qiladi; `readonly Dog[]`ni covariant koʻrish haqiqatan xavfsiz.
+
+**Variance annotatsiyalari**: TS 4.7 dan beri type alias/interface/class'larda type parametrlarini `out T` (covariant), `in T` (contravariant) yoki `in out T` (invariant) deb belgilash mumkin. Ular niyatni hujjatlashtiradi va katta turlarni tekshirishni tezlashtirishi mumkin.
+
+## Kod
+
+```ts
+// Constraint: T da length boʻlishi shart
+function longest<T extends { length: number }>(a: T, b: T): T {
+  return a.length >= b.length ? a : b;
+}
+longest("ab", "abc");        // T = string
+longest([1, 2], [3]);        // T = number[]
+
+// Ikki type parametrini bogʻlash
+function getProp<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+const n = getProp({ a: 1, b: "x" }, "a");   // number
+
+// Default'li generic
+interface ApiResponse<T = unknown> { data: T; status: number }
+
+// Variance annotatsiyalari niyatni hujjatlashtiradi
+interface Producer<out T> { get(): T }
+interface Consumer<in T> { accept(value: T): void }
+
+// Metod va function-property sintaksisi: bivariant va contravariant tekshiruvlar
+interface Bad { handle(x: Dog): void }          // metod sintaksisi: bivariant tekshiriladi
+interface Good { handle: (x: Dog) => void }     // property sintaksisi: contravariant tekshiriladi
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Generics ishlating**: type parametri input'larni output'larga bogʻlaganda (konteynerlar, utility'lar, data fetching yordamchilari, event nomi boʻyicha kalitlangan event emitter'lar).
+
+**Generics kerak emas**: parametr bir marta uchrasa va hech narsani bogʻlamasa: `function f<T>(x: T): void` — shunchaki `(x: unknown) => void`. "Faqat bir marta uchraydigan generic'lar ehtimol notoʻgʻri" — yaxshi qoida.
+
+**Ortiqcha cheklashdan qoching**: faqat bitta property oʻqisangiz `T extends object` chaqiruv joylarini foydasiz qiyinlashtiradi; aynan ishlatayotganingizga cheklang.
+
+## Trade-off'lar
+
+| Yondashuv | Xavfsizlik | Moslashuvchanlik | Oʻqilishi |
+| --- | --- | --- | --- |
+| `any` | yoʻq | maksimal | oson, xavfli |
+| `unknown` + narrowing | yuqori | chaqiruvchi toraytirishi kerak | aniq |
+| Overload'lar | har signature uchun aniq | cheklangan kombinatsiyalar | uzun |
+| Generics | yuqori, bogʻliqliklarni saqlaydi | yuqori | zich boʻlishi mumkin |
+
+## Senior nuance
+
+- **Inference joylari**: TypeScript T ni "eng yaxshi" nomzod pozitsiyalardan chiqaradi; T ni avval callback parametriga qoʻyish `unknown` berishi mumkin. `NoInfer<T>` (TS 5.4) inference'da qatnashmasligi kerak boʻlgan pozitsiyalarni belgilaydi.
+- Generic conditional type'larning union'lar ustida **taqsimlanishi** (yalangʻoch T bilan `T extends U ? X : Y`) — ba'zan hayratlantiradigan xususiyat; uni oʻchirish uchun `[T]` ga oʻrang.
+- **Oʻzgaruvchan konteynerlarda invariance** — xavfsiz standart; API faqat oʻqisa, covariance'ni qonuniy olish uchun `readonly`/`ReadonlyArray` oching.
+- **Generic React komponentlari** (`function List<T>(props: { items: T[]; render: (t: T) => ReactNode })`) render props orqali element turlarini saqlaydi — senior darajadagi tez-tez soʻraladigan talab.
+
+## Interview savollari
+
+<QA q="Covariance va contravariance'ni misol bilan tushuntiring." level="senior">
+Dog ⊂ Animal boʻlsa, Dog ishlab chiqaruvchi Animal ishlab chiqaruvchi kutilgan joyda ishlatilishi mumkin (covariant: munosabat saqlanadi), masalan () => Dog ⊂ () => Animal. Iste'molchi — teskarisi: istalgan Animal'ni qabul qiladigan funksiya Dog'larni qabul qiladigan funksiya oʻrnida ishlay oladi, shuning uchun (a: Animal) => void ⊂ (d: Dog) => void (contravariant). T ni ham oʻqiydigan, ham yozadigan tur invariant boʻlishi shart.
+</QA>
+
+<QA q="Noxavfsiz boʻlsa, nega TypeScript Dog[]ni Animal[]ga tayinlashga ruxsat beradi?" level="senior">
+Array'lar ham oʻqiladi, ham yoziladi, shuning uchun qat'iy aytganda ular invariant boʻlishi kerak. TypeScript ularni ataylab covariant koʻradi, chunki koʻp kod faqat oʻqiydi va invariance keng tarqalgan pattern'larni ogʻriqli qilardi. Teshik shundaki, aslida Dog[] boʻlgan narsaga Cat push qilish tip tekshiruvidan oʻtadi. readonly array'lar bu teshikni yopadi.
+</QA>
+
+<QA q="getProp'da `K extends keyof T` nima beradi?" level="mid">
+U K ni T ning haqiqiy key'lari bilan cheklaydi, shuning uchun imlo xatolari compile xatosi boʻladi, return turi T[K] esa barcha property turlarining union'i emas, aniq property turi. Ikki argument orasidagi bogʻliqlik — generic'lar aynan shu uchun.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "strictFunctionTypes ostida qaysi biri (d: Dog) => void ga tayinlanadi?", options: ["(a: Animal) => void", "(p: Poodle) => void", "ikkalasi", "hech biri"], answer: 0, explain: "Parametrlar contravariant: koʻproq qabul qilish xavfsiz." },
+  { q: "function wrap<T>(x: T): void — nima notoʻgʻri?", options: ["hech narsa", "T bir marta uchraydi: unknown'dan hech narsa qoʻshmaydi", "T object'dan extends qilishi shart", "return turi yoʻq"], answer: 1, explain: "Type parametri kamida ikki pozitsiyani bogʻlashi kerak." },
+  { q: "interface Box<in out T> T ni qanday belgilaydi?", options: ["covariant", "contravariant", "invariant", "bivariant"], answer: 2, explain: "Ham in, ham out ⇒ invariant." }
+]} />
+
+## Resurslar
+
+<Resources topic="typescript/generics-variance" />

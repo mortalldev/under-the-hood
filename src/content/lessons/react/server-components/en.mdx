@@ -1,0 +1,116 @@
+## TL;DR
+
+**Server Components** run only on the server (at build time or per request). They can be `async`, read databases and secrets directly, and their code is **never shipped to the browser**. **Client Components** (marked by a `'use client'` file boundary) render on the server for the initial HTML *and* run in the browser, where they can use state, effects and event handlers. Server Components send their output to the client as the <Term id="rsc-payload" />: rendered elements plus references to client components and their serializable props.
+
+## Visual model
+
+<FlowDiagram height={58} nodes={[
+  { id: "page", label: "page.tsx", sub: "Server Component (async)", x: 18, y: 10, w: 26 },
+  { id: "db", label: "database / secrets", x: 18, y: 32, w: 26, kind: "store" },
+  { id: "list", label: "ProductList", sub: "Server Component", x: 52, y: 10, w: 24 },
+  { id: "cart", label: "AddToCart", sub: "'use client' boundary", x: 52, y: 32, w: 24, kind: "client" },
+  { id: "payload", label: "RSC payload", sub: "elements + client refs + props", x: 84, y: 10, w: 26, kind: "queue" },
+  { id: "browser", label: "browser", sub: "hydrates only client parts", x: 84, y: 32, w: 26, kind: "client" },
+  { id: "js", label: "JS bundle", sub: "AddToCart code only", x: 84, y: 50, w: 26, kind: "note" }
+]} edges={[
+  { from: "page", to: "db", label: "await query" },
+  { from: "page", to: "list" },
+  { from: "list", to: "cart", label: "props must be serializable" },
+  { from: "list", to: "payload" },
+  { from: "payload", to: "browser" },
+  { from: "js", to: "browser", dashed: true }
+]} caption="Server code and its dependencies stay on the server; only client components' code is downloaded." />
+
+## Mechanism
+
+**The boundary is a module graph boundary.** `'use client'` at the top of a file marks it — and everything it imports — as client code. Server Components can import and render Client Components; Client Components **cannot import** Server Components, but can receive already-rendered server content through props (`children`, slots).
+
+**What crosses the boundary**: props from server to client must be serializable by React — primitives, plain objects/arrays, Dates, Maps/Sets, Promises (resolved on the client with `use`), JSX, and Server Functions (`'use server'`). Not class instances, closures, or symbols from the module scope.
+
+**Rendering**: on a request, React renders the server tree, producing the RSC payload. For the first page load, that payload plus client components are also rendered to HTML (SSR) so the user sees content before any JS runs; the browser then <Term id="hydration">hydrates</Term> only the client components. On client-side navigation, only the RSC payload for the new route is fetched and merged into the existing tree — client state outside the changed segments is preserved.
+
+**`'use server'`** is a different directive: it marks functions (Server Functions / Server Actions) that the client can call over the network. It does **not** mean "this is a Server Component".
+
+## Code
+
+```tsx
+// app/products/page.tsx — Server Component (default in the App Router)
+import { db } from "@/lib/db";                       // never bundled for the browser
+import { AddToCart } from "./AddToCart";
+
+export default async function Page() {
+  const products = await db.product.findMany();     // direct data access, no API route needed
+  return (
+    <ul>
+      {products.map((p) => (
+        <li key={p.id}>
+          {p.name} — {p.price}
+          <AddToCart productId={p.id} />            {/* serializable props only */}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// app/products/AddToCart.tsx
+"use client";
+import { useState } from "react";
+export function AddToCart({ productId }: { productId: string }) {
+  const [added, setAdded] = useState(false);
+  return <button onClick={() => setAdded(true)}>{added ? "Added" : "Add to cart"}</button>;
+}
+
+// Passing server-rendered content INTO a client component via children
+// <ClientTabs>{<ServerOnlyMarkdown slug="intro" />}</ClientTabs>
+```
+
+## When to use / when not to
+
+**Server Components by default** for data fetching, static or data-driven markup, heavy dependencies (markdown parsers, syntax highlighters, date libraries), and anything that touches secrets.
+
+**Client Components** where you need interactivity: state, effects, event handlers, browser APIs (`window`, `localStorage`), and most third-party UI libraries that use hooks.
+
+**Push the boundary down**: make the interactive leaf a client component, not the whole page — the bundle includes everything below a `'use client'` file.
+
+## Trade-offs
+
+| | Server Component | Client Component |
+| --- | --- | --- |
+| Runs | server only | server (SSR) + browser |
+| JS sent to browser | none for its code | its code + imports |
+| Hooks/state/effects | no | yes |
+| Data access | direct (DB, fs, secrets) | via API/Server Functions |
+| Re-renders on interaction | no (needs a server round-trip/refresh) | yes, locally |
+
+## Senior nuance
+
+- **Leaking server code**: importing a server-only module into a client file bundles it (and may expose secrets). Guard modules with the `server-only` package so such imports fail at build time.
+- **Serialization cost**: passing large objects as props to client components duplicates data in the HTML and the payload. Pass only what the client needs.
+- **Context doesn't cross the boundary**: providers must be client components; wrap them as low as possible and pass server-rendered `children` through them.
+- **Mutations** go through Server Functions or route handlers; after a mutation, revalidate/refresh so the server tree re-renders with fresh data.
+
+## Interview questions
+
+<QA q="What's the difference between 'use client' and 'use server'?" level="mid">
+'use client' marks a module (and its imports) as client code — a boundary in the component tree where client components start. 'use server' marks async functions as Server Functions callable from the client via RPC. Server Components need no directive; they are the default in frameworks like the Next.js App Router.
+</QA>
+
+<QA q="Can a Client Component render a Server Component?" level="mid">
+It cannot import one, because client modules are bundled for the browser. But a Server Component can render a client component and pass server-rendered elements to it as props (e.g. children), so the client component can place server content inside its own UI.
+</QA>
+
+<QA q="Why do Server Components reduce bundle size, and what don't they solve?" level="senior">
+Their code and their dependencies never reach the browser — only the rendered output does — so heavy libraries used purely for rendering cost nothing on the client. They don't reduce the cost of interactive client components, don't remove hydration for them, and can add server latency or waterfalls if data fetching is sequential.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "A file starts with 'use client'. Its imported helper module is…", options: ["server-only", "also client code (bundled)", "excluded", "duplicated"], answer: 1, explain: "The directive marks a module-graph boundary; everything it imports is part of the client bundle." },
+  { q: "Which prop can a Server Component pass to a Client Component?", options: ["a class instance", "a plain object with strings and numbers", "a closure defined in the server file", "a database connection"], answer: 1, explain: "Props must be serializable." },
+  { q: "Where should useState live?", options: ["Server Component", "Client Component", "either", "neither"], answer: 1, explain: "Server Components don't have state or effects." }
+]} />
+
+## Resources
+
+<Resources topic="react/server-components" />

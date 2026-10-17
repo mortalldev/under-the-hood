@@ -1,0 +1,101 @@
+## TL;DR
+
+React performance muammolarining koʻpi — **state joylashuvi** muammolari: juda yuqorida yashaydigan state juda koʻp re-render qiladi; ikki joyda takrorlangan state bir-biridan uzoqlashib ketadi. Avval state'ni tasniflang — **server cache** (backend egalik qiladigan ma'lumot), **URL state**, **forma state'i**, **lokal UI state**, **umumiy client state** — va har biriga tabiiy joyini bering. Keyin biror narsani optimallashtirishdan oldin React Profiler bilan **oʻlchang**.
+
+## Vizual model
+
+<DecisionTree title="Bu state qayerda yashashi kerak?" start="q1" nodes={[
+  { id: "q1", question: "Bu serverda yashaydigan ma'lumot nusxasimi?", options: [{ label: "Ha", next: "server" }, { label: "Yoʻq", next: "q2" }] },
+  { id: "server", answer: "Server cache", detail: "Server Component'larda fetch qiling yoki data-fetching cache ishlating (TanStack Query, SWR, framework loader'lar). Uni useState'ga nusxalamang — eskirish bilan kurashasiz." },
+  { id: "q2", question: "Qayta yuklash, ulashilgan havola yoki orqaga tugmasi uni tiklashi kerakmi?", options: [{ label: "Ha", next: "url" }, { label: "Yoʻq", next: "q3" }] },
+  { id: "url", answer: "URL (search params / route segment'lar)", detail: "Filtrlar, sahifalash, tanlangan tab, qidiruv soʻrovi." },
+  { id: "q3", question: "U faqat bitta komponent yoki kichik subtree tomonidan ishlatiladimi?", options: [{ label: "Ha", next: "local" }, { label: "Yoʻq", next: "q4" }] },
+  { id: "local", answer: "Lokal state (useState / useReducer), colocate qilingan", detail: "Uni faqat kerak boʻlgan eng yaqin umumiy otagacha koʻtaring." },
+  { id: "q4", question: "U kamdan-kam oʻzgaradimi (theme, til, joriy foydalanuvchi)?", options: [{ label: "Ha", next: "context" }, { label: "Yoʻq — tez-tez yangilanadi", next: "store" }] },
+  { id: "context", answer: "Context", detail: "Kamdan-kam oʻzgaradigan qiymatlar uchun arzon. Qiymat oʻzgarganda har bir iste'molchi re-render boʻladi." },
+  { id: "store", answer: "Selector'li tashqi store (Zustand, Redux Toolkit, Jotai…)", detail: "Komponentlar useSyncExternalStore orqali boʻlaklarga subscribe qiladi, shuning uchun faqat boʻlagi oʻzgarganlar re-render boʻladi." }
+]} />
+
+## Mexanizm
+
+**Context tarqalishi**: provider'ning `value`si oʻzgarganda (`Object.is` boʻyicha) oʻsha context'ni oʻqiydigan har bir komponent `memo`dan qat'i nazar re-render boʻladi. Inline yaratilgan provider qiymati (`value={{ user, setUser }}`) provider otasining har render'ida yangi obyekt — shuning uchun hech narsa oʻzgarmasa ham barcha iste'molchilar re-render boʻladi.
+
+**Selector'li tashqi store'lar** state'ni React'dan tashqarida saqlaydi. Komponentlar `useSyncExternalStore(subscribe, getSnapshot)` orqali subscribe qiladi; React komponentni faqat **uning tanlangan snapshot'i** oʻzgarganda re-render qiladi va API concurrent rendering paytida izchil snapshot'larni kafolatlaydi (tearing yoʻq).
+
+**Profiler** har bir commit'ni yozib oladi: qaysi komponentlar render boʻldi, qancha vaqt oldi ("actual duration"), ideal memoize qilingan render qancha turardi ("base duration") va — sozlama yoqilgan boʻlsa — har bir komponent *nega* render boʻldi (props oʻzgardi, state, hook'lar, ota).
+
+## Kod
+
+```tsx
+// ✗ Beqaror provider qiymati → har bir ota render'ida har bir iste'molchi re-render boʻladi
+<AuthContext.Provider value={{ user, logout }}>{children}</AuthContext.Provider>
+
+// ✓ Barqaror qiymat (yoki state va action'larni ikki context'ga boʻling)
+const value = useMemo(() => ({ user, logout }), [user, logout]);
+<AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+
+// Selector'li store: faqat boʻlagi oʻzgargan komponentlar re-render boʻladi
+const useCart = create<{ items: Item[]; add: (i: Item) => void }>((set) => ({
+  items: [],
+  add: (i) => set((s) => ({ items: [...s.items, i] })),
+}));
+const count = useCart((s) => s.items.length);       // faqat son oʻzgarganda re-render
+
+// Kodda oʻlchash (production profiling build'larida ham ishlatiladi)
+<Profiler id="Feed" onRender={(id, phase, actualMs) => { if (actualMs > 16) report(id, phase, actualMs); }}>
+  <Feed />
+</Profiler>
+
+// Chiqarilgan state: saqlamang, hisoblang
+const visible = todos.filter((t) => (filter === "done" ? t.done : true));   // useState + useEffect sinxronlash emas
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Avval global store'ga yopishmang.** Koʻp ilovalarga kerak: server-cache kutubxonasi (yoki Server Component'lar), navigatsiyaga oʻxshash state uchun URL state va lokal state. Global client store — haqiqatan umumiy, tez-tez oʻzgaradigan client state uchun (editor'lar, koʻp bosqichli konstruktorlar, real-time dashboard'lar).
+
+**Render'larni faqat profiling** ularni xarajat sifatida koʻrsatgandan keyin optimallashtiring. Keng tarqalgan real bottleneck'lar: uzun roʻyxatlar (virtualizatsiya), layout thrashing, katta bundle'lar, optimallashtirilmagan rasmlar va request waterfall'lar.
+
+## Trade-off'lar
+
+| Yondashuv | Re-render doirasi | Boilerplate | Nima uchun yaxshi |
+| --- | --- | --- | --- |
+| Lokal state | komponent + bolalar | yoʻq | koʻp UI state |
+| Koʻtarilgan state | umumiy ota subtree'si | props drilling | kichik umumiy state |
+| Context | har qanday oʻzgarishda barcha iste'molchilar | past | kamdan-kam oʻzgaradigan qiymatlar |
+| Store + selector'lar | faqat boʻlagi oʻzgargan subscriber'lar | oʻrta | tez-tez oʻzgaradigan umumiy state |
+| Server cache kutubxonasi | shu query'ni ishlatadigan komponentlar | oʻrta | masofaviy ma'lumot, dedupe, revalidation |
+| URL state | route segment | past | ulashiladigan/tiklanadigan state |
+
+## Senior nuance
+
+- **Takrorlangan state — koʻp bug'larning ildizi**: `items` va `selectedItem` obyektlarini birga saqlash items yangilanganda uzoqlashib ketadi — `selectedId`ni saqlang va chiqaring.
+- **`useReducer`** murakkab oʻtishlarni markazlashtiradi va ularni sof funksiyalar sifatida test qilinadigan qiladi; dispatch identity'si barqaror.
+- **Virtualizatsiya** (faqat koʻrinib turgan qatorlarni render qilish) minglab elementli roʻyxatlar uchun memoization'dan yaxshiroq.
+- **Performance budget'lar** (masalan, p75 da INP 200 ms dan past) jamoaga "yetarlicha tez"ning ta'rifini beradi, shunda optimallashtirish mikro-benchmark'lar emas, foydalanuvchi koʻradigan metrikalar bilan boshqariladi.
+
+## Interview savollari
+
+<QA q="Nega Context performance muammolariga sabab boʻlishi mumkin va ularni qanday tuzatasiz?" level="mid">
+Provider qiymati oʻzgarganda har bir iste'molchi re-render boʻladi va memo buni toʻxtatmaydi. Inline obyekt qiymatlari har render'da oʻzgaradi. Tuzatishlar: qiymatni memoize qilish, state va dispatch/action'larni alohida context'larga boʻlish, context'larni vazifa boʻyicha boʻlish yoki tez-tez oʻzgaradigan state'ni selector'li store'ga koʻchirish.
+</QA>
+
+<QA q="Yozishda sahifa nega sekin his qilinishini qanday topasiz?" level="senior">
+Yozish paytida React Profiler bilan yozib oling: actual duration'i uzun commit'larni, qaysi komponentlar render boʻlgani va nega ekanini qidiring. Brauzer Performance panelida uzun task'lar, layout va style qayta hisoblashni tekshiring. Odatiy tuzatishlar: katta daraxt re-render boʻlmasligi uchun input state'ini colocate qilish, qimmat natijalar roʻyxati uchun useDeferredValue/transition, uzun roʻyxatlarni virtualizatsiya qilish, barqaror props bilan qimmat bolalarni memoize qilish.
+</QA>
+
+<QA q="Server state va client state — nega ularni ajratish kerak?" level="senior">
+Server state — boshqa joyga tegishli ma'lumotning cache'i: u eskirgan boʻlishi mumkin, qayta fetch, dedupe, mutatsiyalardan keyin invalidation va loading/error holatlarini talab qiladi. Client state'ga UI egalik qiladi va u doim haqiqiy. Server ma'lumotini client state sifatida koʻrish (useState/global store'larga nusxalash) sinxronlash bug'larini yaratadi; maxsus cache'lar yoki Server Component'lar uning hayot siklini boshqaradi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Qayta yuklashdan omon qolishi va ulashilishi kerak boʻlgan filtr qayerga tegishli?", options: ["useState", "Context", "URL", "faqat localStorage"], answer: 2, explain: "URL state dizayn boʻyicha tiklanadigan va ulashiladigan." },
+  { q: "Tez-tez re-render boʻladigan komponent ichidagi provider'da value={{ user }} nimaga olib keladi?", options: ["hech narsa", "har safar barcha iste'molchilar re-render boʻladi", "hook xatosi", "eskirgan context"], answer: 1, explain: "Har render'da yangi obyekt context qiymatini oʻzgartiradi." },
+  { q: "10 000 qatorli roʻyxat memo bilan ham sekin. Eng yaxshi keyingi qadam?", options: ["koʻproq memo", "roʻyxatni virtualizatsiya qilish", "useCallback", "Context"], answer: 1, explain: "Faqat ekrandagi qatorlarni render qiling." }
+]} />
+
+## Resurslar
+
+<Resources topic="react/state-performance" />

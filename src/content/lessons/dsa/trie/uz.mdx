@@ -1,0 +1,114 @@
+## TL;DR
+
+<Term id="trie" /> string'larni root'dan node'gacha boʻlgan yoʻllar sifatida saqlaydi, har bir edge'da bitta belgi. Umumiy prefix'li soʻzlar node'larni boʻlishadi. Qidiruv va prefix tekshiruvlari **soʻrov uzunligi boʻyicha O(L)** turadi — nechta soʻz saqlanganidan qat'i nazar — autocomplete, imlo tekshiruvi va "grid'da koʻp soʻzlarni qidirish"ga aynan shu kerak.
+
+## Vizual model
+
+```text
+            •                 soʻzlar: car, cat, cart, dog
+          /   \
+         c     d              ✓ = soʻz oxiri flag'i
+         |     |
+         a     o              "ca" — prefix (yoʻl mavjud)
+        / \    |              "car" — soʻz (yoʻl mavjud VA ✓)
+       r✓  t✓  g✓             "cb" — hech biri emas (yoʻl uziladi)
+       |
+       t✓
+```
+
+## Mexanizm
+
+Qoʻshish root'dan yuradi, yetishmayotgan bola node'larni yaratadi va oxirgi node'da end flag'ini oʻrnatadi. Prefix soʻrovi xuddi shunday yuradi va edge yetishmasa darhol muvaffaqiyatsiz tugaydi. Prefix'larni boʻlishadigan soʻzlarni qoʻshing va qanchalik kam yangi node paydo boʻlishini kuzating:
+
+<TrieViz />
+
+End flag muhim: `cart` qoʻshilgandan keyin `c→a→r` yoʻli mavjud, lekin `car` faqat oʻzi qoʻshilgan boʻlsagina soʻz.
+
+## Kod
+
+```ts
+class TrieNode {
+  children = new Map<string, TrieNode>();
+  end = false;
+}
+
+class Trie {
+  root = new TrieNode();
+  insert(word: string) {
+    let n = this.root;
+    for (const ch of word) {
+      let next = n.children.get(ch);
+      if (!next) { next = new TrieNode(); n.children.set(ch, next); }
+      n = next;
+    }
+    n.end = true;
+  }
+  private walk(s: string): TrieNode | null {
+    let n: TrieNode | undefined = this.root;
+    for (const ch of s) { n = n.children.get(ch); if (!n) return null; }
+    return n;
+  }
+  search(word: string) { return this.walk(word)?.end === true; }
+  startsWith(prefix: string) { return this.walk(prefix) !== null; }
+}
+
+// Word Search II: barcha soʻzlarni trie'ga soling, trie edge'lari boʻylab grid'ni bir marta DFS qiling.
+// Toʻliq soʻzni uning end node'ida saqlang va dublikatlardan qochish uchun topilgach olib tashlang.
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- Koʻp prefix soʻrovlari: autocomplete, "… bilan boshlanadigan soʻzlar", eng uzun umumiy prefix, soʻzlarni ildizlari bilan almashtirish.
+- **Koʻp** soʻzlarni bir vaqtda qidirish (Word Search II): trie boshqaradigan bitta DFS har bir soʻzga alohida DFS'dan yaxshiroq.
+- `.` bilan wildcard moslashtirish (Design Add and Search Words): nuqtada barcha bolalar boʻylab tarmoqlang.
+- "Ikki sonning maksimal XOR'i" uchun bitwise trie'lar: sonlarni eng katta bitdan boshlab bit-bit qoʻshing.
+
+**Qachon kerak emas**
+- Faqat aniq qidiruvlar → hash set soddaroq va odatda kichikroq.
+- Siyrak ishlatiladigan ulkan alfavitlar → map asosidagi bolalar yoki siqilgan (radix) trie.
+- Bitta katta matnda substring (prefix emas) qidirish → suffix array/automata yoki bitta pattern uchun KMP/Z.
+
+## Trade-off'lar
+
+| Tuzilma | Aniq qidiruv | Prefix soʻrovi | Xotira |
+| --- | --- | --- | --- |
+| Soʻzlar hash set'i | oʻrtacha O(L) | O(N · L) skan | ixcham |
+| Saralangan array + binary search | O(L log N) | oraliq uchun O(L log N) | ixcham |
+| Trie (map bolalar) | O(L) | O(L) | koʻp kichik obyektlar |
+| Radix / siqilgan trie | O(L) | O(L) | kamroq node |
+
+## Senior nuance
+
+- **Xotira ustun keladi**: har bir node — obyekt va map; millionlab node'lar JS'da yuzlab MB turadi. Qat'iy `Array(26)` bolalar kichik harflar uchun tezroq, lekin siyrak node'lar uchun joyni isrof qiladi; radix trie'lar bitta bolali zanjirlarni birlashtiradi.
+- **Autocomplete uchun reyting**: har bir node'da top-k takliflarni (yoki sanoqlarni) saqlang, shunda soʻrov subtree'ni oʻrganmasdan natija qaytaradi; ularni insert'da yangilang.
+- Word Search II'da **topilgan soʻzlarni prune qilish** (soʻzi topilgach barg node'larni oʻchirish) katta doskalarda time-out'ni accept'ga aylantiradi.
+- **Unicode**: UTF-16 birliklari emas, code point'lar boʻylab (`for…of`) yuring; foydalanuvchi matnini qoʻshishdan oldin normallashtiring (NFC).
+
+## Interview savollari
+
+<QA q="Prefix uchun top 3 taklifni qaytaradigan autocomplete loyihalang." level="senior">
+Belgilar boʻyicha trie; har bir node chastota boʻyicha top 3 davomni (yoki kichik heap) saqlaydi. Soʻrov prefix'ni O(L) da yuradi va node'ning cache'langan roʻyxatini O(1) da qaytaradi. Chastotani qoʻshish yoki yangilash yoʻl boʻylab cache'langan roʻyxatlarni O(L · k) da yangilaydi. Ulkan korpuslar uchun prefix boʻyicha shard qiling va offline oldindan hisoblang; xotiradan xizmat qiling.
+</QA>
+
+<QA q="Array'dagi ikki sonning maksimal XOR'i." level="senior">
+Har bir sonni binary trie'ga 31-bitdan 0 gacha qoʻshing. Har bir son uchun trie'da har darajada teskari bitni afzal koʻrib yuring; bu XOR'ni eng katta bitdan boshlab greedy maksimallashtiradi. O(32 · n).
+</QA>
+
+<QA q="Trie qachon hash set'dan yomonroq?" level="mid">
+Faqat aniq a'zolik kerak boʻlganda: hash set ancha kam xotira va yaxshiroq cache xatti-harakati bilan kutilgan O(L) qidiruv beradi. Trie'lar faqat prefix tuzilmasi muhim boʻlganda oʻzini oqlaydi (prefix soʻrovlari, umumiy aylanib chiqish, tartiblangan iteratsiya).
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Faqat 'cart' qoʻshilgandan keyin search('car') nima qaytaradi?", options: ["true", "false", "xato tashlaydi", "tartibga bogʻliq"], answer: 1, explain: "Yoʻl mavjud, lekin 'r'dagi end flag false." },
+  { q: "startsWith(prefix) narxi…", options: ["O(soʻzlar soni)", "O(prefix uzunligi)", "O(log n)", "O(jami belgilar)"], answer: 1, explain: "Prefix'ning har bir belgisiga bitta edge." },
+  { q: "Koʻp soʻzli Word Search II uchun eng yaxshi yondashuv?", options: ["Har bir soʻzga DFS", "Barcha soʻzlar trie'si + har bir boshlangʻich katakdan bitta DFS", "Soʻzlarni saralash", "Har bir soʻzga BFS"], answer: 1, explain: "Trie hech bir soʻzning prefix'i boʻlmagan yoʻllarni kesadi." }
+]} />
+
+**Klassik masalalar:** Implement Trie (Prefix Tree) (Medium) · Design Add and Search Words Data Structure (Medium) · Replace Words (Medium) · Maximum XOR of Two Numbers in an Array (Medium) · Word Search II (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/trie" />

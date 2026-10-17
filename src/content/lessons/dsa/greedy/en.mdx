@@ -1,0 +1,124 @@
+## TL;DR
+
+A greedy algorithm commits to the locally best choice and never reconsiders. It is correct only when you can prove that some optimal solution starts with that choice — usually with an <Term id="exchange-argument" /> or a "stays ahead" argument. If you cannot write that one-paragraph proof, assume greedy is wrong and reach for DP.
+
+## Visual model
+
+```text
+Coin change with {1, 5, 10, 25}, amount 30:   greedy 25 + 5        = 2 coins  ✓ optimal
+Coin change with {1, 10, 25},    amount 30:   greedy 25 + 1·5      = 6 coins  ✗ (10 + 10 + 10 = 3)
+Same strategy, different input → greedy is a property of the PROBLEM, not of the algorithm.
+```
+
+## Mechanism
+
+**Exchange argument** (interval scheduling — pick the most non-overlapping intervals): sort by end time and take every interval that starts after the last taken one ends. Proof: let OPT be any optimal schedule. Replace its first interval with the one that ends earliest overall; it ends no later, so OPT's second interval still fits. Repeat on the rest. The greedy schedule is never worse.
+
+Sorting by end is the same first step as merging intervals by start — the sort key is the whole design:
+
+<IntervalsViz />
+
+**Stays ahead** (Jump Game II): keep the farthest index reachable with k jumps. After each "layer" of k jumps, greedy's reach is at least any other strategy's reach, so it needs no more jumps.
+
+## Code
+
+```ts
+// Jump Game: can you reach the end?
+function canJump(nums: number[]): boolean {
+  let reach = 0;
+  for (let i = 0; i < nums.length; i++) {
+    if (i > reach) return false;                   // stuck before i
+    reach = Math.max(reach, i + nums[i]);
+  }
+  return true;
+}
+
+// Jump Game II: minimum jumps (BFS by layers, O(n))
+function jump(nums: number[]): number {
+  let jumps = 0, end = 0, farthest = 0;
+  for (let i = 0; i < nums.length - 1; i++) {
+    farthest = Math.max(farthest, i + nums[i]);
+    if (i === end) { jumps++; end = farthest; }    // current layer exhausted
+  }
+  return jumps;
+}
+
+// Gas Station: if total gas ≥ total cost, the start is right after the last point where the tank went negative
+function canCompleteCircuit(gas: number[], cost: number[]): number {
+  let total = 0, tank = 0, start = 0;
+  for (let i = 0; i < gas.length; i++) {
+    const d = gas[i] - cost[i];
+    total += d; tank += d;
+    if (tank < 0) { start = i + 1; tank = 0; }    // no start in [old start, i] can pass i
+  }
+  return total >= 0 ? start : -1;
+}
+
+// Partition Labels: extend the current part to the last occurrence of every char seen
+function partitionLabels(s: string): number[] {
+  const last = new Map<string, number>();
+  for (let i = 0; i < s.length; i++) last.set(s[i], i);
+  const out: number[] = [];
+  let start = 0, end = 0;
+  for (let i = 0; i < s.length; i++) {
+    end = Math.max(end, last.get(s[i])!);
+    if (i === end) { out.push(end - start + 1); start = i + 1; }
+  }
+  return out;
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- A sort order makes the decision obvious (earliest end, highest ratio, smallest first).
+- "Minimum number of …" where each step's best move can be proved safe.
+- Problems that look like DP but where the state collapses to one running value (max reach, tank balance).
+
+**When not to**
+- Small counterexamples exist — always try 2–3 tiny inputs, including adversarial ones (coin systems, 0/1 knapsack).
+- Choices interact (taking one item changes others' value) → DP.
+
+## Trade-offs
+
+| | Greedy | DP |
+| --- | --- | --- |
+| Speed | usually O(n log n) or O(n) | states × transitions |
+| Memory | O(1) extra | table |
+| Correctness | needs a proof | follows from the recurrence |
+| Risk in interviews | plausible but wrong | slower but safe |
+
+## Senior nuance
+
+- **Fractional knapsack is greedy (by value/weight), 0/1 knapsack is not** — the classic illustration that a tiny change in the problem kills the greedy property.
+- **Canonical coin systems** (like real currencies) happen to make greedy optimal; arbitrary denominations do not.
+- **Huffman coding, Dijkstra, Prim and Kruskal are greedy** algorithms with rigorous proofs — mention them to show that greedy is a method, not a gamble.
+- In production, greedy heuristics (bin packing, load placement) are often deliberately non-optimal but fast; quantify the approximation ratio when you can.
+
+## Interview questions
+
+<QA q="Prove the Gas Station greedy." level="senior">
+If the running tank becomes negative at i starting from s, then starting at any k in (s, i] also fails at or before i: the prefix from s to k−1 had a non-negative balance (otherwise we would have reset earlier), so removing it can only lower the tank. So the next candidate is i + 1. If the total balance is non-negative, the final candidate succeeds, because the deficit before it is covered by the surplus after it.
+</QA>
+
+<QA q="When does greedy coin change fail?" level="mid">
+When denominations are not canonical, e.g. {1, 3, 4} for amount 6: greedy takes 4 + 1 + 1 (3 coins), but 3 + 3 uses 2. Use DP over amounts in general.
+</QA>
+
+<QA q="Task Scheduler: minimum time with cooldown n." level="senior">
+Let f be the highest frequency and m the number of tasks with that frequency. The idle-filled frame has (f − 1) blocks of length n + 1 plus m tasks at the end: (f − 1)(n + 1) + m. The answer is max(that, total tasks), because when there are enough distinct tasks, no idle slots are needed.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Coins {1, 3, 4}, amount 6. Greedy (largest first) uses…", options: ["2 coins", "3 coins", "6 coins", "1 coin"], answer: 1, explain: "4 + 1 + 1. The optimum 3 + 3 uses 2 — greedy fails here." },
+  { q: "Maximum number of non-overlapping intervals: sort by…", options: ["start", "end", "length", "random"], answer: 1, explain: "Earliest end, by exchange argument." },
+  { q: "Jump Game II in O(n) is best viewed as…", options: ["DFS", "BFS by layers of reach", "binary search", "sorting"], answer: 1, explain: "Each jump count corresponds to a contiguous layer of reachable indices." }
+]} />
+
+**Classic problems:** Jump Game (Medium) · Jump Game II (Medium) · Gas Station (Medium) · Partition Labels (Medium) · Task Scheduler (Medium) · Hand of Straights (Medium) · Non-overlapping Intervals (Medium).
+
+## Resources
+
+<Resources topic="dsa/greedy" />

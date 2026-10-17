@@ -1,0 +1,109 @@
+
+## TL;DR
+
+Binary search is not "find x in a sorted array". It is **find the boundary of a monotonic predicate**: the first index where `pred(i)` flips from false to true. Write one template with a clear <Term id="invariant" />, and the same code solves lower/upper bound, rotated arrays and "binary search on the answer".
+
+## Visual model
+
+```text
+index:     0    1    2    3    4    5    6
+nums:      1    3    3    5    8   13   21        target = 5
+pred:      F    F    F    T    T    T    T        pred(i) = nums[i] >= target
+                          ↑ lower bound = 3
+```
+
+Any problem where you can define such an F…FT…T pattern over a range — of indices *or of candidate answers* — is a binary search.
+
+## Mechanism
+
+The template keeps a half-open range `[lo, hi)` and the invariant **"the answer is in [lo, hi]"** (hi itself is allowed: "no element qualifies"). Each step looks at `mid`:
+- `pred(mid)` false → the answer is right of mid → `lo = mid + 1`.
+- `pred(mid)` true → mid could be the first true → keep it: `hi = mid`.
+
+The range shrinks every iteration and the loop ends when `lo === hi`, which *is* the answer. Try targets that are absent, duplicated, below the minimum and above the maximum:
+
+<BinarySearchViz />
+
+## Code
+
+```ts
+// First index in [lo, hi) where pred is true; hi if none. pred must be F…FT…T.
+function firstTrue(lo: number, hi: number, pred: (i: number) => boolean): number {
+  while (lo < hi) {
+    const mid = lo + ((hi - lo) >> 1);
+    if (pred(mid)) hi = mid; else lo = mid + 1;
+  }
+  return lo;
+}
+
+const lowerBound = (a: number[], x: number) => firstTrue(0, a.length, (i) => a[i] >= x);
+const upperBound = (a: number[], x: number) => firstTrue(0, a.length, (i) => a[i] > x);
+const count = (a: number[], x: number) => upperBound(a, x) - lowerBound(a, x);
+
+// Binary search on the answer: minimum eating speed (Koko)
+function minSpeed(piles: number[], hours: number): number {
+  const hoursAt = (k: number) => piles.reduce((h, p) => h + Math.ceil(p / k), 0);
+  return firstTrue(1, Math.max(...piles) + 1, (k) => hoursAt(k) <= hours); // feasible is monotonic in k
+}
+
+// Rotated sorted array (distinct values): find the minimum
+function findMin(a: number[]): number {
+  const last = a[a.length - 1];
+  return a[firstTrue(0, a.length - 1, (i) => a[i] <= last)];   // F…F (left part) T…T (right part)
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- Sorted input, or input sorted in pieces (rotated array, mountain array).
+- "Minimum x such that … is possible" / "maximum x such that …" — with a check function that is monotonic in x (capacity, speed, days, distance).
+- n up to 10⁹–10¹⁸ or answers in a huge numeric range: only log-time search fits.
+
+**When not to**
+- Unsorted data with one query → a linear scan is O(n); sorting first costs O(n log n).
+- Many queries with inserts/deletes → a balanced BST or a sorted container.
+- The predicate is not monotonic → binary search silently returns garbage. Test monotonicity before coding.
+
+## Trade-offs
+
+| Variant | Time | Notes |
+| --- | --- | --- |
+| Index search on sorted array | O(log n) | needs random access (not linked lists) |
+| Search on answer | O(log R · cost(check)) | R = answer range |
+| Floating-point answers | O(iterations · check) | loop a fixed number of times (e.g. 100) instead of `lo < hi` |
+
+## Senior nuance
+
+- **Overflow**: `(lo + hi) / 2` overflows 32-bit ints when both are large (a famous bug that lived in Java's library for years). `lo + (hi − lo) / 2` is safe. In JS, `>> 1` truncates to 32 bits, so for ranges above 2³¹ use `Math.floor((lo + hi) / 2)` instead.
+- **Infinite loops** come from mixing conventions: with `hi = mid` you must use `lo < hi` and the floor mid. If you write `lo = mid` (searching for the last true), use the ceiling mid or you can loop forever when `hi − lo === 1`.
+- **Duplicates in rotated arrays** break the "compare with last" trick: when `a[mid] === a[hi]`, you can only shrink by one, making the worst case O(n).
+- JavaScript has no built-in sorted search (no `bisectLeft` in the standard library) — know the lower/upper bound templates cold and write them as small helpers.
+
+## Interview questions
+
+<QA q="How do you know a problem is 'binary search on the answer'?" level="mid">
+You are asked for a minimum or maximum value, and you can write `feasible(x)` cheaply where feasibility is monotonic: if x works, every larger x works (or every smaller). Then binary search the boundary over the range of possible answers, multiplying the cost of one check by log(range).
+</QA>
+
+<QA q="Find the first and last position of target in a sorted array." level="mid">
+Two boundary searches: first = lowerBound(target), last = upperBound(target) − 1. If first is out of range or a[first] ≠ target, it is absent. Both are O(log n); a linear expansion around a hit would be O(n) for an array full of duplicates.
+</QA>
+
+<QA q="Median of two sorted arrays in O(log(min(m, n)))." level="senior">
+Binary search the number of elements i taken from the shorter array; j = half − i from the other. The partition is correct when A[i−1] ≤ B[j] and B[j−1] ≤ A[i]. If A[i−1] > B[j], take fewer from A; otherwise more. The predicate "A[i−1] ≤ B[j]" is monotonic in i, which is what makes it a binary search.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "With lo = 0, hi = n and hi = mid on true, which loop condition is correct?", options: ["lo <= hi", "lo < hi", "lo < hi − 1", "hi − lo > 2"], answer: 1, explain: "The half-open range [lo, hi) is empty when lo === hi; that index is the answer." },
+  { q: "lowerBound([1,2,2,2,5], 2) and upperBound(..., 2) are…", options: ["1 and 3", "1 and 4", "2 and 4", "0 and 4"], answer: 1, explain: "First index ≥ 2 is 1; first index > 2 is 4. Count = 3." },
+  { q: "Which check makes 'ship within D days' searchable on capacity?", options: ["days(capacity) is monotonic non-increasing", "the array is sorted", "capacity is even", "weights are distinct"], answer: 0, explain: "More capacity never needs more days, so feasibility flips once." }
+]} />
+
+**Classic problems:** Binary Search (Easy) · Find First and Last Position of Element in Sorted Array (Medium) · Search in Rotated Sorted Array (Medium) · Find Minimum in Rotated Sorted Array (Medium) · Koko Eating Bananas (Medium) · Capacity To Ship Packages Within D Days (Medium) · Median of Two Sorted Arrays (Hard).
+
+## Resources
+
+<Resources topic="dsa/binary-search" />

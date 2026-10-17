@@ -1,0 +1,113 @@
+## TL;DR
+
+Production Node servislariga uchta intizom kerak. **Xatolar**: *operational* xatolarni (tarmoq ishlamayapti, notoʻgʻri input — hal qilib davom eting) *programmer* xatolaridan (bug'lar, buzilgan invariant'lar — log qilib, jarayonni qayta ishga tushiring) ajrating. **<Term id="graceful-shutdown" />**: `SIGTERM` kelganda ish qabul qilishni toʻxtating, jarayondagi request'larni tugating, resurslarni yoping, keyin orkestrator muddati tugashidan oldin chiqing. **Xavfsizlik**: barcha input'ni dushmanona deb hisoblang (injection, <Term id="prototype-pollution" />, ReDoS, path traversal) va bogʻliqliklar supply chain'ini boshqaring.
+
+## Vizual model
+
+```text
+SIGTERM ─▶ readiness = false ─▶ server.close() (yangi ulanish yoʻq) ─▶ jarayondagilarni kutish (≤ timeout) ─▶ DB/queue'larni yopish ─▶ exit 0
+              ▲ load balancer bu yerga yoʻnaltirishni toʻxtatadi                         └─ timeout'ga yetildi ─▶ majburiy exit 1
+
+xato ─▶ operational? ── ha  ─▶ hal qilish: retry / 4xx / fallback / log
+                      └ yoʻq ─▶ (bug) kontekst bilan log ─▶ tez qulash ─▶ supervisor toza jarayonni qayta ishga tushiradi
+```
+
+## Mexanizm
+
+**Nega programmer xatolarida qulash kerak**: kutilmagan istisnodan keyin jarayon yarim yangilangan state, leak boʻlgan lock'lar yoki buzilgan ulanishlarni saqlashi mumkin. `process.on("uncaughtException")` log qila oladi, lekin buzilgan boʻlishi mumkin boʻlgan holatdan request'larga xizmat qilishda davom etish qayta ishga tushirishdan xavfliroq. Zamonaviy Node'da hal qilinmagan promise rejection'lari sukut boʻyicha jarayonni toʻxtatadi (`--unhandled-rejections=throw`).
+
+**Graceful shutdown**: orkestratorlar (Kubernetes, ECS, systemd) `SIGTERM` yuboradi, imtiyozli muddat kutadi (Kubernetes'da sukut boʻyicha 30 s), keyin `SIGKILL`. `server.close()` yangi ulanishlarni qabul qilishni toʻxtatadi va mavjudlari tugaganda callback chaqiradi — lekin keep-alive ulanishlar ochiq qolishi mumkin, shuning uchun boʻsh turganlarini yoping (`server.closeIdleConnections()`) va qat'iy timeout qoʻying.
+
+**Prototype pollution**: ishonchsiz JSON'ni rekursiv "deep merge" bilan birlashtirish `__proto__` kabi key'ga `Object.prototype`ga yozishga imkon beradi va har bir obyekt xatti-harakatini oʻzgartiradi (masalan, `isAdmin` hamma joyda true boʻladi). `Object.create(null)`, `Map`, key allow-list'lari, schema validatsiya yoki `--disable-proto=delete` bilan himoyalaning.
+
+**Injection**: SQL'ni string birlashtirish bilan emas, doim parametrlangan query'lar bilan quring; foydalanuvchi input'i bilan `child_process.exec`dan qoching; `../` traversal'ni bloklash uchun fayl yoʻllarini asosiy katalogga nisbatan validatsiya va normallashtiring. **ReDoS**: foydalanuvchi input'idagi katastrofik backtracking'li regex'lar event loop'ni soniyalar davomida bloklashi mumkin.
+
+## Kod
+
+```js
+const server = app.listen(3000);
+let shuttingDown = false;
+
+app.get("/healthz/ready", (req, res) => res.sendStatus(shuttingDown ? 503 : 200));
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.info({ signal }, "shutting down");
+  const force = setTimeout(() => process.exit(1), 25_000).unref();   // < orkestrator imtiyozli muddati
+  server.close(async () => {                    // jarayondagi request'larni kutadi
+    await Promise.allSettled([db.end(), queue.close()]);
+    clearTimeout(force);
+    process.exit(0);
+  });
+  server.closeIdleConnections();                // faol request'siz keep-alive socket'lar
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+
+process.on("uncaughtException", (err) => {     // programmer xatosi: log qilib, keyin qulash
+  console.error({ err }, "uncaught exception");
+  process.exit(1);
+});
+
+// Ishonchsiz input'ni xavfsiz birlashtirish
+function safeAssign(target, input) {
+  for (const key of Object.keys(input)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    target[key] = input[key];
+  }
+  return target;
+}
+
+// Parametrlangan SQL
+await db.query("SELECT * FROM users WHERE email = $1", [req.body.email]);
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Vaqtinchalik operational xatolarni (timeout'lar, 503'lar) eksponensial backoff, jitter va chegara bilan **qayta urining** — va faqat idempotent amallar uchun yoki idempotency key'lari bilan. Validatsiya xatolari yoki programmer xatolarini **qayta urinmang**.
+
+**Supply chain**: lockfile'larni commit qiling, CI'da `npm audit`/advisory'larni ishga tushiring, yangi bogʻliqliklarni qotiring va koʻrib chiqing, tranzitiv bogʻliqligi kam, yaxshi qoʻllab-quvvatlanadigan paketlarni afzal koʻring, build'larda `npm ci` ishlating va xavfli yuklamalar uchun fs/child-process murojaatini cheklash maqsadida Node permission modelini (`--permission`) koʻrib chiqing.
+
+## Trade-off'lar
+
+| Amaliyot | Nimadan himoya qiladi | Narx |
+| --- | --- | --- |
+| Bug'larda qulab, qayta ishga tushish | buzilgan holatdan xizmat qilish | qisqa sigʻim yoʻqotilishi; supervisor kerak |
+| Graceful shutdown | deploy paytida tashlab yuborilgan request'lar | shutdown kodi + timeout'lar |
+| Chegaralarda schema validatsiya | injection, pollution, yomon ma'lumot | har request'ga CPU, qoʻllab-quvvatlanadigan schema'lar |
+| Parametrlangan query'lar | SQL injection | yoʻq |
+| Bogʻliqliklarni koʻrib chiqish/lockfile'lar | supply-chain hujumlari | jarayon intizomi |
+
+## Senior nuance
+
+- **Readiness va liveness**: shutdown'da avval readiness probe'ni muvaffaqiyatsiz qiling, shunda load balancer trafikni chiqaradi, liveness esa sogʻlom qoladi, orkestrator jarayonni erta oʻldirmasligi uchun.
+- **Async xato chegaralari**: `setTimeout` yoki event emitter callback'i ichida tashlangan xato uni rejalashtirgan kod atrofidagi `try/catch`dan chiqib ketadi; `'error'` listener'siz emitter'lar jarayonni qulatadi.
+- **Xatolarni log qilish**: `err.stack` va request kontekstini (request ID) log qiling, hech qachon secret'larni emas; asl zanjirni saqlash uchun `cause`dan (`new Error("x", { cause: err })`) foydalaning.
+- **`AbortSignal`** bekor qilishni fetch, stream va timer'larga uzatadi, shunda client uzilganda yoki shutdown boshlanganda jarayondagi ish toʻxtaydi.
+
+## Interview savollari
+
+<QA q="Operational va programmer xatolari — har birini qanday hal qilasiz?" level="mid">
+Operational xatolar — kutilgan runtime nosozliklari (tarmoq timeout'lari, notoʻgʻri foydalanuvchi input'i, yetishmayotgan fayllar): ularni hal qiling — 4xx/5xx qaytaring, idempotent boʻlsa backoff bilan qayta urining, fallback qiling. Programmer xatolari — bug'lar (undefined'da TypeError, buzilgan invariant'lar): xavfsiz tiklanib boʻlmaydi, shuning uchun kontekst bilan log qilib, jarayonni qulashiga yoʻl qoʻying; supervisor toza nusxani qayta ishga tushiradi.
+</QA>
+
+<QA q="Kubernetes'dagi HTTP servis uchun graceful shutdown'ni tasvirlab bering." level="senior">
+SIGTERM'da: endpoint'lar olib tashlanib, yangi trafik toʻxtashi uchun not-ready deb belgilang; ulanishlarni qabul qilishni toʻxtating (server.close), boʻsh keep-alive socket'larni yoping, jarayondagi request'lar tugashiga yoʻl qoʻying, queue'lardan iste'mol qilishni toʻxtatib, joriy xabarlarni tugating, DB pool'larini yoping, keyin exit 0 — terminationGracePeriodSeconds'dan past, chiqishni majburlaydigan qat'iy timeout bilan. Kichik preStop kechikishi yordam beradi, chunki endpoint olib tashlanishi asinxron tarqaladi.
+</QA>
+
+<QA q="Prototype pollution nima va uning oldini qanday olasiz?" level="senior">
+Hujumchi input'da __proto__ yoki constructor.prototype kabi key'larni yuboradi, rekursiv merge/set utility'si ularga yozadi va Object.prototype'ni, demak har bir obyektning meros property'larini oʻzgartiradi — auth chetlab oʻtilishi yoki qulashlarga olib keladi. Noma'lum key'larni rad etadigan schema validatsiya, merge'larda xavfli key'larni oʻtkazib yuborish, lugʻatlar uchun Map yoki Object.create(null) ishlatish, prototype'larni muzlatish va zaif kutubxonalarni yangilab turish bilan oldini oling.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "{\"__proto__\": {\"isAdmin\": true}} JSON body'si {} ga deep-merge qilinadi. Xavf?", options: ["yoʻq", "endi har bir obyekt isAdmin: true'ni meros olishi mumkin", "faqat oʻsha obyekt oʻzgaradi", "JSON.parse xato tashlaydi"], answer: 1, explain: "Sodda deep merge __proto__ ichiga kirib, Object.prototype'ga yozadi." },
+  { q: "uncaughtException'dan keyin eng xavfsiz harakat…", options: ["e'tiborsiz qoldirib davom etish", "log qilib chiqish; supervisor qayta ishga tushirsin", "faqat router'ni qayta ishga tushirish", "GC'ni oʻchirish"], answer: 1, explain: "Holat buzilgan boʻlishi mumkin." },
+  { q: "Kubernetes SIGTERM yuboradi. Birinchi qadam?", options: ["process.exit(0)", "readiness'ni muvaffaqiyatsiz qilib, yangi ulanishlarni qabul qilishni toʻxtatish", "DB'ni yopish", "e'tiborsiz qoldirish"], answer: 1, explain: "Resurslarni yopishdan oldin trafikni chiqaring." }
+]} />
+
+## Resurslar
+
+<Resources topic="nodejs/errors-shutdown-security" />

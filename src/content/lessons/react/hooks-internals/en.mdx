@@ -1,0 +1,118 @@
+## TL;DR
+
+Hooks have no names inside React: each component's fiber stores a **linked list** of hook objects, and the n-th hook call in a render reads the n-th node. That is the entire reason for the Rules of Hooks — call them unconditionally, in the same order, at the top level. Effects are scheduled during render and run **after commit**; each render's handlers and effects close over **that render's** props and state, which is where the <Term id="stale-closure" /> problem comes from.
+
+## Visual model
+
+```text
+fiber.memoizedState ─▶ [useState: "Ada"] ─▶ [useEffect: deps, cleanup] ─▶ [useRef: { current }] ─▶ null
+render 2 walks the SAME list from the start:
+   call #0 useState  → node 0 ✓
+   call #1 useRef    → node 1, which holds an EFFECT  ✗  (a conditional hook shifted everything)
+```
+
+## Mechanism
+
+### The hook list
+
+Render a component twice with different hook sequences. When the second render skips a hook, every later call reads the wrong node — exactly the error React reports.
+
+<HooksViz />
+
+### Effects lifecycle
+
+1. **Render**: `useEffect(fn, deps)` only records `fn` and `deps` on the hook node.
+2. **Commit**: DOM is updated; `useLayoutEffect` cleanups and bodies run synchronously (before paint).
+3. **After paint**: for each effect whose deps changed (compared with `Object.is`), React runs the **previous cleanup** and then the new effect body.
+4. **Unmount**: the last cleanup runs.
+
+### Stale closures
+
+Every render is a new function call with its own `count` constant. An effect or callback created in render #1 sees `count` from render #1 forever — unless it is recreated (deps) or reads a ref / uses a functional update.
+
+## Code
+
+```tsx
+function Ticker() {
+  const [count, setCount] = useState(0);
+
+  // ✗ Stale: the interval closes over count = 0 from the first render
+  useEffect(() => {
+    const id = setInterval(() => setCount(count + 1), 1000);
+    return () => clearInterval(id);
+  }, []);                                  // lint warns: missing dependency 'count'
+
+  // ✓ Functional update: no need to read count at all
+  useEffect(() => {
+    const id = setInterval(() => setCount((c) => c + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <p>{count}</p>;
+}
+
+// Reading the latest value inside a long-lived callback without re-subscribing
+function useEvent(handler: (e: Event) => void, target: EventTarget) {
+  const onEvent = useEffectEvent(handler);   // React 19.2+: always sees latest props/state, not a dependency
+  useEffect(() => {
+    const fn = (e: Event) => onEvent(e);
+    target.addEventListener("message", fn);
+    return () => target.removeEventListener("message", fn);
+  }, [target]);
+}
+
+// Fetch with cleanup to avoid race conditions (an out-of-order response overwriting a newer one)
+useEffect(() => {
+  let ignore = false;
+  fetchUser(id).then((u) => { if (!ignore) setUser(u); });
+  return () => { ignore = true; };
+}, [id]);
+```
+
+## When to use / when not to
+
+**Effects are for synchronising with something outside React**: subscriptions, timers, DOM APIs, non-React widgets, network requests tied to what is on screen.
+
+**You probably don't need an effect** to: derive data from props/state (compute during render), reset state when a prop changes (use a `key`), respond to a user event (do it in the handler), or chain state updates (compute the final state at once).
+
+## Trade-offs
+
+| Hook | Runs | Use for |
+| --- | --- | --- |
+| `useEffect` | after paint | subscriptions, logging, fetching tied to view |
+| `useLayoutEffect` | after DOM mutation, before paint | measuring layout and synchronously correcting it (tooltips) |
+| `useInsertionEffect` | before layout effects | CSS-in-JS libraries injecting styles |
+| `useSyncExternalStore` | during render (subscription) | external mutable stores without tearing |
+| `useRef` | — | mutable value that does not trigger renders |
+
+## Senior nuance
+
+- **Dependency arrays use `Object.is`**: a new object/array/function literal every render means the effect runs every render. Move it inside the effect, memoize it, or depend on primitives.
+- **Strict Mode** in development mounts, unmounts and re-mounts every component once, running effect → cleanup → effect. If that breaks your code, the cleanup is incomplete.
+- **Batching**: since React 18, updates from any source (handlers, timeouts, promises) are batched automatically; `flushSync` opts out when you must read the DOM immediately.
+- **`useEffectEvent`** (stable in React 19.2) separates "reactive" logic (deps) from "event-like" logic that must read the latest values without causing the effect to re-run.
+
+## Interview questions
+
+<QA q="Why can't hooks be called conditionally?" level="mid">
+React identifies hooks by call order: the fiber keeps a linked list of hook states and each call consumes the next node. If a call is skipped on some render, every subsequent hook reads another hook's state, producing wrong values or a crash. In development React detects order changes and warns; hook count changes throw.
+</QA>
+
+<QA q="What is a stale closure in React and how do you fix it?" level="mid">
+A callback or effect created in an earlier render keeps that render's props/state because each render's values are constants captured by closures. Fixes: include the value in the dependency array so the effect is recreated; use a functional state update; read the latest value from a ref; or use useEffectEvent for event-like logic inside effects.
+</QA>
+
+<QA q="In what order do effect cleanups and new effects run when deps change?" level="senior">
+After the commit for the new render, React runs the previous effect's cleanup, then the new effect body (for each changed effect, children before parents). Layout effect cleanups/bodies run synchronously during commit; passive ones after paint. On unmount only the cleanup runs.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "setInterval(() => setCount(count + 1)) in an effect with [] deps shows…", options: ["1, 2, 3 …", "stuck at 1", "an error", "NaN"], answer: 1, explain: "count is always 0 in that closure, so it keeps setting 1." },
+  { q: "Measuring an element and repositioning it without flicker belongs in…", options: ["useEffect", "useLayoutEffect", "render", "useMemo"], answer: 1, explain: "It runs before the browser paints." },
+  { q: "Resetting all state of <Editor> when docId changes is best done with…", options: ["useEffect that calls setters", "key={docId}", "useMemo", "a ref"], answer: 1, explain: "A new key remounts the component with fresh state." }
+]} />
+
+## Resources
+
+<Resources topic="react/hooks-internals" />

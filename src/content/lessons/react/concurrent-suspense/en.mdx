@@ -1,0 +1,121 @@
+## TL;DR
+
+Concurrent rendering lets React prepare a new UI **in the background** and abandon it if something more urgent arrives. You opt in per update: `startTransition`/`useTransition` mark state updates as non-urgent <Term id="transition">transitions</Term>, `useDeferredValue` renders with a lagging copy of a value, and <Term id="suspense" /> boundaries declare where a loading fallback may appear while code or data is not ready. The result: typing stays responsive and loading states are designed, not accidental.
+
+## Visual model
+
+```text
+urgent lane:      keystroke ─▶ render input ─▶ commit (fast, every time)
+transition lane:  filter 10 000 rows ─▶ ▒▒▒▒ interrupted by next keystroke ▒▒ ─▶ restart ─▶ commit when done
+
+<Suspense fallback={<Spinner/>}>        while <Comments/> waits for data:
+  <Comments />                            show <Spinner/>, render/stream everything else
+</Suspense>
+```
+
+## Mechanism
+
+**Transitions**: updates inside `startTransition` get a transition lane. React renders them interruptibly; an urgent update (typing, clicking) preempts the transition render, which restarts with fresh state later. Already-shown content stays on screen meanwhile — a transition **does not show Suspense fallbacks for content that is already visible**; it keeps the old UI until the new one is ready (`isPending` tells you to show a subtle indicator).
+
+**useDeferredValue(value)**: during an urgent render it returns the previous value; then React schedules a background re-render with the new value. Combined with `memo` on the slow child, the input updates instantly and the expensive list catches up.
+
+**Suspense**: when a component inside a boundary is not ready (a lazy component's code, a promise read with `use`, framework data), it **suspends**; React shows the nearest boundary's fallback for that subtree and continues with the rest. On the server, Suspense boundaries are the units of **streaming**: the HTML shell is sent first and each boundary's content streams in when ready.
+
+**`<Activity mode="hidden">`** (React 19.2) keeps a subtree's state while hidden and renders its updates at low priority — useful for tabs and back navigation without losing state.
+
+## Code
+
+```tsx
+import { Suspense, lazy, use, useDeferredValue, useState, useTransition, memo } from "react";
+
+const Settings = lazy(() => import("./Settings"));      // code-split; suspends while loading
+
+function TabBar() {
+  const [tab, setTab] = useState("home");
+  const [isPending, startTransition] = useTransition();
+  return (
+    <>
+      <button onClick={() => startTransition(() => setTab("settings"))}>Settings</button>
+      {isPending && <small aria-live="polite">Loading…</small>}
+      <Suspense fallback={<p>Loading settings…</p>}>
+        {tab === "settings" ? <Settings /> : <Home />}
+      </Suspense>
+    </>
+  );
+}
+
+function SearchPage({ items }: { items: string[] }) {
+  const [q, setQ] = useState("");
+  const deferredQ = useDeferredValue(q);
+  const stale = q !== deferredQ;
+  return (
+    <>
+      <input value={q} onChange={(e) => setQ(e.target.value)} />
+      <div style={{ opacity: stale ? 0.6 : 1 }}>
+        <Results q={deferredQ} items={items} />
+      </div>
+    </>
+  );
+}
+const Results = memo(function Results({ q, items }: { q: string; items: string[] }) {
+  return <ul>{items.filter((i) => i.includes(q)).map((i) => <li key={i}>{i}</li>)}</ul>;
+});
+
+// Reading a promise with `use` (the promise should come from a cache or a parent — not created during render)
+function Comments({ commentsPromise }: { commentsPromise: Promise<string[]> }) {
+  const comments = use(commentsPromise);
+  return <ul>{comments.map((c) => <li key={c}>{c}</li>)}</ul>;
+}
+```
+
+## When to use / when not to
+
+**Transitions** for navigation-like updates (tabs, filters, route changes) where showing the old UI briefly is better than a spinner. **Not** for controlled input values themselves — the input must update urgently.
+
+**useDeferredValue** when you don't own the state update (a prop arrives) or when one value drives an expensive subtree.
+
+**Suspense boundaries** around independently loading regions; place them where a loading state is acceptable to the user and where it doesn't hide already-visible content.
+
+Concurrency doesn't make slow code fast — it reorders work. If a single component takes 300 ms, virtualise, memoize or move work off the main thread.
+
+## Trade-offs
+
+| Tool | Keeps UI responsive by | Cost / caveat |
+| --- | --- | --- |
+| `startTransition` | interrupting non-urgent renders | needs access to the setter; old UI shown meanwhile |
+| `useDeferredValue` | rendering a lagging value in background | needs a memoized slow child to help |
+| Suspense | localising loading states, enabling streaming | waterfalls if boundaries/data are nested badly |
+| Debounce/throttle | doing less work | adds latency even on fast devices |
+
+## Senior nuance
+
+- **Waterfalls**: components that fetch only after their parent rendered create sequential network round trips. Start fetches higher (route loaders, server components, prefetch) and pass promises down.
+- **Promises created during render** are recreated every render, so `use` never resolves stably — cache them (framework, `cache()`, or state).
+- **Fallback flashes**: if data arrives in 50 ms, a spinner flash looks worse than a short delay; transitions avoid replacing visible content with fallbacks, and frameworks add a minimal delay strategy.
+- **Error boundaries pair with Suspense**: a rejected promise is thrown to the nearest error boundary — design both together.
+
+## Interview questions
+
+<QA q="What does startTransition actually change?" level="mid">
+It marks the state updates scheduled inside it as non-urgent. React renders them in a lower-priority lane that can be interrupted by urgent updates, keeps the currently visible UI (no Suspense fallback for already-shown content) until the new UI is ready, and exposes isPending via useTransition.
+</QA>
+
+<QA q="useDeferredValue vs debounce?" level="senior">
+Debounce delays the update by a fixed time on every device. useDeferredValue renders immediately with the old value, then starts a background render with the new value that is interrupted if the value changes again — fast devices update almost instantly, slow ones degrade gracefully, and no work is wasted on intermediate values that were superseded mid-render.
+</QA>
+
+<QA q="How does Suspense enable streaming SSR?" level="senior">
+On the server, React renders until it hits a suspended boundary, emits the fallback HTML for it, and continues. The shell is flushed early; when the suspended data resolves, React streams the boundary's HTML along with a small script that swaps it in. Selective hydration lets the client hydrate boundaries independently, prioritising ones the user interacts with.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Should a controlled input's own value update be wrapped in startTransition?", options: ["yes", "no — it must be urgent", "only on mobile", "only in Strict Mode"], answer: 1, explain: "Inputs must reflect keystrokes immediately; defer the expensive consequence instead." },
+  { q: "During a transition, already-visible content inside a Suspense boundary that suspends again…", options: ["is replaced by the fallback", "stays visible until the new content is ready", "unmounts", "throws"], answer: 1, explain: "Transitions avoid hiding visible content." },
+  { q: "useDeferredValue helps most when the slow child is…", options: ["memoized", "a class component", "inside an effect", "lazy"], answer: 0, explain: "Without memo the child re-renders with the urgent update anyway." }
+]} />
+
+## Resources
+
+<Resources topic="react/concurrent-suspense" />

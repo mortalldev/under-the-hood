@@ -1,0 +1,180 @@
+## TL;DR
+
+React 19 **asinxron yangilanishlarni** oʻrnatilgan tushunchaga aylantiradi: <Term id="react-action" />, ya'ni transition ichida ishlaydigan async funksiya. React uning **pending** holati, **xatolari** va **<Term id="optimistic-update" />**'larini siz uchun kuzatadi — bu qoʻlda yozilgan koʻplab `useState(isLoading)` kodlarini almashtiradi. Asosiy API'lar:
+- `<form action={fn}>`
+- `useActionState` (action uchun state + pending)
+- `useOptimistic` (action bajarilayotganda vaqtinchalik UI)
+- `useFormStatus` (form'ning ichki komponentlaridan pending holati)
+- `use()` (render paytida promise yoki context'ni oʻqish, kerak boʻlsa suspend qilish)
+
+Yana: `ref` endi oddiy prop (`forwardRef` kerak emas), `<Context>` provider sifatida ishlaydi, React 19.2 esa <Term id="use-effect-event" /> va <Term id="activity" />'ni qoʻshdi.
+
+## Vizual model
+
+```text
+foydalanuvchi form'ni yuboradi
+   │
+   ▼
+startTransition(async () => …)          ← React yangilanishni Action deb belgilaydi
+   ├─ isPending = true                   (useActionState / useTransition / useFormStatus)
+   ├─ setOptimistic(newItem)             UI kutilgan natijani darhol koʻrsatadi
+   ├─ await server / fetch               ……
+   ├─ muvaffaqiyat → real state optimistic qiymat oʻrnini egallaydi; uncontrolled form maydonlari tozalanadi
+   └─ xato        → optimistic qiymat yoʻqoladi (u faqat transition davomida yashaydi); xato state'ga yoki eng yaqin error boundary'ga boradi
+```
+
+## Mexanizm
+
+**Action'lar — transition'lar.** `startTransition`'ga, form'ning `action` prop'iga yoki `useActionState`'ga uzatilgan har qanday async funksiya Action sifatida ishlaydi. U pending boʻlganda React joriy UI'ni interaktiv saqlaydi. Uning ichida navbatga qoʻyilgan state yangilanishlari oxirida birga commit boʻladi (React ularni batch qiladi), shuning uchun yarim yangilangan ekranni hech qachon koʻrmaysiz.
+
+**`useActionState(action, initialState)`** `[state, dispatch, isPending]` qaytaradi. React action'ingizni `(previousState, payload)` bilan chaqiradi. Form uchun payload — `FormData`. Action nima qaytarsa, yangi `state` shu boʻladi — validatsiya xatolari va natijalar uchun ideal. Dispatch'lar **ketma-ket navbatga qoʻyiladi**: har bir chaqiruv `previousState` sifatida oldingisining natijasini oladi.
+
+**`useOptimistic(state, reducer)`** `[optimisticState, addOptimistic]` qaytaradi. Action ichidagi `addOptimistic` chaqiruvlari `state` ustiga vaqtinchalik qiymatlar qatlamini qoʻyadi. Action tugaganda React optimistic qatlamni tashlaydi va real `state`'ni koʻrsatadi. Shuning uchun xatoda optimistic element shunchaki yoʻqoladi — orqaga qaytarish kodini yozmaysiz.
+
+**`useFormStatus()`** (`react-dom`'dan) **ota** `<form>`'ning pending holatini oʻqiydi. U shu form ichida render qilinadigan komponentda chaqirilishi shart. Qayta ishlatiladigan `<SubmitButton>` oʻzini oʻchirib qoʻyish kerakligini shunday biladi.
+
+**`use(resource)`** render paytida promise yoki context'ni oʻqiydi. Promise bilan u promise resolve boʻlguncha suspend qiladi, shuning uchun unga `<Suspense>` chegarasi va **barqaror** promise kerak (render paytida emas, Server Component'da, cache'da yoki ota komponentda yaratilgan). Hook'lardan farqli, `use`'ni shartli chaqirish mumkin.
+
+**`useEffectEvent`** (19.2) Effect'dan "event" qismini ajratadi: funksiya doim eng soʻnggi props va state'ni koʻradi, lekin dependency emas — shuning uchun `theme` oʻzgarganda chat xonasi qayta ulanmaydi.
+
+## Kod
+
+```tsx
+"use client";
+import { useActionState, useOptimistic, useRef } from "react";
+import { useFormStatus } from "react-dom";
+
+type Todo = { id: string; text: string; pending?: boolean };
+type State = { todos: Todo[]; error: string | null };
+
+async function saveTodo(text: string): Promise<Todo> {
+  const res = await fetch("/api/todos", { method: "POST", body: JSON.stringify({ text }) });
+  if (!res.ok) throw new Error("Could not save");
+  return res.json();
+}
+
+function SubmitButton() {
+  const { pending } = useFormStatus();                 // OTA <form>'ning pending holati
+  return <button disabled={pending}>{pending ? "Saqlanmoqda…" : "Qoʻshish"}</button>;
+}
+
+export function Todos({ initial }: { initial: Todo[] }) {
+  const [state, formAction, isPending] = useActionState<State, FormData>(
+    async (prev, formData) => {
+      const text = String(formData.get("text") ?? "").trim();
+      if (!text) return { ...prev, error: "Matn kiritilishi shart" };  // validatsiya natijasi → state
+      addOptimistic({ id: crypto.randomUUID(), text, pending: true }); // darhol fikr-mulohaza
+      try {
+        const saved = await saveTodo(text);
+        return { todos: [...prev.todos, saved], error: null };
+      } catch {
+        return { ...prev, error: "Saqlab boʻlmadi — qayta urining" };   // optimistic element oʻzi yoʻqoladi
+      }
+    },
+    { todos: initial, error: null },
+  );
+  const [todos, addOptimistic] = useOptimistic(state.todos, (list: Todo[], t: Todo) => [...list, t]);
+
+  return (
+    <form action={formAction}>                         {/* uncontrolled input muvaffaqiyatdan keyin tozalanadi */}
+      <input name="text" aria-invalid={!!state.error} />
+      <SubmitButton />
+      {state.error && <p role="alert">{state.error}</p>}
+      <ul aria-busy={isPending}>
+        {todos.map((t) => <li key={t.id} style={{ opacity: t.pending ? 0.5 : 1 }}>{t.text}</li>)}
+      </ul>
+    </form>
+  );
+}
+
+// React 19'da ref — oddiy prop, forwardRef kerak emas
+function TextField({ ref, ...props }: React.ComponentProps<"input">) {
+  return <input ref={ref} {...props} />;
+}
+export function Search() {
+  const input = useRef<HTMLInputElement>(null);
+  return <TextField ref={input} placeholder="Qidirish" onFocus={() => input.current?.select()} />;
+}
+```
+
+```tsx
+// use(): render'dan TASHQARIDA yaratilgan promise'ni oʻqish (bu yerda Server Component'dan uzatilgan)
+import { Suspense, use } from "react";
+
+function Comments({ commentsPromise }: { commentsPromise: Promise<string[]> }) {
+  const comments = use(commentsPromise);               // resolve boʻlguncha suspend qiladi
+  return <ul>{comments.map((c) => <li key={c}>{c}</li>)}</ul>;
+}
+export function Post({ commentsPromise }: { commentsPromise: Promise<string[]> }) {
+  return (
+    <Suspense fallback={<p>Izohlar yuklanmoqda…</p>}>
+      <Comments commentsPromise={commentsPromise} />
+    </Suspense>
+  );
+}
+
+// useEffectEvent (React 19.2): Effect'ni qayta ishga tushirmasdan eng soʻnggi qiymatlar
+import { useEffect, useEffectEvent } from "react";
+declare function connect(room: string): { on(e: "connected", cb: () => void): void; close(): void };
+declare function notify(msg: string, theme: string): void;
+
+export function ChatRoom({ roomId, theme }: { roomId: string; theme: string }) {
+  const onConnected = useEffectEvent(() => notify(`Joined ${roomId}`, theme));
+  useEffect(() => {
+    const conn = connect(roomId);
+    conn.on("connected", () => onConnected());
+    return () => conn.close();
+  }, [roomId]);                                        // theme oʻzgarishi qayta ulanmaydi
+  return null;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Mutatsiyalar uchun **Action'lardan foydalaning**: form'lar, like'lar, saqlash, oʻchirish. Ayniqsa Next.js Server Action'lari bilan — u yerda bir xil `action` prop server kodini chaqiradi va hydration'dan oldin ham ishlaydi (progressive enhancement). Server deyarli doim rozi boʻladigan va latency sezilarli boʻlgan joyda **`useOptimistic`'dan foydalaning**.
+
+Render paytida yaratilgan promise bilan `use()`'ni **ishlatmang** (har render'da yangi promise, abadiy suspend). Tez-tez muvaffaqiyatsiz boʻladigan yoki oqibatlari katta amallar (toʻlovlar) uchun optimistic UI **ishlatmang** — u yerda haqiqiy jarayonni koʻrsating. Har bir callback'ni `useEffectEvent`'ga **oʻramang** — u faqat Effect'lardan ishga tushadigan event'ga oʻxshash mantiq uchun.
+
+## Trade-off'lar
+
+| Yondashuv | Afzalliklar | Kamchiliklar |
+| --- | --- | --- |
+| `useActionState` | pending + natija + ketma-ket navbat oʻrnatilgan | state shakli — action'ning qaytargan qiymati; har hook'ga bitta action |
+| Qoʻlda `useState` + `fetch` | toʻliq nazorat | race condition'lar, unutilgan loading/error holatlari |
+| Optimistic UI | darhol his qilinadi | foydalanuvchi yoʻqoladigan qiymatni koʻrishi mumkin |
+| Form action'lar (uncontrolled) | progressive enhancement, avtomatik tozalash | controlled input'lardan kamroq nazorat |
+| `use(promise)` + Suspense | deklarativ yuklash, streaming'ga qulay | barqaror promise'lar va chegaralar kerak |
+
+## Senior nuance
+
+- **Ketma-ket dispatch**: `useActionState` dispatch'larni birin-ketin qayta ishlaydi — bu state'ni izchil saqlaydi, lekin sekin request keyingisini kechiktiradi. Mustaqil amallar uchun alohida action'lar yoki `useTransition` ishlating.
+- **Xatolar**: Action ichida tashlangan xato eng yaqin error boundary'ga boradi. Kutilgan nosozliklar (validatsiya, ziddiyatlar) uchun xato qiymatlarini qaytaring, faqat kutilmaganlari uchun throw qiling.
+- **Server Action'lar — ommaviy endpoint'lar**: UI'da tugma yashirin boʻlsa ham, har bir action ichida input'ni validatsiya qiling va authorization'ni tekshiring.
+- **React Compiler** (v1.0) va Action'lar eski `useMemo`/`useCallback`/`isLoading` shablon kodining koʻp qismini olib tashlaydi. Nimani hali qoʻlda loyihalash kerakligini biling: ma'lumot olish chegaralari va cache invalidation.
+
+## Interview savollari
+
+<QA q="React 19'da Action nima va u useState + fetch'dan nimasi bilan yaxshi?" level="mid">
+Action — transition ichida ishlaydigan async funksiya (form action, useActionState dispatch'i yoki startTransition). React uning pending holatini kuzatadi, ichida qilingan state yangilanishlarini batch qilib birga commit qiladi, useOptimistic orqali optimistik yangilanishlarni birlashtiradi, muvaffaqiyatda uncontrolled form'larni tozalaydi va tashlangan xatolarni error boundary'larga yoʻnaltiradi. Qoʻlda yozilgan kod bularning hammasini, race'lar bilan birga, oʻzi hal qilishi kerak.
+</QA>
+
+<QA q="useOptimistic nosozlikda qanday orqaga qaytaradi?" level="senior">
+Optimistic qiymat — real state ustidagi vaqtinchalik qatlam, u faqat Action pending boʻlganda mavjud. Action yakunlanganda React real state'dan qayta render qiladi. Action elementni real state'ga qoʻshmagan boʻlsa (muvaffaqiyatsiz boʻlgani uchun), optimistic element aniq orqaga qaytarishsiz yoʻqoladi. Xatoni koʻrsatish uchun uni state sifatida qaytaring yoki error boundary'ga yetib borishiga imkon bering.
+</QA>
+
+<QA q="Nega use()'ga uzatilgan promise barqaror boʻlishi shart?" level="senior">
+use() promise resolve boʻlguncha suspend qiladi va keyin React komponentni qayta render qiladi. Komponent render paytida yangi promise yaratsa, har qayta render yangi pending promise hosil qiladi, shuning uchun u yana suspend qiladi va kontentni hech qachon koʻrsatmaydi. Promise'larni Server Component'da, ota komponentda, cache'da yoki ma'lumot kutubxonasida yarating va pastga uzating.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "useActionState nima qaytaradi?", options: ["[state, setState]", "[state, dispatch, isPending]", "{ data, error }", "promise"], answer: 1, explain: "React 19 signaturasi: [state, formAction/dispatch, isPending]." },
+  { q: "useFormStatus qayerda chaqirilishi shart?", options: ["<form>'ni render qiladigan komponentda", "<form> ichida render qilinadigan komponentda", "Server Component'da", "istalgan joyda"], answer: 1, explain: "U ota form'ning holatini oʻqiydi." },
+  { q: "React 19'da function komponentga ref uzatish uchun nima kerak?", options: ["forwardRef", "hech narsa — ref oddiy prop", "useImperativeHandle", "class komponent"], answer: 1, explain: "React 19 function komponentlar uchun ref'ni oddiy prop qildi." },
+  { q: "useEffectEvent funksiyasi Effect dependency'lariga qoʻshilishi kerakmi?", options: ["ha", "yoʻq", "faqat strict mode'da", "faqat async funksiyalar uchun"], answer: 1, explain: "Effect Event'lar dependency emas; ular doim eng soʻnggi qiymatlarni koʻradi." }
+]} />
+
+## Resurslar
+
+<Resources topic="react/react-19-actions" />

@@ -1,0 +1,102 @@
+## TL;DR
+
+Minimum spanning tree barcha V node'larni jami vazni minimal boʻlgan V − 1 ta edge bilan bogʻlaydi. Ikkala klassik algoritm ham greedy va ikkalasi ham <Term id="cut-property" /> bilan asoslanadi: **Kruskal** edge'larni saralab, ikki har xil component'ni bogʻlaydigan eng arzonini qoʻshadi (union-find); **Prim** bitta daraxtni oʻstiradi va doim undan chiquvchi eng arzon edge'ni qoʻshadi (heap).
+
+## Vizual model
+
+```text
+cut: node'larni S va V∖S ga boʻling. Kesimni kesib oʻtuvchi edge'lar orasida eng yengili xavfsiz —
+     qandaydir MST uni oʻz ichiga oladi. Kruskal'ning component'lari va Prim'ning daraxti — kesimlarni tanlashning ikki usuli.
+```
+
+## Mexanizm
+
+Kruskal edge'larni eng arzonidan eng qimmatigacha qayta ishlaydi. Uchlari allaqachon bir component'da boʻlgan edge cycle'ni yopadi — rad etiladi. Aks holda u shu ikki component orasidagi kesimni kesib oʻtuvchi eng arzon edge, demak xavfsiz — qabul qilinadi. V − 1 ta qabul qilingan edge'dan keyin toʻxtang.
+
+<KruskalViz />
+
+Nega cut property oʻrinli: MST T kesimni kesuvchi eng yengil e edge'ni oʻz ichiga olmasin. e ni T ga qoʻshish cycle yaratadi, u kesimni yana qandaydir w(f) ≥ w(e) vaznli f edge orqali kesib oʻtishi shart. f ni e bilan almashtirish T dan ogʻir boʻlmagan spanning tree beradi. Demak qandaydir MST e ni oʻz ichiga oladi.
+
+## Kod
+
+```ts
+function kruskal(n: number, edges: [number, number, number][]): number {
+  edges.sort((a, b) => a[2] - b[2]);
+  const dsu = new DSU(n);
+  let total = 0, used = 0;
+  for (const [u, v, w] of edges) {
+    if (dsu.union(u, v)) { total += w; if (++used === n - 1) break; }
+  }
+  return used === n - 1 ? total : -1;            // −1: graph bogʻlanmagan
+}
+
+// Zich graph'da Prim (masalan, tekislikdagi barcha nuqtalar): heap'siz O(V²)
+function primDense(points: [number, number][]): number {
+  const n = points.length;
+  const best = new Array<number>(n).fill(Infinity);
+  const inTree = new Array<boolean>(n).fill(false);
+  best[0] = 0;
+  let total = 0;
+  for (let k = 0; k < n; k++) {
+    let u = -1;
+    for (let i = 0; i < n; i++) if (!inTree[i] && (u === -1 || best[i] < best[u])) u = i;
+    inTree[u] = true;
+    total += best[u];
+    for (let v = 0; v < n; v++) {
+      if (inTree[v]) continue;
+      const d = Math.abs(points[u][0] - points[v][0]) + Math.abs(points[u][1] - points[v][1]);
+      if (d < best[v]) best[v] = d;
+    }
+  }
+  return total;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**: "barcha … ni minimal umumiy narx bilan bogʻlash", "barcha nuqtalar/shaharlarni bogʻlashning minimal narxi", tarmoq/kabel/yoʻl loyihalash, klasterlash (k ta klaster olish uchun MST'ning eng ogʻir k − 1 edge'ini olib tashlash).
+
+**Qachon kerak emas**: ikki node orasidagi eng qisqa yoʻl (MST yoʻli eng qisqa boʻlishi **shart emas**); yoʻnalgan graph'lar (minimum arborescence kerak — Chu–Liu/Edmonds).
+
+## Trade-off'lar
+
+| Algoritm | Vaqt | Nima uchun eng yaxshi |
+| --- | --- | --- |
+| Kruskal + DSU | O(E log E) | siyrak graph'lar, edge roʻyxatlari |
+| Prim + binary heap | O(E log V) | adjacency list'lar |
+| Prim, array asosida | O(V²) | zich/toʻliq graph'lar (barcha nuqta juftliklari) |
+
+## Senior nuance
+
+- **Toʻliq graph'lar** (har bir nuqta juftligi) E = V²/2 ga ega; Kruskal uchun barcha edge'larni yaratib saralash O(V² log V), array asosidagi Prim esa O(V²) va O(V) xotira.
+- **Yagonalik**: barcha edge vaznlari har xil boʻlsa, MST yagona. Tengliklar bilan bir xil umumiy vaznli bir nechta MST boʻlishi mumkin.
+- **Kritik va psevdo-kritik edge'lar**: edge'ni olib tashlash MST vaznini oshirsa — kritik; uni majburan kiritish vaznni optimal qoldirsa — psevdo-kritik. Har birini Kruskal'ni qayta ishga tushirib tekshiring — O(E² α) — interview hajmlari uchun yetarli.
+- Yoʻnalishsiz graph'da ikki node orasidagi **minimax yoʻl** (eng katta edge'ni minimallashtirish) doim MST ustida yotadi.
+
+## Interview savollari
+
+<QA q="Kruskal optimal ekanini bir daqiqada isbotlang." level="senior">
+Har bir qabul qilingan edge oʻzining joriy ikki component'i orasidagi kesimni kesuvchi eng yengil edge (shu kesimdagi har qanday yengilroq edge oldinroq qayta ishlangan va ularni allaqachon birlashtirgan boʻlardi). Cut property boʻyicha har bir shunday edge hozirgacha tanlangan edge'larga mos qandaydir MST'ga tegishli, shuning uchun induksiya boʻyicha yakuniy daraxt minimal.
+</QA>
+
+<QA q="Min Cost to Connect All Points — Kruskal yoki Prim?" level="mid">
+Bu Manhattan masofali toʻliq graph. Kruskal ~n²/2 ta edge yaratib saralashi kerak; array asosidagi Prim O(n²) vaqt va O(n) xotira, shuning uchun Prim yaxshiroq standart tanlov. n ≈ 1000 uchun ikkalasi ham qabul qilinadi.
+</QA>
+
+<QA q="MST'dagi ikki node orasidagi yoʻl eng qisqa yoʻlmi?" level="mid">
+Yoʻq. MST daraxtning umumiy vaznini minimallashtiradi, biror juftlik orasidagi masofani emas. Qarshi misol: edge'lari 2, 2, 3 boʻlgan uchburchak — MST 3-edge'ni tashlaydi, uning uchlari orasidagi yoʻl esa 4 turadi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Kruskal edge'ni qachon rad etadi?", options: ["hozirgacha eng ogʻiri boʻlsa", "uchlari allaqachon bogʻlangan boʻlsa", "manfiy boʻlsa", "V − 1 ta edge qolganda"], answer: 1, explain: "Bir component ⇒ uni qoʻshish cycle hosil qiladi." },
+  { q: "V node'li MST'da nechta edge bor?", options: ["V", "V − 1", "E", "V/2"], answer: 1, explain: "Bogʻlangan graph'ning har qanday spanning tree'sida aynan V − 1 ta edge bor." },
+  { q: "2 000 nuqtali toʻliq graph: odatda qaysi biri yaxshiroq?", options: ["Barcha edge'lar bilan Kruskal", "array asosidagi Prim O(V²)", "Bellman-Ford", "BFS"], answer: 1, explain: "~2 × 10⁶ edge'ni yaratish va saralashdan qochadi." }
+]} />
+
+**Klassik masalalar:** Min Cost to Connect All Points (Medium) · Connecting Cities With Minimum Cost (Medium) · Find Critical and Pseudo-Critical Edges in Minimum Spanning Tree (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/mst" />

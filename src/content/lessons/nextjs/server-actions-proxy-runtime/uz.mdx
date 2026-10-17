@@ -1,0 +1,112 @@
+## TL;DR
+
+<Term id="server-action" /> — client chaqira oladigan, `'use server'` bilan belgilangan async funksiya; Next.js uni client bundle'da action ID bilan almashtiradi va **POST request** sifatida yuboradi. Bu har bir action'ni **ommaviy endpoint**'ga aylantiradi: har birining ichida authenticate, authorize va validatsiya qiling. **Proxy** (`proxy.ts`, qayta nomlangan `middleware`) redirect, rewrite, header'lar va dagʻal tekshiruvlar uchun routing'dan oldin ishlaydi va sukut boʻyicha Node.js runtime'dan foydalanadi. Route'lar uchun **Edge runtime** Next.js 16 da **deprecated** — Cache Components Node.js'ni talab qiladi.
+
+## Vizual model
+
+<FlowDiagram height={60} nodes={[
+  { id: "form", label: "<form action={save}>", sub: "client", x: 12, y: 10, w: 22, kind: "client" },
+  { id: "proxy", label: "proxy.ts", sub: "redirect / rewrite / header'lar", x: 42, y: 10, w: 24, kind: "edge" },
+  { id: "action", label: "save() 'use server'", sub: "auth → validate → mutate", x: 74, y: 10, w: 26 },
+  { id: "db", label: "ma'lumotlar bazasi", x: 74, y: 30, w: 18, kind: "store" },
+  { id: "cache", label: "updateTag / revalidatePath", x: 42, y: 30, w: 26, kind: "queue" },
+  { id: "resp", label: "bitta javob", sub: "return qiymat + qayta render RSC", x: 12, y: 48, w: 28, kind: "client" }
+]} edges={[
+  { from: "form", to: "proxy", label: "POST + action ID" },
+  { from: "proxy", to: "action" },
+  { from: "action", to: "db" },
+  { from: "action", to: "cache" },
+  { from: "cache", to: "resp" }
+]} caption="Darhol invalidation qiladigan Server Action natijasini va yangilangan route daraxtini bitta aylanishda qaytaradi." />
+
+## Mexanizm
+
+**Kompilyatsiya**: build vaqtida `'use server'` funksiyalari implementatsiyasini serverda saqlaydi; client bundle'lar reference oladi — shifrlangan, deterministik boʻlmagan action ID va dispatcher. Ishlatilmagan action'lar client bundle'lardan olib tashlanadi. Inline action closure qilgan oʻzgaruvchilar client'ga yuborilishidan oldin shifrlanadi (bir nechta nusxani self-host qilganda `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`ni izchil oʻrnating).
+
+**Chaqiruv**: `<form action>`, `<button formAction>` yoki transition'dan. Request — joriy sahifaga POST. Next.js `Origin`ni `Host` bilan solishtiradi (CSRF himoyasi; proxy'lar ortida `serverActions.allowedOrigins`ni sozlang). Client action'larni **birma-bir** yuboradi — action'larning `Promise.all`i parallel ishlashini kutmang.
+
+**Javob**: action `updateTag` yoki `revalidatePath` chaqirsa, javob ham return qiymatini, ham qayta render qilingan route'ni oʻz ichiga oladi (bitta aylanish). Stale-while-revalidate profilli `revalidateTag` qayta render'ni qoʻshmaydi. `redirect()` xato tashlaydi, shuning uchun undan keyingi hech narsa ishlamaydi.
+
+**Proxy** request route'ga yetishidan oldin ishlaydi. U sukut boʻyicha Node.js runtime'dan foydalanadi (`runtime` opsiyasiga proxy fayllarida ruxsat yoʻq). Uni redirect/rewrite'lar, i18n routing, header/cookie oʻrnatish, A/B guruhlash va **optimistik** auth tekshiruvlari (sessiya cookie'si bormi?) uchun ishlating — yagona authorization qatlami sifatida emas, chunki action'lar va route handler'lar alohida kirish nuqtalari.
+
+## Kod
+
+```ts
+// app/posts/actions.ts
+"use server";
+import { z } from "zod";
+import { updateTag } from "next/cache";
+import { redirect } from "next/navigation";
+
+const Post = z.object({ title: z.string().min(1).max(120), body: z.string().max(10_000) });
+
+export async function createPost(formData: FormData) {
+  const session = await auth();                                  // 1. authenticate
+  if (!session) throw new Error("Unauthorized");
+  const data = Post.parse(Object.fromEntries(formData));         // 2. ishonchsiz input'ni validatsiya
+  if (!(await can(session.user, "post:create"))) throw new Error("Forbidden"); // 3. authorize
+  const post = await db.post.create({ data: { ...data, authorId: session.user.id } });
+  updateTag("posts");                                            // 4. redirect'dan oldin invalidate
+  redirect(`/posts/${post.id}`);
+}
+
+// proxy.ts (loyiha ildizi yoki src/)
+import { NextResponse, type NextRequest } from "next/server";
+export function proxy(req: NextRequest) {
+  if (!req.cookies.has("session") && req.nextUrl.pathname.startsWith("/dashboard")) {
+    return NextResponse.redirect(new URL("/login", req.url));    // faqat optimistik tekshiruv
+  }
+}
+export const config = { matcher: ["/dashboard/:path*"] };
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Server Action'lar**: oʻz UI'ingiz ishga tushiradigan mutatsiyalar uchun: formalar, tugmalar, `useOptimistic` bilan optimistik yangilanishlar, progressive enhancement (formalar JS yuklanishidan oldin ishlaydi).
+
+**Route Handler'lar**: ommaviy HTTP API'lar, webhook'lar, React boʻlmagan client'lar, stream javoblar va GET request'lar uchun (action'lar faqat POST va client boʻyicha ketma-ket).
+
+**Proxy**: request darajasidagi routing masalalari uchun. Unda ogʻir mantiq yoki ma'lumotlar bazasi chaqiruvlaridan qoching — u render'dan oldin mos keladigan request'larda ishlaydi va ularning hammasiga latency qoʻshadi.
+
+## Trade-off'lar
+
+| | Server Action | Route Handler | Proxy |
+| --- | --- | --- | --- |
+| Kim chaqiradi | sizning React UI'ingiz | istalgan kishi (HTTP) | har bir mos request |
+| HTTP metodi | POST | istalgan | istalgan |
+| Qaytaradi | qiymat + ixtiyoriy qayta render route | `Response` | redirect/rewrite/next |
+| Client↔server type safety | oxirigacha (funksiya chaqiruvi) | qoʻlda | — |
+| Odatiy qoʻllanish | mutatsiyalar | API'lar, webhook'lar | routing, header'lar, optimistik auth |
+
+## Senior nuance
+
+- **Render vaqtidagi cheklash xavfsizlik emas**: autentifikatsiyasiz sahifalarda formani yashirish uning action'ini himoya qilmaydi — endpoint'ga toʻgʻridan-toʻgʻri murojaat qilish mumkin. Har bir action ichida tekshiring; data access layer'da markazlashtiring.
+- **Minimal ma'lumot qaytaring**: action return qiymatlari client'ga serialize qilinadi; hech qachon ichki field'li xom DB qatorlarini qaytarmang.
+- Qimmat yoki suiiste'mol qilinishi mumkin boʻlgan action'larni (roʻyxatdan oʻtish, parolni tiklash, AI chaqiruvlari) har qanday ommaviy endpoint kabi **rate-limit** qiling.
+- **Edge deprecated**: route'lardan `export const runtime = 'edge'`ni olib tashlang; Cache Components Node.js runtime'ni talab qiladi. Proxy 16.0 dan beri sukut boʻyicha Node.js.
+
+## Interview savollari
+
+<QA q="Server Action'lar sukut boʻyicha xavfsizmi?" level="mid">
+Qisman. Next.js CSRF origin tekshiruvlari, shifrlangan deterministik boʻlmagan action ID'lar, ishlatilmagan action'larni dead-code elimination va ushlangan oʻzgaruvchilarni shifrlashni qoʻshadi. Lekin har bir export qilingan action'ga toʻgʻridan-toʻgʻri POST orqali murojaat qilish mumkin, shuning uchun u oʻzi authenticate, authorize va input'larini validatsiya qilishi shart; UI darajasidagi cheklash uni himoya qilmaydi.
+</QA>
+
+<QA q="Qachon Server Action oʻrniga Route Handler tanlaysiz?" level="mid">
+Oʻz React UI'ingizdan mutatsiya boʻlmagan har narsa uchun: ommaviy yoki uchinchi tomon API'lari, webhook'lar, GET endpoint'lar, brauzer boʻlmagan client'lar, fayl yuklab olish yoki maxsus stream javoblar va parallel request'lar kerak boʻlganda (client action'larni ketma-ket yuboradi).
+</QA>
+
+<QA q="proxy.ts'ga nima tegishli va nima tegishli emas?" level="senior">
+Request darajasidagi tez qarorlar: redirect/rewrite'lar, til tanlash, header/cookie manipulyatsiyasi, bot filtrlash, A/B guruhlash va optimistik auth (sessiya cookie'si boʻlmasa redirect). Toʻliq authorization yoki ma'lumotlar bazasiga ogʻir mantiq emas — proxy har bir mos request'dan oldin ishlaydi, latency qoʻshadi va yagona kirish nuqtasi emas (action'lar va route handler'lar baribir ruxsatlarni tekshirishi shart).
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Faqat adminlar koʻradigan sahifada aniqlangan Server Action…", options: ["tekshiruvlarsiz xavfsiz", "baribir POST orqali istalgan kishi chaqira oladi — ichida tekshiring", "kompilyatsiya qilinmaydi", "faqat adminlar uchun ishlaydi"], answer: 1, explain: "Action'lar — alohida kirish nuqtalari." },
+  { q: "Action ichida redirect()dan keyingi kod…", options: ["redirect'dan keyin ishlaydi", "ishlamaydi", "fonda ishlaydi", "TypeError tashlaydi"], answer: 1, explain: "redirect control-flow istisnosini tashlaydi; uni chaqirishdan oldin invalidate qiling." },
+  { q: "Next.js 16 da route'dagi export const runtime = 'edge'…", options: ["tavsiya etiladi", "deprecated — olib tashlang", "proxy uchun shart", "Cache Components'ni yoqadi"], answer: 1, explain: "Edge runtime deprecated; Cache Components'ga Node.js kerak." }
+]} />
+
+## Resurslar
+
+<Resources topic="nextjs/server-actions-proxy-runtime" />

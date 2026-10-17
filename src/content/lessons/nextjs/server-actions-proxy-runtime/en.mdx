@@ -1,0 +1,112 @@
+## TL;DR
+
+A <Term id="server-action" /> is an async function marked `'use server'` that the client can call; Next.js replaces it in the client bundle with an action ID and dispatches it as a **POST request**. That makes every action a **public endpoint**: authenticate, authorize and validate inside each one. **Proxy** (`proxy.ts`, the renamed `middleware`) runs before routing for redirects, rewrites, headers and coarse checks, and defaults to the Node.js runtime. The **Edge runtime** for routes is **deprecated** in Next.js 16 — Cache Components require Node.js.
+
+## Visual model
+
+<FlowDiagram height={60} nodes={[
+  { id: "form", label: "<form action={save}>", sub: "client", x: 12, y: 10, w: 22, kind: "client" },
+  { id: "proxy", label: "proxy.ts", sub: "redirect / rewrite / headers", x: 42, y: 10, w: 24, kind: "edge" },
+  { id: "action", label: "save() 'use server'", sub: "auth → validate → mutate", x: 74, y: 10, w: 26 },
+  { id: "db", label: "database", x: 74, y: 30, w: 18, kind: "store" },
+  { id: "cache", label: "updateTag / revalidatePath", x: 42, y: 30, w: 26, kind: "queue" },
+  { id: "resp", label: "one response", sub: "return value + re-rendered RSC", x: 12, y: 48, w: 28, kind: "client" }
+]} edges={[
+  { from: "form", to: "proxy", label: "POST + action ID" },
+  { from: "proxy", to: "action" },
+  { from: "action", to: "db" },
+  { from: "action", to: "cache" },
+  { from: "cache", to: "resp" }
+]} caption="A Server Action with immediate invalidation returns its result and the refreshed route tree in a single round trip." />
+
+## Mechanism
+
+**Compilation**: at build time, `'use server'` functions keep their implementation on the server; client bundles get a reference — an encrypted, non-deterministic action ID plus a dispatcher. Unused actions are removed from client bundles. Variables an inline action closes over are encrypted before being sent to the client (set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` consistently when self-hosting multiple instances).
+
+**Invocation**: from `<form action>`, `<button formAction>`, or a transition. The request is a POST to the current page. Next.js checks the `Origin` against the `Host` (CSRF protection; configure `serverActions.allowedOrigins` behind proxies). The client dispatches actions **one at a time** — don't expect `Promise.all` of actions to run in parallel.
+
+**Response**: if the action calls `updateTag` or `revalidatePath`, the response contains both the return value and the re-rendered route (one round trip). `revalidateTag` with a stale-while-revalidate profile does not include a re-render. `redirect()` throws, so anything after it doesn't run.
+
+**Proxy** runs before a request reaches a route. It defaults to the Node.js runtime (the `runtime` option is not allowed in proxy files). Use it for redirects/rewrites, i18n routing, setting headers/cookies, A/B bucketing and **optimistic** auth checks (is there a session cookie?) — not as the only authorization layer, since actions and route handlers are separate entry points.
+
+## Code
+
+```ts
+// app/posts/actions.ts
+"use server";
+import { z } from "zod";
+import { updateTag } from "next/cache";
+import { redirect } from "next/navigation";
+
+const Post = z.object({ title: z.string().min(1).max(120), body: z.string().max(10_000) });
+
+export async function createPost(formData: FormData) {
+  const session = await auth();                                  // 1. authenticate
+  if (!session) throw new Error("Unauthorized");
+  const data = Post.parse(Object.fromEntries(formData));         // 2. validate untrusted input
+  if (!(await can(session.user, "post:create"))) throw new Error("Forbidden"); // 3. authorize
+  const post = await db.post.create({ data: { ...data, authorId: session.user.id } });
+  updateTag("posts");                                            // 4. invalidate before redirect
+  redirect(`/posts/${post.id}`);
+}
+
+// proxy.ts (project root or src/)
+import { NextResponse, type NextRequest } from "next/server";
+export function proxy(req: NextRequest) {
+  if (!req.cookies.has("session") && req.nextUrl.pathname.startsWith("/dashboard")) {
+    return NextResponse.redirect(new URL("/login", req.url));    // optimistic check only
+  }
+}
+export const config = { matcher: ["/dashboard/:path*"] };
+```
+
+## When to use / when not to
+
+**Server Actions** for mutations triggered by your own UI: forms, buttons, optimistic updates with `useOptimistic`, progressive enhancement (forms work before JS loads).
+
+**Route Handlers** for public HTTP APIs, webhooks, non-React clients, streaming responses, and GET requests (actions are POST-only and serialized per client).
+
+**Proxy** for request-level routing concerns. Avoid heavy logic or database calls in it — it runs on matched requests before rendering and adds latency to all of them.
+
+## Trade-offs
+
+| | Server Action | Route Handler | Proxy |
+| --- | --- | --- | --- |
+| Called by | your React UI | anyone (HTTP) | every matched request |
+| HTTP method | POST | any | any |
+| Returns | value + optional re-rendered route | `Response` | redirect/rewrite/next |
+| Type safety client↔server | end-to-end (function call) | manual | — |
+| Typical use | mutations | APIs, webhooks | routing, headers, optimistic auth |
+
+## Senior nuance
+
+- **Render-time gating is not security**: hiding a form on unauthenticated pages doesn't protect its action — the endpoint is reachable directly. Check inside every action; centralise in a data access layer.
+- **Return minimal data**: action return values are serialized to the client; never return raw DB rows with internal fields.
+- **Rate-limit** expensive or abusable actions (sign-up, password reset, AI calls) like any public endpoint.
+- **Edge is deprecated**: remove `export const runtime = 'edge'` from routes; Cache Components require the Node.js runtime. Proxy defaults to Node.js since 16.0.
+
+## Interview questions
+
+<QA q="Are Server Actions secure by default?" level="mid">
+Partly. Next.js adds CSRF origin checks, encrypted non-deterministic action IDs, dead-code elimination of unused actions and encryption of captured variables. But every exported action is still reachable by a direct POST, so it must authenticate, authorize and validate its inputs itself; UI-level gating doesn't protect it.
+</QA>
+
+<QA q="When would you choose a Route Handler over a Server Action?" level="mid">
+For anything that isn't a mutation from your own React UI: public or third-party APIs, webhooks, GET endpoints, non-browser clients, file downloads or custom streaming responses, and when you need parallel requests (the client dispatches actions sequentially).
+</QA>
+
+<QA q="What belongs in proxy.ts and what doesn't?" level="senior">
+Request-level, fast decisions: redirects/rewrites, locale negotiation, header/cookie manipulation, bot filtering, A/B bucketing, and optimistic auth (redirect if no session cookie). Not full authorization or database-heavy logic — proxy runs before every matched request, adds latency, and isn't the only entry point (actions and route handlers must still check permissions).
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "A Server Action defined in a page that only admins can see…", options: ["is safe without checks", "is still callable by anyone via POST — check inside", "isn't compiled", "runs only for admins"], answer: 1, explain: "Actions are separate entry points." },
+  { q: "Code after redirect() inside an action…", options: ["runs after the redirect", "doesn't run", "runs in the background", "throws a TypeError"], answer: 1, explain: "redirect throws a control-flow exception; invalidate before calling it." },
+  { q: "export const runtime = 'edge' in a route in Next.js 16…", options: ["recommended", "deprecated — remove it", "required for proxy", "enables Cache Components"], answer: 1, explain: "The Edge runtime is deprecated; Cache Components need Node.js." }
+]} />
+
+## Resources
+
+<Resources topic="nextjs/server-actions-proxy-runtime" />

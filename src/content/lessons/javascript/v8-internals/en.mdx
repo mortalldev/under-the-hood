@@ -1,0 +1,105 @@
+## TL;DR
+
+JavaScript objects look like hash maps, but engines make property access fast by giving objects a <Term id="hidden-class" /> (V8 calls it a *map*, others a *shape*): a description of which keys exist and at which memory offset. Code that sees objects of the **same shape** at a call site lets the <Term id="inline-cache" /> answer with one check and one load; the <Term id="jit" /> then compiles optimized machine code on that assumption. Mixed shapes or shape changes in hot code push you onto slow paths.
+
+## Visual model
+
+```text
+{}            → S0 {}
+.x = 1        → S1 {x@0}           transition S0 —x→ S1
+.y = 2        → S2 {x@0, y@1}      transition S1 —y→ S2
+
+another {} built x then y  → reuses S0 → S1 → S2   (same shape, shared)
+another {} built y then x  → S0 → S3 {y@0} → S4 {y@0, x@1}   (different shape!)
+```
+
+## Mechanism
+
+Build a few objects with different property orders and watch the transition tree. Objects created the same way share shapes; a different order creates a parallel branch. At the end, see how many shapes a function `getX(p)` would observe.
+
+<HiddenClassViz />
+
+**Inline caches** live at each property-access site in the bytecode:
+- **monomorphic** — one shape seen: check the shape, load from a fixed offset. Fastest.
+- **polymorphic** — a few shapes (V8 keeps a small list, a handful of entries): try each.
+- **megamorphic** — too many shapes: fall back to a generic, slower lookup.
+
+**The pipeline** (V8): source → *Ignition* bytecode interpreter (collects type feedback in those ICs) → *Sparkplug* baseline compiler → optimizing compilers (*Maglev*, then *TurboFan* for very hot code) that speculate based on the feedback. If a speculation fails at runtime (a new shape appears, an integer becomes a double), the engine **deoptimizes** back to bytecode.
+
+## Code
+
+```js
+// ✓ Same shape for every instance: initialise all fields in the constructor, in the same order
+class Point {
+  constructor(x, y) { this.x = x; this.y = y; }
+}
+
+// ✗ Shape churn
+function makeUser(data) {
+  const u = {};
+  if (data.admin) u.role = "admin";     // some objects get `role` first…
+  u.name = data.name;                   // …others get `name` first → two shapes
+  return u;
+}
+// ✓ Fixed literal shape
+const makeUser2 = (d) => ({ name: d.name, role: d.admin ? "admin" : null });
+
+// ✗ delete changes the shape (and may switch the object to slow "dictionary mode")
+delete user.temp;
+// ✓ set to undefined instead, or don't add it in the first place
+user.temp = undefined;
+
+// Arrays have "elements kinds" too: keep them homogeneous and avoid holes
+const ints = [1, 2, 3];   // packed small integers — fastest
+ints.push(1.5);           // transitions to doubles (one-way)
+const holey = [1, , 3];   // holey — lookups may consult the prototype chain
+```
+
+## When to use / when not to
+
+**Care about this when**: profiling shows a hot function dominated by property access; you write a parser, renderer loop, game engine, data-processing pipeline or library used in tight loops.
+
+**Do not contort ordinary code** for it: readability first, measure, then fix the specific hot path. Engines change heuristics between versions; principles (stable shapes, monomorphic hot paths, no `delete` in hot objects) are stable, exact thresholds are not.
+
+## Trade-offs
+
+| Pattern | Effect on engines |
+| --- | --- |
+| Constructor/class initialising all fields | stable shared shape ✓ |
+| Adding properties conditionally / in varying order | multiple shapes, polymorphic ICs |
+| `delete obj.prop` | shape change, possible dictionary mode |
+| Very large or dynamic key sets on one object | use `Map` instead — designed for it |
+| Mixing types in one array | elements-kind transitions (one-way) |
+
+## Senior nuance
+
+- **Polymorphism is fine at cold sites.** Only hot call sites matter; a megamorphic site executed 100 times a day is irrelevant.
+- **Classes with `#private` fields and field initialisers** create predictable shapes, which is one practical argument for them in performance-sensitive code.
+- **Deopt loops**: code that keeps optimizing and deoptimizing (e.g. a numeric function occasionally called with a string) can be slower than never optimizing. `node --trace-deopt` (or the V8 flags in Chrome) reveals them.
+- **Benchmarks lie easily**: microbenchmarks get optimized away or measure IC warm-up. Benchmark realistic workloads with the same object shapes as production.
+
+## Interview questions
+
+<QA q="What is a hidden class and why does property order matter?" level="mid">
+An engine-internal description of an object's layout: which properties exist and at what offsets. Adding a property transitions to a new hidden class; objects that add the same properties in the same order follow the same transitions and share a hidden class. Different orders produce different hidden classes, so code that handles both sees multiple shapes and its inline caches become polymorphic.
+</QA>
+
+<QA q="What does monomorphic vs megamorphic mean?" level="senior">
+They describe the type feedback at a specific property-access or call site. Monomorphic: one hidden class seen — the engine can emit a single shape check and a direct load. Polymorphic: a small number of shapes — a short dispatch. Megamorphic: too many — the site uses a generic lookup (stub cache / dictionary), and optimizing compilers can't specialize it.
+</QA>
+
+<QA q="Why is `delete` discouraged in performance-critical code?" level="senior">
+It changes the object's hidden class (often to one that is not shared) and in V8 can move the object to dictionary mode where properties are stored in a hash table. Every site that sees this object becomes slower or polymorphic. Setting the property to undefined, or modelling optional data with a Map, avoids the shape change.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "p1 = {x, y} and p2 = {y, x} (same values) share a hidden class?", options: ["yes", "no", "only in strict mode", "only for numbers"], answer: 1, explain: "Different insertion order ⇒ different transition path." },
+  { q: "Which keeps a hot call site monomorphic?", options: ["passing objects created by one constructor", "deleting properties after use", "adding optional properties later", "mixing arrays and objects"], answer: 0, explain: "Same construction path ⇒ same shape." },
+  { q: "When speculative optimized code sees an unexpected type, the engine…", options: ["throws", "deoptimizes back to the interpreter/baseline", "crashes", "ignores it"], answer: 1, explain: "Deoptimization restores correctness; the function may be re-optimized later with new feedback." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/v8-internals" />

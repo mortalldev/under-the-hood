@@ -1,0 +1,103 @@
+## TL;DR
+
+Har bir oʻrnatilgan utility type — bir necha qator mapped, conditional yoki indexed-access type. Ularni qayta qurish — bu vositalarni *oʻzlashtirishning* eng tez yoʻli: `Pick`, `Omit`, `DeepPartial` va `UnionToIntersection`ni yoddan yoza olsangiz, real API'ga aynan kerak boʻlgan turni u bilan kurashmasdan loyihalay olasiz. Quyidagi puzzle'larni yeching — ular serverda haqiqiy TypeScript compiler bilan tekshiriladi.
+
+## Vizual model
+
+```text
+qurilish bloklari                        ulardan qurilgan utility'lar
+keyof T            → key'lar union'i      Pick<T, K>      = { [P in K]: T[P] }
+T[K]               → property turi        Omit<T, K>      = Pick<T, Exclude<keyof T, K>>
+{ [P in K]: … }    → mapped type          Partial<T>      = { [P in keyof T]?: T[P] }
+T extends U ? X:Y  → conditional          Exclude<T, U>   = T extends U ? never : T
+infer              → pattern ushlash      ReturnType<F>   = F extends (...a: never[]) => infer R ? R : never
+```
+
+## Mexanizm
+
+Deyarli barcha ishni uchta gʻoya bajaradi:
+
+1. Mapped type bilan **key'lar boʻylab aylanish** va indexed access `T[K]` bilan qiymatlarni **qidirish**.
+2. Taqsimlanuvchi conditional type'lar bilan **union'larni filtrlash** (keraksiz a'zolarni `never`ga aks ettirish).
+3. Chuqur variantlar uchun **rekursiya** — va primitiv hamda funksiyalarda toʻxtash, aks holda metodlar va `Date`'larni "deep-partial" qilib qoʻyasiz.
+
+**UnionToIntersection** kamroq ravshan faktdan foydalanadi: bitta type oʻzgaruvchisi bir nechta **contravariant** pozitsiyadan (funksiya parametrlari) infer qilinganda, TypeScript nomzodlarni kesishtiradi. Union'ni funksiya turlariga taqsimlang, keyin ularning union'i parametrini infer qiling.
+
+## Kod
+
+```ts
+type MyPick<T, K extends keyof T> = { [P in K]: T[P] };
+type MyOmit<T, K extends PropertyKey> = { [P in keyof T as P extends K ? never : P]: T[P] };
+type MyRequired<T> = { [P in keyof T]-?: T[P] };
+
+type DeepPartial<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends object
+    ? { [K in keyof T]?: DeepPartial<T[K]> }
+    : T;
+
+type UnionToIntersection<U> =
+  (U extends unknown ? (arg: U) => void : never) extends (arg: infer I) => void ? I : never;
+
+// Amaliy: ba'zi key'larni ixtiyoriy qilish
+type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+type Simplify<T> = { [K in keyof T]: T[K] } & {};   // editor tooltip'larida intersection'larni tekislaydi
+```
+
+### Puzzle'lar
+
+<TypePuzzle id="my-pick" />
+
+<TypePuzzle id="deep-readonly" />
+
+<TypePuzzle id="union-to-intersection" />
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Maxsus utility'lar yozing**: bir xil oʻzgartirish kod bazasi boʻylab takrorlanganda (API → forma modeli, entity → patch) yoki kutubxona turlari juda boʻsh boʻlganda.
+
+**Oʻrnatilganlarni afzal koʻring** (`Pick`, `Omit`, `Partial`, `Record`, `Awaited`, `ReturnType`, `Parameters`, `NonNullable`) — mos kelsa, oʻquvchilar ularni biladi.
+
+**Toʻxtang**: tur u tasvirlaydigan koddan tushunish qiyinroq boʻlganda; qoʻlda yozilgan nomli interface koʻpincha besh darajali chiqarilgan turdan aniqroq.
+
+## Trade-off'lar
+
+| Oʻrnatilgan | Tuzoq |
+| --- | --- |
+| `Omit<T, K>` | `K` `keyof T` bilan cheklanmagan, shuning uchun imlo xatolari jimgina hech narsa qilmaydi |
+| `Partial<T>` | faqat sayoz |
+| `Record<string, V>` | har bir string key mavjud deb da'vo qiladi; `noUncheckedIndexedAccess` oʻchiq boʻlsa, `r[k]` `V \| undefined` emas, `V` tipli |
+| `ReturnType<typeof f>` | overload'lar uchun oxirgi signature'ni ishlatadi |
+
+## Senior nuance
+
+- **Union ustidagi `Omit`** taqsimlanmaydi: `Omit<A | B, "k">` faqat ikkalasiga umumiy key'larni saqlaydi. Taqsimlanuvchi versiya yozing: `T extends unknown ? Omit<T, K> : never`.
+- **Chuqur turlar oʻrnatilganlarni istisno qilishi kerak**: `Date`, `Map`, `Set`, funksiyalar — aks holda `DeepReadonly<Date>` uning metodlarini aks ettiradi.
+- **`Simplify`** faqat tooltip'lar uchun kosmetik, lekin katta kod bazalarida DX'ni sezilarli yaxshilashi mumkin.
+- **Compile-time narxi**: katta union'lar yoki chuqur rekursiv modellarga qoʻllangan utility'lar editor'ni sekinlashtiradi; `tsc --extendedDiagnostics` yoki `--generateTrace` bilan oʻlchang.
+
+## Interview savollari
+
+<QA q="Pick yoki Exclude ishlatmasdan Omit'ni implementatsiya qiling." level="mid">
+`type MyOmit<T, K extends PropertyKey> = { [P in keyof T as P extends K ? never : P]: T[P] };` — key'ni never'ga remap qilish tushirilgan key'larni tashlaydi, boshqalarining turlari va modifier'larini saqlaydi (u keyof T ustida homomorphic).
+</QA>
+
+<QA q="UnionToIntersection qanday ishlashini tushuntiring." level="senior">
+Avval U ni har bir a'zoni qabul qiluvchi funksiyalar union'iga taqsimlang: (arg: A) => void | (arg: B) => void. Keyin bu union'ni (arg: infer I) => void bilan moslashtiring. I parametr (contravariant) pozitsiyasida va bir nechta nomzodga ega boʻlgani uchun TypeScript ularning kesishmasini A & B ni chiqaradi.
+</QA>
+
+<QA q="Nega DeepPartial funksiyalarni alohida hal qilishi kerak?" level="mid">
+Funksiyalar — obyektlar, shuning uchun sodda DeepPartial ularning property'lari boʻylab aylanadi va metodni ixtiyoriy property'li obyekt turiga aylantiradi — endi chaqirib boʻlmaydi. Avval funksiya turlarini tekshirib, oʻzgarishsiz qaytarish metodlarni saqlaydi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Omit<{ a: 1; b: 2 }, 'c'> kompilyatsiya boʻladimi?", options: ["ha — K keyof T bilan cheklanmagan", "yoʻq", "faqat strict bilan", "never qaytaradi"], answer: 0, explain: "Oʻrnatilgan Omit istalgan PropertyKey'ni qabul qiladi, shuning uchun imlo xatolari jim." },
+  { q: "Partial<{ a: { b: number } }>['a'] nimaga teng?", options: ["{ b?: number }", "{ b: number } | undefined", "{ b?: number } | undefined", "Partial<{ b: number }>"], answer: 1, explain: "Partial sayoz: faqat yuqori darajadagi property ixtiyoriy boʻladi." },
+  { q: "UnionToIntersection nimadan inference'ga tayanadi?", options: ["covariant pozitsiyalar", "contravariant pozitsiyalar", "template literal'lar", "mapped type'lar"], answer: 1, explain: "Bir nechta contravariant nomzodlar kesishtiriladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="typescript/utility-types-from-scratch" />

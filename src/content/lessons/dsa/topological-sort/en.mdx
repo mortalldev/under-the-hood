@@ -1,0 +1,106 @@
+## TL;DR
+
+A <Term id="topological-sort" /> orders tasks so every dependency comes before what depends on it. It exists **iff the directed graph has no cycle**. Kahn's algorithm repeatedly takes a node with in-degree 0 ("nothing left to wait for"); DFS outputs nodes in reverse finish order. Both are O(V + E) and both detect cycles for free.
+
+## Visual model
+
+Getting dressed: socks before shoes, pants before shoes and belt, shirt before tie, tie and belt before jacket. Any order that respects every arrow is valid — there are usually many.
+
+## Mechanism
+
+Kahn's algorithm keeps the in-degree of each node (how many prerequisites remain). Nodes with in-degree 0 are ready. Taking one "removes" its outgoing edges, decrementing its successors; any successor that reaches 0 becomes ready.
+
+<TopoSortViz />
+
+Try the **cycle** preset: the nodes on (or behind) the cycle never reach in-degree 0, the queue empties early, and the output is shorter than V — that is the cycle check.
+
+**DFS version**: run DFS; when a node finishes (all descendants done), push it to a list. Reverse the list. A node finishes only after everything reachable from it, so in the reversed list it comes before them.
+
+## Code
+
+```ts
+function topoOrder(n: number, edges: [number, number][]): number[] | null {
+  const adj: number[][] = Array.from({ length: n }, () => []);
+  const indeg = new Array<number>(n).fill(0);
+  for (const [a, b] of edges) { adj[a].push(b); indeg[b]++; }
+  const q: number[] = [];
+  for (let i = 0; i < n; i++) if (indeg[i] === 0) q.push(i);
+  for (let h = 0; h < q.length; h++) {
+    for (const v of adj[q[h]]) if (--indeg[v] === 0) q.push(v);
+  }
+  return q.length === n ? q : null;     // q doubles as the output order
+}
+
+// DFS with colours (0 = new, 1 = on stack, 2 = done)
+function topoDfs(n: number, adj: number[][]): number[] | null {
+  const color = new Array<number>(n).fill(0);
+  const out: number[] = [];
+  const visit = (u: number): boolean => {
+    color[u] = 1;
+    for (const v of adj[u]) {
+      if (color[v] === 1) return false;              // back edge ⇒ cycle
+      if (color[v] === 0 && !visit(v)) return false;
+    }
+    color[u] = 2;
+    out.push(u);                                     // post-order
+    return true;
+  };
+  for (let i = 0; i < n; i++) if (color[i] === 0 && !visit(i)) return null;
+  return out.reverse();
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- "Prerequisites", "dependencies", "build order", "course schedule", "compile order", "can all tasks finish?".
+- Ordering constraints between pairs: "a must come before b" — including those **derived** from data (Alien Dictionary: adjacent words reveal letter order).
+- Longest path / earliest finish time in a DAG → DP in topological order.
+
+**When not to**
+- The graph is undirected → "order" is meaningless; you probably want components or a spanning tree.
+- Cyclic dependencies are allowed and must be handled → find strongly connected components (Tarjan/Kosaraju), condense them, then topo-sort the DAG of components.
+
+## Trade-offs
+
+| | Kahn (BFS) | DFS post-order |
+| --- | --- | --- |
+| Cycle detection | output shorter than V | back edge to a grey node |
+| Recursion | none | depth up to V (stack risk) |
+| Lexicographically smallest order | use a min-heap instead of a queue | hard |
+| Parallel "levels" (what can run together) | natural: process the queue level by level | awkward |
+
+## Senior nuance
+
+- **Build systems and package managers** are topological sorts with caching; "levels" from Kahn's algorithm give the maximum parallelism (all tasks in a level can run concurrently).
+- **Alien Dictionary pitfalls**: compare only adjacent words, use only the first differing letter, and treat "prefix longer word before shorter" (`abc` before `ab`) as invalid input.
+- **Uniqueness**: the order is unique iff at every step the queue holds exactly one node (the DAG has a Hamiltonian path).
+- **DP on DAGs** (longest path, number of paths, critical path in project scheduling) is "relax edges in topological order" — no priority queue needed even with weights.
+
+## Interview questions
+
+<QA q="Course Schedule: can you finish all courses?" level="mid">
+Build a directed graph prerequisite → course and run Kahn's algorithm. If every course gets processed, yes; if some never reach in-degree 0, they are on or behind a cycle and the answer is no. O(V + E).
+</QA>
+
+<QA q="How do you find which tasks can run in parallel?" level="senior">
+Run Kahn's algorithm level by level: all nodes currently in the queue have no remaining prerequisites and are independent of each other, so they form one parallel stage. The number of stages is the length of the longest dependency chain — the minimum makespan with unlimited workers.
+</QA>
+
+<QA q="Why does reversing DFS finish order give a topological order?" level="senior">
+For any edge u → v in a DAG, when DFS explores it, v is either unvisited (then it is fully explored and finishes before u finishes) or already finished (it cannot be grey, or there would be a cycle). Either way v finishes before u, so in reverse finish order u precedes v.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Kahn's algorithm processed 5 of 7 nodes. Conclusion?", options: ["Graph is disconnected", "There is a cycle", "Order is unique", "Bug"], answer: 1, explain: "Unprocessed nodes never reached in-degree 0 — they depend on a cycle." },
+  { q: "Smallest lexicographic topological order: replace the queue with…", options: ["a stack", "a min-heap", "a deque", "recursion"], answer: 1, explain: "Always take the smallest ready node." },
+  { q: "In DFS topo sort, an edge to a node that is 'on the stack' means…", options: ["cross edge", "back edge → cycle", "tree edge", "nothing"], answer: 1, explain: "Grey nodes are ancestors in the current path; reaching one closes a cycle." }
+]} />
+
+**Classic problems:** Course Schedule (Medium) · Course Schedule II (Medium) · Find Eventual Safe States (Medium) · Minimum Height Trees (Medium) · Alien Dictionary (Hard) · Parallel Courses (Medium).
+
+## Resources
+
+<Resources topic="dsa/topological-sort" />

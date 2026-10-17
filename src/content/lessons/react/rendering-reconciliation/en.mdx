@@ -1,0 +1,106 @@
+## TL;DR
+
+React updates the UI in two phases. **<Term id="render" />**: call component functions to compute a new element tree — pure, no DOM changes, may be repeated or discarded. **<Term id="commit" />**: apply the minimal set of changes to the DOM and run effects — synchronous, never interrupted. A component re-renders when **its state changes**, **its parent re-renders**, or a **context it reads changes** — not when its props "change". <Term id="reconciliation" /> decides, by **element type and key at each position**, which component instances (and their state) survive.
+
+## Visual model
+
+```text
+setState in Page
+   │
+   ▼
+render phase:  Page() → Toolbar() → List (memo, same props → skip) → Chart() → Sidebar() → Ad()
+               build new element tree, diff against the previous one (per position: type + key)
+   │
+   ▼
+commit phase:  apply DOM mutations → run useLayoutEffect → browser paints → run useEffect
+```
+
+## Mechanism
+
+### Who re-renders
+
+Trigger `setState` in different components of a tree. Note that the render flows **down** from the component that changed, never up, and that `memo` only helps when props are shallow-equal — a fresh object or arrow function prop (`!`) defeats it.
+
+<RerenderViz />
+
+### How lists are reconciled
+
+For each position, React compares the new element with the old fiber. **Same type and same key → reuse the fiber (and its state)**, update props. Different type or key → unmount the old subtree, mount a new one. For arrays, keys let React match children that moved.
+
+<ReconcileViz mode="keyed" />
+
+Now the same idea with `key={index}`: identity is the position, so deleting the first item makes every remaining item **inherit its neighbour's state**.
+
+<ReconcileViz mode="index" />
+
+## Code
+
+```tsx
+// State is preserved by POSITION + TYPE in the tree
+function Form({ isEditing }: { isEditing: boolean }) {
+  return isEditing ? <input key="edit" /> : <input key="view" />;  // different keys → state reset on toggle
+}
+
+// Resetting state deliberately: change the key
+<ProfileEditor key={userId} userId={userId} />   // switching users remounts and clears local state
+
+// ✗ Component defined inside another component: a NEW type every render → remount, state lost, focus lost
+function Parent() {
+  const Child = () => <input />;
+  return <Child />;
+}
+
+// Rendering is a pure calculation; side effects belong in handlers or effects
+function Price({ cents }: { cents: number }) {
+  return <span>{(cents / 100).toFixed(2)}</span>;       // ✓ pure
+}
+```
+
+## When to use / when not to
+
+**Use stable, unique keys from the data** (database ids). **Use the index** only for static lists that never reorder, filter or prepend and whose items hold no state.
+
+**Don't fight re-renders by default.** A render that produces the same output is cheap CPU work; the DOM is only touched in commit when output differs. Optimise after measuring with the Profiler.
+
+## Trade-offs
+
+| Technique | Effect | Cost |
+| --- | --- | --- |
+| Lift state down (colocate) | fewer components re-render | none — usually the best first move |
+| Pass children as props (`<Layout>{children}</Layout>`) | children elements created by the parent above don't re-render with Layout's state | slight API change |
+| `memo` | skip render when props are shallow-equal | comparison cost, needs stable props |
+| Context split / selectors | fewer consumers re-render | more providers/structure |
+| `key` change | intentional reset | remount cost |
+
+## Senior nuance
+
+- **Bailing out**: if `setState` receives the same value (`Object.is`), React may skip re-rendering the component and its children (it might still render the component itself once before bailing out).
+- **Children-as-props trick**: elements passed in as `children` were created by the grandparent; when the wrapper re-renders from its own state, those element objects are the same references, so React can skip them.
+- **Strict Mode** double-invokes render functions (and mounts/unmounts effects once extra) in development to surface impure renders and missing cleanups — it does not happen in production.
+- **The diff is O(n) by design**: React's heuristics (compare only same position, assume different types produce different trees, rely on keys for lists) avoid the O(n³) general tree-diff problem.
+
+## Interview questions
+
+<QA q="What causes a component to re-render?" level="mid">
+Its own state update (useState/useReducer setter with a new value), its parent re-rendering (props are not compared by default), or a change in a context it consumes. A props change is not an independent trigger — props only change because the parent rendered.
+</QA>
+
+<QA q="Why is key={index} a problem?" level="mid">
+Keys define identity. With index keys, identity is the position: if an item is inserted at the front or removed from the middle, every following component instance keeps its position's old state (input text, focus, local state) but receives the next item's props. It also turns moves into many prop updates instead of DOM moves.
+</QA>
+
+<QA q="What's the difference between render and commit, and why does it matter?" level="senior">
+Render calls components and diffs element trees; it must be pure because React may run it multiple times, pause it, or throw the result away (concurrent rendering, Strict Mode). Commit applies DOM changes and runs layout effects synchronously, then effects run after paint. Side effects in render (subscriptions, mutations, network) can run more than once or for UI that never appears.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Parent re-renders; Child has no props. Does Child re-render?", options: ["no — props didn't change", "yes, unless Child is memoized", "only in Strict Mode", "only if it uses context"], answer: 1, explain: "By default every child of a rendering parent renders." },
+  { q: "Keyed list A B C D → D A B C. Which DOM moves happen?", options: ["move D", "move A, B, C", "remove all, insert all", "none"], answer: 1, explain: "D is kept (old index 3 becomes lastPlacedIndex), so A, B, C, with smaller old indices, are moved." },
+  { q: "Defining a component inside another component's body causes…", options: ["a closure, harmless", "a new component type each render → remount", "a hook error", "faster renders"], answer: 1, explain: "Different type at the same position ⇒ unmount + mount." }
+]} />
+
+## Resources
+
+<Resources topic="react/rendering-reconciliation" />

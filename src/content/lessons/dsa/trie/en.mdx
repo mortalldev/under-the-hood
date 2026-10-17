@@ -1,0 +1,114 @@
+## TL;DR
+
+A <Term id="trie" /> stores strings as root-to-node paths, one character per edge. Words that share a prefix share nodes. Lookups and prefix checks cost **O(length of the query)** — independent of how many words are stored — which is exactly what autocomplete, spell-checking and "search many words in a grid" need.
+
+## Visual model
+
+```text
+            •                 words: car, cat, cart, dog
+          /   \
+         c     d              ✓ = end-of-word flag
+         |     |
+         a     o              "ca" is a prefix (path exists)
+        / \    |              "car" is a word  (path exists AND ✓)
+       r✓  t✓  g✓             "cb" is neither  (path breaks)
+       |
+       t✓
+```
+
+## Mechanism
+
+Insertion walks from the root, creating missing child nodes, and sets the end flag on the last node. A prefix query walks the same way and fails as soon as an edge is missing. Insert some words that share prefixes and watch how few new nodes appear:
+
+<TrieViz />
+
+The end flag is essential: after inserting `cart`, the path `c→a→r` exists, but `car` is a word only if it was inserted itself.
+
+## Code
+
+```ts
+class TrieNode {
+  children = new Map<string, TrieNode>();
+  end = false;
+}
+
+class Trie {
+  root = new TrieNode();
+  insert(word: string) {
+    let n = this.root;
+    for (const ch of word) {
+      let next = n.children.get(ch);
+      if (!next) { next = new TrieNode(); n.children.set(ch, next); }
+      n = next;
+    }
+    n.end = true;
+  }
+  private walk(s: string): TrieNode | null {
+    let n: TrieNode | undefined = this.root;
+    for (const ch of s) { n = n.children.get(ch); if (!n) return null; }
+    return n;
+  }
+  search(word: string) { return this.walk(word)?.end === true; }
+  startsWith(prefix: string) { return this.walk(prefix) !== null; }
+}
+
+// Word Search II: put all words in a trie, DFS the grid once, following trie edges.
+// Store the full word at its end node, and remove it after finding to avoid duplicates.
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- Many prefix queries: autocomplete, "words starting with", longest common prefix, replace words by their roots.
+- Searching **many** words simultaneously (Word Search II): one DFS over the board guided by the trie beats one DFS per word.
+- Wildcard matching with `.` (Design Add and Search Words): branch over all children at a dot.
+- Bitwise tries for "maximum XOR of two numbers": insert numbers bit by bit from the most significant bit.
+
+**When not to**
+- Only exact lookups → a hash set is simpler and usually smaller.
+- Huge alphabets with sparse usage → map-based children or a compressed (radix) trie.
+- Substring (not prefix) search over one big text → suffix arrays/automata or KMP/Z for single patterns.
+
+## Trade-offs
+
+| Structure | Exact lookup | Prefix query | Memory |
+| --- | --- | --- | --- |
+| Hash set of words | O(L) average | O(N · L) scan | compact |
+| Sorted array + binary search | O(L log N) | O(L log N) for range | compact |
+| Trie (map children) | O(L) | O(L) | many small objects |
+| Radix / compressed trie | O(L) | O(L) | fewer nodes |
+
+## Senior nuance
+
+- **Memory dominates**: each node is an object plus a map; millions of nodes cost hundreds of MB in JS. Fixed `Array(26)` children are faster for lowercase letters but waste space for sparse nodes; radix tries merge single-child chains.
+- **Ranking for autocomplete**: store top-k suggestions (or counts) at each node so a query returns results without exploring the subtree; update them on insert.
+- **Pruning found words** in Word Search II (delete leaf nodes once their word is found) turns a time-out into an accept on large boards.
+- **Unicode**: iterate code points (`for…of`) rather than UTF-16 units; normalise (NFC) before inserting user text.
+
+## Interview questions
+
+<QA q="Design autocomplete returning the top 3 suggestions for a prefix." level="senior">
+Trie keyed by characters; each node keeps the top 3 completions by frequency (or a small heap). A query walks the prefix in O(L) and returns the node's cached list in O(1). Inserting or updating a frequency updates the cached lists along the path in O(L · k). For huge corpora, shard by prefix and precompute offline; serve from memory.
+</QA>
+
+<QA q="Maximum XOR of two numbers in an array." level="senior">
+Insert each number into a binary trie from bit 31 down to 0. For each number, walk the trie preferring the opposite bit at every level; that greedily maximizes the XOR from the most significant bit. O(32 · n).
+</QA>
+
+<QA q="When is a trie worse than a hash set?" level="mid">
+When you only need exact membership: a hash set gives O(L) expected lookups with far less memory and better cache behaviour. Tries only pay off when prefix structure matters (prefix queries, shared traversal, ordered iteration).
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "After inserting only 'cart', search('car') returns…", options: ["true", "false", "throws", "depends on order"], answer: 1, explain: "The path exists but the end flag on 'r' is false." },
+  { q: "startsWith(prefix) costs…", options: ["O(number of words)", "O(prefix length)", "O(log n)", "O(total characters)"], answer: 1, explain: "One edge per character of the prefix." },
+  { q: "Best approach for Word Search II with many words?", options: ["DFS per word", "Trie of all words + one DFS per starting cell", "Sort words", "BFS per word"], answer: 1, explain: "The trie prunes paths that are not a prefix of any word." }
+]} />
+
+**Classic problems:** Implement Trie (Prefix Tree) (Medium) · Design Add and Search Words Data Structure (Medium) · Replace Words (Medium) · Maximum XOR of Two Numbers in an Array (Medium) · Word Search II (Hard).
+
+## Resources
+
+<Resources topic="dsa/trie" />

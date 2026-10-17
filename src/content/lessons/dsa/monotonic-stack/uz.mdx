@@ -1,0 +1,120 @@
+## TL;DR
+
+<Term id="monotonic-stack" /> "har bir element uchun uning chap/oʻng tomonidagi kattaroq (yoki kichikroq) **eng yaqin** element qaysi?" savoliga jami O(n) da javob beradi. Hiyla: element stack'da biror narsa uni hal qilguncha kutadi, hal qilingach pop qilinadi va boshqa hech qachon tekshirilmaydi. **Monotonic deque** buni sliding-window maksimum/minimumiga kengaytiradi.
+
+## Vizual model
+
+```text
+nums:  2  1  2  4  3  1  5          stack qiymatlarni KAMAYUVCHI saqlaydi (pastdan → yuqoriga)
+                ↑ 4 keladi: 2, 1, 2 ni pop qiladi — har bir pop qilingan indeks keyingi kattasini topdi = 4
+```
+
+## Mexanizm
+
+Yangi qiymat kelganda, stack tepasidagi har bir kichikroq qiymat oʻzining "keyingi kattasi"ni topgan boʻladi — bu yangi qiymat, chunki ular orasida hech narsa katta boʻlmagan (aks holda ular allaqachon pop qilingan boʻlardi). Shuning uchun ularni pop qiling, javobni yozing, keyin yangi indeksni push qiling. Oxirida qolgan indekslarning oʻng tomonida kattaroq element yoʻq.
+
+<MonotonicStackViz />
+
+Amortizatsiya: har bir indeks aynan bir marta push va koʻpi bilan bir marta pop qilinadi → ichma-ich `while` boʻlsa ham koʻpi bilan 2n ta stack amali.
+
+## Kod
+
+```ts
+// Oʻngdagi keyingi katta element (yoʻq boʻlsa −1)
+function nextGreater(nums: number[]): number[] {
+  const res = new Array<number>(nums.length).fill(-1);
+  const st: number[] = [];                           // indekslar, qiymatlar kamayuvchi
+  for (let i = 0; i < nums.length; i++) {
+    while (st.length && nums[st[st.length - 1]] < nums[i]) res[st.pop()!] = nums[i];
+    st.push(i);
+  }
+  return res;
+}
+
+// Histogram'dagi eng katta toʻrtburchak: har bir ustun uchun kenglik har ikki
+// tomondagi eng yaqin pastroq ustungacha choʻziladi. Oʻsuvchi stack; sentinel 0 uni boʻshatadi.
+function largestRectangle(h: number[]): number {
+  const st: number[] = [];
+  let best = 0;
+  for (let i = 0; i <= h.length; i++) {
+    const cur = i === h.length ? 0 : h[i];
+    while (st.length && h[st[st.length - 1]] >= cur) {
+      const height = h[st.pop()!];
+      const left = st.length ? st[st.length - 1] + 1 : 0;   // chapdagi eng yaqin pastroq + 1
+      best = Math.max(best, height * (i - left));            // i — oʻngdagi eng yaqin pastroq
+    }
+    st.push(i);
+  }
+  return best;
+}
+
+// Monotonic deque bilan sliding window maksimumi (qiymatlar oldidan orqasiga kamayadi)
+function maxWindow(nums: number[], k: number): number[] {
+  const dq: number[] = [];
+  let head = 0;                                      // dq[head..] — tirik deque
+  const out: number[] = [];
+  for (let i = 0; i < nums.length; i++) {
+    while (dq.length > head && nums[dq[dq.length - 1]] <= nums[i]) dq.pop(); // butunlay ustunlik qilindi
+    dq.push(i);
+    if (dq[head] <= i - k) head++;                   // oldingisi window'dan chiqib ketdi
+    if (i >= k - 1) out.push(nums[dq[head]]);
+  }
+  return out;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- "Keyingi katta / keyingi kichik / oldingi katta", "issiqroq kun kelishiga necha kun", "stock span".
+- Har bir element uchun u max/min boʻlishdan toʻxtaydigan chegara kerak → histogram, trapping rain water, subarray minimumlari yigʻindisi.
+- k oʻlchamli har bir window'ning maksimumi/minimumi.
+
+**Qachon kerak emas**
+- Eng yaqin kattaroq emas, k-eng katta kerak → heap.
+- Ixtiyoriy oraliq-max soʻrovlari (sirpanuvchi emas) → sparse table yoki segment tree.
+- Qiymatlar vaqt oʻtishi bilan oʻzgaradi → oldindan hisoblangan javoblar eskiradi.
+
+## Trade-off'lar
+
+| Yondashuv | Vaqt | Xotira |
+| --- | --- | --- |
+| Har i uchun oʻngga skan | O(n²) | O(1) |
+| Monotonic stack | O(n) | O(n) |
+| Heap orqali window max | O(n log n) | O(n) |
+| Deque orqali window max | O(n) | O(k) |
+
+## Senior nuance
+
+- **Qat'iy va qat'iy boʻlmagan taqqoslash** dublikatlar qanday hal qilinishini belgilaydi. "Subarray minimumlari yigʻindisi"da bir tomonda `<`, ikkinchisida `<=` ishlating, aks holda teng qiymatlar ikki marta sanaladi.
+- **Aylana array'lar**: `i % n` bilan `2n` marta aylaning va faqat birinchi oʻtishda push qiling.
+- **Nimani saqlash**: qiymatlarni emas, indekslarni saqlang — kenglik yoki masofa uchun deyarli doim pozitsiyalar kerak.
+- Deque'ning "butunlay ustunlik qilingan" kuzatuvi umumiy tamoyil: yangisidan eskiroq *va* yaxshiroq boʻlmagan element hech qachon yana javob boʻla olmaydi.
+
+## Interview savollari
+
+<QA q="Ichma-ich loop bilan monotonic stack nega O(n)?" level="mid">
+Har bir indeks bir marta push va koʻpi bilan bir marta pop qilinadi. Ichki while faqat pop qilganda ishlaydi, shuning uchun butun ish davomida ichki iteratsiyalar soni push'lar soni n bilan chegaralangan. Jami ish O(n).
+</QA>
+
+<QA q="Daily Temperatures: har bir kun uchun issiqroq kun kelishiga necha kun qolganini qaytaring." level="mid">
+Indekslarning kamayuvchi stack'i. i-kunda temp[j] < temp[i] boʻlgan har bir j indeksni pop qilib, answer[j] = i − j qiling. i ni push qiling. Stack'da qolgan kunlar 0 oladi.
+</QA>
+
+<QA q="Trapping Rain Water: stack yoki two pointers — qaysi biri va nega?" level="senior">
+Ikkalasi ham O(n). Stack versiyasi oʻng devor pastroq ustunni pop qilganda suvni qatlam-qatlam hisoblaydi (yangi tepa chap devor sifatida chegaralaydi). Two-pointer versiyasi leftMax/rightMax saqlaydi va maksimumi kichikroq tomonni suradi, chunki oʻsha tomonning suvi toʻliq aniqlangan. Two pointers O(1) xotira ishlatadi; stack versiyasi "eng yaqin chegara" fikrlashiga yaxshiroq umumlashadi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Next greater element uchun stack qiymatlari pastdan yuqoriga qanday boʻlishi kerak?", options: ["oʻsuvchi", "kamayuvchi", "faqat indeks boʻyicha saralangan", "tasodifiy"], answer: 1, explain: "Kattaroq kelgan element barcha kichikroq tepalarni pop qiladi va kamayuvchi stack qoladi." },
+  { q: "Largest rectangle'da j ustun i tomonidan pop qilinganda, uning oʻng chegarasi…", options: ["j + 1", "i (kiritilmagan)", "n", "yangi stack tepasi"], answer: 1, explain: "i — oʻngdagi birinchi pastroq ustun; toʻrtburchak i − 1 gacha choʻziladi." },
+  { q: "Window-max deque'da nega yangi qiymatdan ≤ boʻlgan orqa elementlar pop qilinadi?", options: ["Qisqa saqlash uchun", "Ular boshqa hech qachon maksimum boʻla olmaydi", "Indekslarni saralash uchun", "Deque buni talab qiladi"], answer: 1, explain: "Yangi element yangiroq va kamida shunchalik katta, shuning uchun u ulardan uzoqroq yashaydi va ustunlik qiladi." }
+]} />
+
+**Klassik masalalar:** Next Greater Element I (Easy) · Daily Temperatures (Medium) · Online Stock Span (Medium) · Car Fleet (Medium) · Largest Rectangle in Histogram (Hard) · Sliding Window Maximum (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/monotonic-stack" />

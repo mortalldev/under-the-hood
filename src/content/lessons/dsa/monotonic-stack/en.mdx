@@ -1,0 +1,120 @@
+## TL;DR
+
+A <Term id="monotonic-stack" /> answers "for each element, what is the **nearest** element to its left/right that is greater (or smaller)?" in O(n) total. The trick: an element waits on the stack until something resolves it, and once resolved it is popped and never examined again. A **monotonic deque** extends this to sliding-window maximum/minimum.
+
+## Visual model
+
+```text
+nums:  2  1  2  4  3  1  5          stack keeps values DECREASING (bottom → top)
+                ↑ 4 arrives: pops 2, 1, 2 — each popped index just found its next greater = 4
+```
+
+## Mechanism
+
+When a new value arrives, every smaller value on top of the stack has just found its "next greater" — it is the new value, because nothing between them was greater (otherwise they would already have been popped). So pop them, record the answer, then push the new index. Remaining indices at the end have no greater element to the right.
+
+<MonotonicStackViz />
+
+Amortization: each index is pushed exactly once and popped at most once → at most 2n stack operations, despite the nested `while`.
+
+## Code
+
+```ts
+// Next greater element to the right (−1 if none)
+function nextGreater(nums: number[]): number[] {
+  const res = new Array<number>(nums.length).fill(-1);
+  const st: number[] = [];                           // indices, values decreasing
+  for (let i = 0; i < nums.length; i++) {
+    while (st.length && nums[st[st.length - 1]] < nums[i]) res[st.pop()!] = nums[i];
+    st.push(i);
+  }
+  return res;
+}
+
+// Largest rectangle in a histogram: for each bar, its width extends to the
+// nearest smaller bar on each side. Increasing stack; a sentinel 0 flushes it.
+function largestRectangle(h: number[]): number {
+  const st: number[] = [];
+  let best = 0;
+  for (let i = 0; i <= h.length; i++) {
+    const cur = i === h.length ? 0 : h[i];
+    while (st.length && h[st[st.length - 1]] >= cur) {
+      const height = h[st.pop()!];
+      const left = st.length ? st[st.length - 1] + 1 : 0;   // nearest smaller on the left + 1
+      best = Math.max(best, height * (i - left));            // i is the nearest smaller on the right
+    }
+    st.push(i);
+  }
+  return best;
+}
+
+// Sliding window maximum with a monotonic deque (values decreasing front → back)
+function maxWindow(nums: number[], k: number): number[] {
+  const dq: number[] = [];
+  let head = 0;                                      // dq[head..] is the live deque
+  const out: number[] = [];
+  for (let i = 0; i < nums.length; i++) {
+    while (dq.length > head && nums[dq[dq.length - 1]] <= nums[i]) dq.pop(); // dominated forever
+    dq.push(i);
+    if (dq[head] <= i - k) head++;                   // front fell out of the window
+    if (i >= k - 1) out.push(nums[dq[head]]);
+  }
+  return out;
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- "Next greater / next smaller / previous greater", "how many days until a warmer temperature", "stock span".
+- For each element you need the boundary where it stops being the max/min → histogram, trapping rain water, sum of subarray minimums.
+- Maximum/minimum of every window of size k.
+
+**When not to**
+- You need the k-th largest, not the nearest larger → heap.
+- Arbitrary range-max queries (not sliding) → sparse table or segment tree.
+- Values change over time → the precomputed answers go stale.
+
+## Trade-offs
+
+| Approach | Time | Space |
+| --- | --- | --- |
+| For each i scan right | O(n²) | O(1) |
+| Monotonic stack | O(n) | O(n) |
+| Window max via heap | O(n log n) | O(n) |
+| Window max via deque | O(n) | O(k) |
+
+## Senior nuance
+
+- **Strict vs non-strict comparison** decides how duplicates are handled. In "sum of subarray minimums", use `<` on one side and `<=` on the other, or equal values get counted twice.
+- **Circular arrays**: iterate `2n` times with `i % n` and only push during the first pass.
+- **What to store**: store indices, not values — you almost always need positions for widths or distances.
+- The deque's "dominated forever" insight is the general principle: an element that is older *and* not better than a newer one can never be the answer again.
+
+## Interview questions
+
+<QA q="Why is the monotonic stack O(n) with a nested loop?" level="mid">
+Every index is pushed once and popped at most once. The inner while only runs when it pops, so the total number of inner iterations over the whole run is bounded by the number of pushes, n. Total work O(n).
+</QA>
+
+<QA q="Daily Temperatures: return, for each day, how many days until a warmer one." level="mid">
+Decreasing stack of indices. On day i, pop every index j with temp[j] < temp[i] and set answer[j] = i − j. Push i. Days left on the stack get 0.
+</QA>
+
+<QA q="Trapping Rain Water: stack vs two pointers — which and why?" level="senior">
+Both are O(n). The stack version computes water layer by layer when a right wall pops a lower bar (bounded by the new top as left wall). The two-pointer version keeps leftMax/rightMax and moves the side with the smaller max, since that side's water is fully determined. Two pointers uses O(1) space; the stack version generalises better to "nearest boundary" thinking.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Next greater element needs a stack whose values from bottom to top are…", options: ["increasing", "decreasing", "sorted by index only", "random"], answer: 1, explain: "A larger arrival pops all smaller tops, leaving a decreasing stack." },
+  { q: "In largest rectangle, when bar j is popped by i, its right boundary is…", options: ["j + 1", "i (exclusive)", "n", "the new stack top"], answer: 1, explain: "i is the first bar to the right that is lower; the rectangle spans up to i − 1." },
+  { q: "In the window-max deque, why pop back elements ≤ the new value?", options: ["To keep it short", "They can never be the maximum again", "To sort indices", "Deques require it"], answer: 1, explain: "The new element is newer and at least as large, so it outlives and dominates them." }
+]} />
+
+**Classic problems:** Next Greater Element I (Easy) · Daily Temperatures (Medium) · Online Stock Span (Medium) · Car Fleet (Medium) · Largest Rectangle in Histogram (Hard) · Sliding Window Maximum (Hard).
+
+## Resources
+
+<Resources topic="dsa/monotonic-stack" />

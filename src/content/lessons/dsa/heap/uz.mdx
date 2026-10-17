@@ -1,0 +1,136 @@
+## TL;DR
+
+Binary <Term id="heap" /> — oddiy array'da saqlanadigan toʻliq daraxt, unda har bir ota ≤ bolalari. U minimumga O(1) va qoʻshish/olib tashlashga O(log n) murojaat beradi — "qolganlarning eng yaxshisi" takror-takror kerak boʻlganda aynan shu kerak. Interview'larda ikki pattern ustun: **k oʻlchamli heap bilan Top-K** (O(n log k)) va jamlanib boruvchi mediana uchun **two heaps**.
+
+## Vizual model
+
+```text
+array:  [1, 3, 2, 7, 4, 5]           parent(i) = (i − 1) >> 1
+daraxt:        1                     bolalar   = 2i + 1, 2i + 2
+            /     \
+           3       2                 pointer'lar yoʻq: shakl indekslardan kelib chiqadi,
+          / \     /                  "toʻliq" esa array'da boʻshliq yoʻqligini bildiradi
+         7   4   5
+```
+
+## Mexanizm
+
+- **push**: oxiriga qoʻshing (daraxt toʻliqligicha qoladi), keyin **sift up** — ota kattaroq ekan u bilan almashtiring. Koʻpi bilan balandlik = ⌊log₂ n⌋ ta almashtirish.
+- **pop**: root'ni oling, oxirgi elementni root'ga koʻchiring, keyin **sift down** — kichikroq bola kichikroq ekan u bilan almashtiring.
+- **Eng katta Top-K**: k oʻlchamli **min**-heap saqlang. Uning root'i joriy top k ning eng kuchsizi; undan kichik har qanday narsa hech qachon kira olmaydi. Har bir element O(log k) turadi.
+
+<TopKViz />
+
+Nega "eng katta" uchun min-heap? Chunki sizga **chiqariladigan** elementga tez murojaat kerak — u saqlangan k ta ichidagi eng kichigi.
+
+## Kod
+
+```ts
+class MinHeap<T> {
+  private a: T[] = [];
+  constructor(private less: (x: T, y: T) => boolean) {}
+  get size() { return this.a.length; }
+  peek(): T | undefined { return this.a[0]; }
+  push(x: T) {
+    const a = this.a;
+    a.push(x);
+    let i = a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (!this.less(a[i], a[p])) break;
+      [a[i], a[p]] = [a[p], a[i]];
+      i = p;
+    }
+  }
+  pop(): T | undefined {
+    const a = this.a;
+    if (a.length === 0) return undefined;
+    const top = a[0];
+    const last = a.pop()!;
+    if (a.length > 0) {
+      a[0] = last;
+      let i = 0;
+      for (;;) {
+        let m = i;
+        for (const c of [2 * i + 1, 2 * i + 2]) if (c < a.length && this.less(a[c], a[m])) m = c;
+        if (m === i) break;
+        [a[i], a[m]] = [a[m], a[i]];
+        i = m;
+      }
+    }
+    return top;
+  }
+}
+
+// Jamlanib boruvchi mediana: pastki yarim uchun max-heap, yuqori yarim uchun min-heap
+class MedianFinder {
+  private lo = new MinHeap<number>((x, y) => x > y); // max-heap
+  private hi = new MinHeap<number>((x, y) => x < y); // min-heap
+  add(x: number) {
+    this.lo.push(x);
+    this.hi.push(this.lo.pop()!);                     // har bir lo ≤ har bir hi boʻlib qolsin
+    if (this.hi.size > this.lo.size) this.lo.push(this.hi.pop()!); // lo bittaga koʻp saqlashi mumkin
+  }
+  median(): number {
+    return this.lo.size > this.hi.size ? this.lo.peek()! : (this.lo.peek()! + this.hi.peek()!) / 2;
+  }
+}
+```
+
+JavaScript'da oʻrnatilgan priority queue yoʻq — yuqoridagi class'ni taxminan 25 qatorda yozishga tayyor turing.
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- "k ta eng katta / eng kichik / eng koʻp uchraydigan / eng yaqin".
+- "Takror-takror min/max'ni olib, keyin yangi elementlar qoʻshish" — k ta saralangan roʻyxatni birlashtirish, Dijkstra, task scheduling, event simulyatsiyasi.
+- Jamlanib boruvchi mediana yoki "ikki yarimni balanslash".
+
+**Qachon kerak emas**
+- k-elementni bir marta topish kerak va array'ni qayta tartiblash mumkin → quickselect, oʻrtacha O(n).
+- Ixtiyoriy elementlarni qidirish yoki oʻchirish kerak → balanslangan BST / saralangan set (heap faqat root'ini biladi).
+- k n ga yaqin → shunchaki saralang.
+
+## Trade-off'lar
+
+| Top-K uchun yondashuv | Vaqt | Xotira | Izoh |
+| --- | --- | --- | --- |
+| Saralash | O(n log n) | O(1)–O(n) | eng sodda |
+| k oʻlchamli min-heap | O(n log k) | O(k) | stream'lar; online ishlaydi |
+| Quickselect | oʻrtacha O(n), eng yomon O(n²) | O(1) | input'ni oʻzgartiradi; tasodifiy pivot |
+| Chastota boʻyicha bucket sort | O(n) | O(n) | sanoqlar ≤ n boʻlganda Top-K frequent |
+
+## Senior nuance
+
+- **Build-heap O(n)**, O(n log n) emas: oxirgi otadan root'gacha sift down qilish narxi koʻp sonli past balandlikdagi node'lar bilan belgilanadi.
+- **Decrease-key** binary heap'da noqulay (indeks map kerak). Koʻp Dijkstra implementatsiyalari buning oʻrniga dublikatlarni push qilib, eskirganlarini oʻtkazib yuboradi ("lazy deletion").
+- **Barqarorlik**: heap'lar stable emas; teng key'lar tartibi muhim boʻlsa, comparator'da tenglikni aniq hal qiling (masalan, qoʻshilish hisoblagichi bilan).
+- **Stream'lar**: k oʻlchamli heap — cheksiz stream ustida O(k) xotira bilan top-k saqlashning standart usuli.
+
+## Interview savollari
+
+<QA q="Nega heapify O(n)?" level="senior">
+Sift-down narxi node balandligiga proporsional. Taxminan n/2 node — barg (balandlik 0), n/4 tasining balandligi 1, n/8 tasiniki 2, … Jami n · Σ h/2^(h+1) boʻlib, O(n) ga yaqinlashadi. Bittadan sift-up bilan qoʻshish O(n log n), chunki koʻp chuqur node'lar uzoq yoʻl bosadi.
+</QA>
+
+<QA q="Top K Frequent Elements'ni O(n log n) dan yaxshiroq." level="mid">
+Hash map bilan sanang (O(n)). Keyin yoki (count, value) juftliklari ustida k oʻlchamli min-heap — O(n log k) — yoki bucket sort: count (0..n) boʻyicha indekslangan bucket'lar, k ta qiymat yigʻilguncha eng yuqori bucket'dan pastga yuring — O(n).
+</QA>
+
+<QA q="Har doim keyingi eng yuqori ustuvorlikdagi ishni bajaradigan, tenglikda kelish tartibini hisobga oladigan scheduler loyihalang." level="mid">
+(priority kamayuvchi, arrivalSeq oʻsuvchi) key'li heap; push O(log n), pop O(log n). Ketma-ketlik raqami teng ustuvorliklar tartibini deterministik qiladi — heap buni oʻzi ta'minlamaydi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Stream'ning k ta eng katta elementi uchun nima saqlanadi?", options: ["barcha elementlar max-heap'i", "k oʻlchamli min-heap", "k oʻlchamli max-heap", "saralangan array"], answer: 1, explain: "Min-heap root'i joriy top k ning eng kichigi — chiqariladigani aynan u." },
+  { q: "Array asosidagi heap'da 4-indeksning bolalari…", options: ["8 va 9", "9 va 10", "5 va 6", "2 va 3"], answer: 1, explain: "2i + 1 = 9 va 2i + 2 = 10." },
+  { q: "Jamlanib boruvchi mediana: qoʻshgandan keyin heap hajmlari qanday boʻlishi shart?", options: ["doim teng", "lo.size − hi.size ∈ {0, 1}", "hi doim kattaroq", "cheklov yoʻq"], answer: 1, explain: "Balanslangan yarimlar medianani lo tepasi yoki ikkala tepaning oʻrtachasiga aylantiradi." }
+]} />
+
+**Klassik masalalar:** Kth Largest Element in an Array (Medium) · Top K Frequent Elements (Medium) · K Closest Points to Origin (Medium) · Task Scheduler (Medium) · Find Median from Data Stream (Hard) · Merge k Sorted Lists (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/heap" />

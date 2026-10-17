@@ -1,0 +1,108 @@
+## TL;DR
+
+Koʻpincha ikki alohida mexanizm aralashtiriladi. **`this`** funksiya *qanday* chaqirilishiga qarab **chaqiruv vaqtida** aniqlanadi (toʻrt qoida va arrow function'lar). **Property qidiruvi** obyektning yashirin <Term id="prototype" /> zanjiri boʻylab key topilguncha yoki `null`ga yetguncha boradi. Class'lar aynan shu ikki mexanizm ustidagi sintaksis: metodlar `Class.prototype`'da yashaydi, `new` esa unga bogʻlangan obyekt yaratib, konstruktorni `this` oʻsha obyektga bogʻlangan holda chaqiradi.
+
+## Vizual model
+
+```text
+this binding — tartib bilan tekshiring:
+1. new F()                         → yangi yaratilgan obyekt
+2. f.call(o) / f.apply(o) / bind   → o
+3. o.f()                           → o (chaqiruv vaqtida nuqtadan chapdagi obyekt)
+4. f()                             → undefined (strict / modullar / class'lar) yoki globalThis (sloppy)
+arrow function'lar                 → oʻz this'i yoʻq: uni oʻrab turgan scope'dan oladi
+
+rex.speak qidiruvi:  rex → Dog.prototype → Animal.prototype → Object.prototype → null
+```
+
+## Mexanizm
+
+Key'ni oʻzgartiring va qidiruv boʻyicha qadamma-qadam yuring. E'tibor bering: metodni prototype'da topish `this`ni **oʻzgartirmaydi**: `rex.speak()` `speak`ni ikki qadam yuqorida topadi, lekin `this` baribir `rex` (3-qoida).
+
+<PrototypeViz />
+
+`new Dog("Rex")` nima qiladi:
+1. `[[Prototype]]`i `Dog.prototype` boʻlgan boʻsh obyekt yaratadi.
+2. Hosila class'lar uchun avval ota konstruktor ishlaydi (`super(...)`), aynan shu yerda `this` initsializatsiya qilinadi — shuning uchun `super()`dan oldin `this`ga tegish xato beradi.
+3. Konstruktor tanasini `this` = yangi obyekt bilan bajaradi.
+4. Obyektni qaytaradi (agar konstruktor boshqa obyektni aniq qaytarmasa).
+
+**Yozish oʻqishdan farq qiladi**: `rex.toString = …` meros property'ni *yashiradigan* (shadow) **own** property yaratadi; u hech qachon `Object.prototype`ni oʻzgartirmaydi. (Istisno: meros property setter yoki non-writable boʻlsa, tayinlash setter orqali oʻtadi yoki muvaffaqiyatsiz boʻladi.)
+
+## Kod
+
+```js
+const obj = {
+  name: "obj",
+  regular() { return this?.name; },
+  arrow: () => this?.name,              // obj'niki emas, modul/tashqi scope'ning `this`i
+};
+obj.regular();            // "obj"   (3-qoida)
+const f = obj.regular;
+f();                      // strict mode'da undefined — metod ajratib olindi (4-qoida)
+f.call({ name: "x" });    // "x"     (2-qoida)
+
+class Button {
+  label = "OK";
+  handleClick = () => console.log(this.label);  // class field arrow: har nusxaga bogʻlangan
+  handleClickMethod() { console.log(this.label); }
+}
+const b = new Button();
+setTimeout(b.handleClickMethod);   // undefined — ajratib olingan
+setTimeout(b.handleClick);         // "OK"
+
+// Class sintaksisi nima ustiga qurilgan
+function Animal(name) { this.name = name; }
+Animal.prototype.speak = function () { return `${this.name} makes a sound`; };
+function Dog(name) { Animal.call(this, name); }
+Object.setPrototypeOf(Dog.prototype, Animal.prototype);   // Dog.prototype → Animal.prototype
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Prototype/class'lar mos keladi**: koʻp nusxalar xatti-harakatni boʻlishganda (metodlar bir marta saqlanadi), `instanceof` kerak boʻlganda yoki framework class kutganda (custom element'lar, ba'zi ORM'lar).
+
+**Oddiy funksiya/closure/obyektlarni afzal koʻring**: modellashtiriladigan umumiy oʻzgaruvchan state boʻlmasa yoki aks holda chuqur meros zanjirlari qurilsa — kompozitsiyani oʻzgartirish odatda osonroq.
+
+**Metod sifatida arrow function'lar**: tashqi `this`ni saqlashi kerak boʻlgan callback'lar uchun ajoyib; obyektni `this` sifatida talab qiladigan object-literal metodlari uchun notoʻgʻri va ularni `new` bilan ishlatib boʻlmaydi.
+
+## Trade-off'lar
+
+| Yondashuv | Metod xotirasi | `this` tuzoqlari | Yopiqlik |
+| --- | --- | --- | --- |
+| Prototype/class metodlari | bir marta, umumiy | ajratib olish `this`ni yoʻqotadi | `#private` field'lar |
+| Class field arrow function'lar | har nusxaga bitta | yoʻq (lexical bogʻlangan) | `#private` field'lar |
+| Closure factory'lar | har nusxaga bitta | yoʻq (`this` yoʻq) | closure scope |
+
+## Senior nuance
+
+- **`Object.create(null)`** prototype'siz obyekt yaratadi — lugʻatlar uchun foydali (`toString` yoʻq, `__proto__` key'lari oddiy), garchi odatda `Map` yaxshiroq.
+- **Runtime'da prototype'larni oʻzgartirish** (mavjud obyektlarda `Object.setPrototypeOf`) engine'larda property murojaatini deoptimize qiladi; prototype'ni yaratish paytida oʻrnating.
+- **`instanceof` prototype zanjirini tekshiradi**, konstruktor nomini emas — u realm'lar orasida (iframe'lar) ishlamaydi va `Symbol.hasInstance` bilan sozlanishi mumkin. Realm'lararo tekshiruvlar uchun duck typing yoki `Array.isArray` ishlating.
+- **`super.method()`** ota prototype'ini topish uchun metodning home object'idan ([[HomeObject]]) foydalanadi — u `this`ga bogʻliq emas, shuning uchun `super` ishlatadigan metodni boshqa obyektga nusxalash baribir asl otani chaqiradi.
+
+## Interview savollari
+
+<QA q="this qoidalari qanday?" level="mid">
+Ustuvorlik tartibida: `new` yangi obyektni bogʻlaydi; `call`/`apply`/`bind` berilgan obyektni bogʻlaydi (bind keyingi call'dan ustun); metod chaqiruvi `o.f()` `o`ni bogʻlaydi; oddiy chaqiruv strict mode'da `undefined`ni (sloppy mode'da globalThis'ni) bogʻlaydi. Arrow function'lar bularning barchasini e'tiborsiz qoldiradi va oʻrab turgan scope'ning `this`idan foydalanadi.
+</QA>
+
+<QA q="`new` qadamma-qadam nima qiladi?" level="mid">
+Constructor.prototype'ga bogʻlangan obyekt yaratadi, konstruktorni this unga bogʻlangan holda chaqiradi (hosila class'lar uchun super() this'ni initsializatsiya qilgandan keyin) va konstruktor boshqa obyekt qaytarmasa, oʻsha obyektni qaytaradi.
+</QA>
+
+<QA q="Function.prototype.bind'ni implementatsiya qiling." level="senior">
+Asl funksiyani bogʻlangan `this` va birlashtirilgan argumentlar bilan chaqiradigan funksiya qaytaring. Toʻliq javob bogʻlangan funksiyada `new`ni hal qiladi: new bilan chaqirilganda bogʻlangan `this`ni e'tiborsiz qoldirib, odatdagidek yarating (masalan, `new.target`ni tekshiring) va instanceof ishlashi uchun prototype'ni saqlang.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Modulda const f = obj.method; f() this sifatida nimani qaytaradi?", options: ["obj", "undefined", "globalThis", "f"], answer: 1, explain: "Modullar strict; oddiy chaqiruv undefined'ni bogʻlaydi." },
+  { q: "rex.speak() speak'ni Animal.prototype'da topadi. speak ichida this…", options: ["Animal.prototype", "Dog.prototype", "rex", "undefined"], answer: 2, explain: "Qidiruv joyi va this binding bir-biriga bogʻliq emas; o.f() chaqiruv joyi o'ni bogʻlaydi." },
+  { q: "rex.toString = fn tayinlash…", options: ["Object.prototype'ni oʻzgartiradi", "meros property'ni yashiradigan own property yaratadi", "xato tashlaydi", "Dog.prototype'ni oʻzgartiradi"], answer: 1, explain: "Yozish meros setter yoki non-writable property aralashmasa, own property yaratadi." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/this-prototypes" />

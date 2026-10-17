@@ -1,0 +1,102 @@
+## TL;DR
+
+A coding interview measures **how you solve problems with another engineer watching**, not just whether you reach a solution. Follow a visible process: **clarify** → **examples & edge cases** → **brute force** → **optimise with a named pattern** → **agree on the plan** → **code cleanly** → **test by hand** → **analyse complexity**. Think out loud so the interviewer can follow, help, and give you credit for reasoning even when the code is unfinished.
+
+## Visual model
+
+```text
+ 0–5 min   clarify inputs/outputs, constraints, edge cases; write 2–3 examples
+ 5–12 min  brute force (state its complexity) → find the bottleneck → pick a pattern
+12–15 min  agree on the approach ("I'll use a sliding window because…")
+15–35 min  code: clear names, small helpers, talk while typing
+35–42 min  dry-run an example + edge cases, fix bugs calmly
+42–45 min  time/space complexity, trade-offs, follow-ups
+```
+
+## Mechanism
+
+**Clarify** — ask about input size and ranges (they hint at the target complexity, see the Big-O lesson), duplicates, negatives, empty input, sortedness, what to return when there is no answer, and whether you may mutate the input.
+
+**Examples** — write a normal case and edge cases (empty, one element, all equal, maximum values). These become your tests later.
+
+**Brute force first, briefly** — it proves you understand the problem and gives a baseline. Then ask: *what work am I repeating?* That question leads to the pattern: repeated pair search → hash map; repeated range sums → prefix sums; contiguous window → sliding window; sorted + pair → two pointers; "minimum X such that" → binary search on the answer; overlapping subproblems → DP.
+
+**Get buy-in before coding** — say the plan and complexity; interviewers will often redirect you here, which costs far less than after 20 minutes of code.
+
+**Code for reading** — meaningful names, early returns, a helper for a repeated block. Narrate decisions ("I store the index after checking so an element can't pair with itself").
+
+**Test like an engineer** — trace the example line by line with concrete variable values, then the edge cases. Finding your own bug is a positive signal; fix it without panic.
+
+**Analyse** — time and space, and what dominates. Mention the follow-up you'd consider (streaming input, memory limit, concurrent access).
+
+## Code
+
+```ts
+// Narrating a solution: "Longest substring without repeating characters"
+// Clarify: ASCII? empty string → 0. Example: "abba" → 2 ("ab" or "ba").
+// Brute force: all substrings, check uniqueness → O(n³). Repeated work: re-scanning the window.
+// Pattern: variable sliding window with last-seen indices → O(n) time, O(alphabet) space.
+function lengthOfLongestSubstring(s: string): number {
+  const last = new Map<string, number>();
+  let left = 0;
+  let best = 0;
+  for (let right = 0; right < s.length; right++) {
+    const prev = last.get(s[right]);
+    if (prev !== undefined && prev >= left) left = prev + 1;   // "abba": second 'a' must not move left back
+    last.set(s[right], right);
+    best = Math.max(best, right - left + 1);
+  }
+  return best;
+}
+// Dry run "abba": r=0 a→best1; r=1 b→best2; r=2 b dup at1→left=2; r=3 a prev0<left2 → ignore, len2.
+```
+
+## When to use / when not to
+
+**Always narrate**, but don't monologue — pause for the interviewer's input at decision points. **Ask for hints** when stuck for a few minutes, framing what you've tried ("I see O(n²); I'm looking for a way to avoid recomputing sums — is prefix sums on the right track?").
+
+**Don't** start coding immediately, stay silent, argue with hints, or claim complexity you haven't justified. **Don't** over-optimise before having a correct solution.
+
+## Trade-offs
+
+| Behaviour | Signal it sends |
+| --- | --- |
+| Clarifying questions | communication, avoiding wrong-problem solutions |
+| Brute force then optimise | structured problem solving |
+| Naming the pattern | breadth of knowledge |
+| Testing with examples | verification habits, ownership of quality |
+| Complexity analysis | CS fundamentals |
+| Handling hints well | collaboration, coachability |
+
+## Senior nuance
+
+- **Senior candidates are also judged on code quality**: decomposition, naming, handling edge cases without special-case clutter, and mentioning how they'd test it in production (unit tests, property tests).
+- **Time management is yours**: if you're at minute 30 without code, simplify — a working O(n log n) beats an unfinished O(n).
+- **Language fluency matters**: know your language's sorting comparator, map/set APIs, integer limits and string handling cold (e.g. JavaScript's default `sort` and 32-bit bitwise operators).
+- **Practice under conditions**: timed, talking aloud, on a plain editor without autocomplete; mock interviews expose communication gaps that solo practice hides.
+
+## Interview questions
+
+<QA q="What do you do if you don't know how to solve the problem?" level="mid">
+Clarify and work examples by hand to find structure; state a brute force and its complexity; identify the repeated work and try patterns that remove it; think aloud so the interviewer can steer; ask a targeted question when stuck. A correct brute force with clear reasoning and good testing still earns credit.
+</QA>
+
+<QA q="How should you test your code in an interview?" level="mid">
+Dry-run it on a normal example by tracking variable values step by step, then on edge cases (empty, single element, duplicates, extremes, no answer). Check loop boundaries and off-by-one conditions. Explain what unit tests you'd write if this were production code.
+</QA>
+
+<QA q="The interviewer asks a follow-up: the input no longer fits in memory." level="senior">
+Discuss streaming or external approaches: process chunks with bounded state (e.g. sliding window over a stream, counting with hash maps per chunk plus merge), external sort or sharding by hash for global aggregations, approximate algorithms (count-min sketch, HyperLogLog, reservoir sampling) when exactness isn't required, and the I/O cost model replacing pure Big-O.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "First thing after reading the problem?", options: ["start coding", "clarify constraints and write examples", "optimise", "pick a language"], answer: 1, explain: "Constraints hint at the target complexity; examples become tests." },
+  { q: "You found a bug while testing. Best response?", options: ["hide it", "explain and fix it calmly", "restart from scratch", "blame the language"], answer: 1, explain: "Self-detected bugs are a positive signal." },
+  { q: "n ≤ 10⁵ suggests aiming for…", options: ["O(n²)", "O(n log n) or better", "O(2ⁿ)", "O(n³)"], answer: 1, explain: "10¹⁰ operations for n² would be too slow." }
+]} />
+
+## Resources
+
+<Resources topic="interview/coding-interview-process" />

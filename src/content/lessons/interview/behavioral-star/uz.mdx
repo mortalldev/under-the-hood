@@ -1,0 +1,88 @@
+## TL;DR
+
+Behavioral interview'lar qanday harakat qilishingizni ilgari qanday harakat **qilganingizni** tekshirib bashorat qiladi. <Term id="star" /> — **Situation**, **Task**, **Action**, **Result** — tuzilmali aniq hikoyalar bilan javob bering, vaqtning koʻp qismini **oʻz harakatlaringiz** va **oʻlchanadigan natijalarga** sarflab, keyin nimani oʻrganganingizni ayting. Oʻnlab savollarga moslashtira oladigan 8–10 ta real hikoyadan iborat **hikoyalar banki**ni tayyorlang.
+
+## Vizual model
+
+```text
+S  Situation  ~10%   1–2 jumlada kontekst: jamoa, mahsulot, xavf darajasi
+T  Task       ~10%   sizning mas'uliyatingiz / maqsad / cheklov
+A  Action     ~60%   SIZ nima qildingiz — qarorlar, trade-off'lar, boshqalarga qanday ta'sir qildingiz ("biz" emas, "men")
+R  Result     ~20%   sonlar, natijalar, nima oʻzgardi; keyin: nimani oʻrgandingiz / nimani boshqacha qilardingiz
+```
+
+## Mexanizm
+
+**Nega hikoyalar ishlaydi**: interviewer'lar kuzatiladigan xatti-harakatlarni kompetensiyalar boʻyicha baholaydi (ownership, hamkorlik, noaniqlik bilan ishlash, ziddiyat, mijozga yoʻnaltirilganlik, natija berish). Qarorlaringiz va ularning oqibatlari bilan aniq hikoya — dalil; gipotetik javoblar ("men … qilardim") — dalil emas.
+
+**Hikoyalar bankini yaratish**: oxirgi 2–4 yildagi loyiha va lahzalarni roʻyxatga oling — qiyin texnik muammo, muvaffaqiyatsizlik, ziddiyat, vakolatsiz yetakchilik qilgan payt, qattiq muddat, production hodisasi, fikringizni oʻzgartirgan payt, kimgadir mentorlik qilgan payt, qarorga qarshi chiqqan payt. Har biri uchun sonlar bilan STAR punktlarini yozing. Har bir hikoyani u namoyon qiladigan kompetensiyalar bilan belgilang; bitta hikoya bir nechta savolga javob bera oladi.
+
+**Taqdim etish**: har javobga 2–3 daqiqa, keyin toʻxtab, interviewer chuqurroq kirishiga imkon bering. Follow-up'larni kuting: *Aynan siz nima qildingiz? Nimani boshqacha qilardingiz? Qanday oʻlchadingiz? Boshqa odam nima deb oʻyladi?* Halol mulohaza sayqallangan, lekin sayoz hikoyadan yaxshiroq.
+
+**Kompaniya tamoyillari**: ba'zi kompaniyalar ishga olishda qidiradigan xatti-harakatlarni e'lon qiladi (masalan, Amazon Leadership Principles). Ularni oʻqing va hikoyalaringizni ularga bogʻlang — lekin shiorlarni yod aytmang.
+
+## Kod
+
+```text
+Savol: "Texnik qaror bilan rozi boʻlmagan paytingiz haqida aytib bering."
+
+S  Jamoamiz checkout servisini mavsum choʻqqisidan oldin yangi framework'da qayta yozishni rejalashtirdi.
+T  Toʻlovlar ishonchliligiga egalik qiladigan muhandis sifatida oʻzgarish Black Friday daromadini
+   xavf ostiga qoʻymasligiga ishonch hosil qilishim kerak edi.
+A  Ma'lumot yigʻdim: oxirgi 5 hodisadan 3 tasi qayta yozish tegadigan integratsiya kodidan kelgan.
+   Ikki bosqichli reja taklif qildim — hozir past xavfli endpoint'lar uchun strangler pattern, toʻlov oqimlari
+   choʻqqidan keyin — xavf va mehnatning bir sahifalik taqqoslamasini yozdim va ochiq kutilmagan holat
+   boʻlmasligi uchun jamoa yigʻilishidan oldin tech lead bilan yakkama-yakka koʻrib chiqdim. Routing qatlamini qurishni oʻz zimmamga oldim.
+R  Choʻqqidan oldin endpoint'larning 40% ini nol checkout hodisasi bilan chiqardik; qolgan migratsiya
+   6 haftadan keyin tugadi. Oʻrgandim: ziddiyat ma'lumot va aniq muqobil bilan yaxshiroq qabul qilinadi,
+   endi choʻqqi davrlariga yaqin har qanday oʻzgarish uchun xavf yozuvlarini yozaman.
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**STAR'dan foydalaning**: har qanday "… paytingiz haqida aytib bering" savoli uchun va "Nega ketyapsiz?" kabi ochiq savollar uchun (uni qisqa va ijobiy saqlang).
+
+**Qoching**: oʻz hissangizni aniqlashtirmasdan "biz"dan; natijasiz yoki mulohazasiz hikoyalardan; boshqalarni ayblashdan; ariza berayotgan darajangiz uchun juda eski yoki juda mayda hikoyalardan; toʻqib chiqarilgan yoki boʻrttirilgan hikoyalardan — follow-up'lar ularni fosh qiladi.
+
+## Trade-off'lar
+
+| Keng tarqalgan savol | Tekshiriladigan kompetensiya | Yaxshi hikoya nimani koʻrsatadi |
+| --- | --- | --- |
+| Muvaffaqiyatsiz boʻlgan paytingiz | ownership, oʻrganish | uni oʻz zimmangizga oldingiz, tuzatdingiz, jarayonni oʻzgartirdingiz |
+| Hamkasb bilan ziddiyat | hamkorlik, empatiya | tushunishga intildingiz, ma'lumotdan foydalandingiz, umumiy til topdingiz |
+| Noaniq loyiha | noaniqlik bilan ishlash | maqsadlarni aniqlashtirdingiz, qaytariladigan qarorlar qabul qildingiz, iteratsiya qildingiz |
+| Qattiq muddat | ustuvorlik berish | doirani ongli qisqartirdingiz va trade-off'larni bildirdingiz |
+| Vakolatsiz ta'sir qilish | yetakchilik | dalil va tinglash bilan kelishuv qurdingiz |
+
+## Senior nuance
+
+- **Doira darajaga mos boʻlishi shart**: senior hikoyalar jamoalararo ta'sir, noaniq muammolar, uzoq muddatli texnik yoʻnalish, mentorlik va standartni koʻtarishni oʻz ichiga oladi — faqat tayinlangan tiketlarni yaxshi tugatishni emas.
+- **Halol miqdorlang**: latency −40%, choraklik hodisalar 6 → 1, onboarding vaqti 3 hafta → 1 hafta. Aniq sonlar boʻlmasa, oraliq bering va qanday oʻlchashingizni ayting.
+- **Qahramonlik emas, mulohaza koʻrsating**: interviewer'lar takror-takror butun dam olish kunlarini ishlab "kunni qutqargan" muhandislardan xavotirlanadi; favqulodda holatga sabab boʻlgan tizimni tuzatgan hikoyalarni afzal koʻring.
+- **Mulohaza — senior signal**: nimani boshqacha qilishingiz interviewer'ga qanday oʻrganishingizni aytadi.
+
+## Interview savollari
+
+<QA q="Muvaffaqiyatsiz boʻlgan paytingiz haqida aytib bering." level="mid">
+Real, ma'noli muvaffaqiyatsizlikni tanlang (niqoblangan kuchli tomon emas). Kontekstni qisqa bering, oʻz hissangizni aniq oʻz zimmangizga oling, ta'sirni kamaytirish uchun nima qilganingizni, topgan asosiy sababni va kiritgan doimiy oʻzgarishni (jarayon, test, checklist, muloqot) tasvirlang. Nimani boshqacha qilishingiz bilan yakunlang — aynan oʻrganish baholanadi.
+</QA>
+
+<QA q="Behavioral interview'larga qanday tayyorlanasiz?" level="mid">
+Muvaffaqiyatsizlik, ziddiyat, yetakchilik, noaniqlik, muddatlar, hodisalar va mentorlikni qamrab oladigan yaqindagi ishdan 8–10 ta STAR hikoyasidan iborat bank tuzing; metrikalar va mulohazalar qoʻshing; ularni kompaniyaning e'lon qilingan qadriyatlariga bogʻlang; har birini 2–3 daqiqaga ovoz chiqarib mashq qiling; va doʻstingiz yoki mock interviewer bilan follow-up'larni mashq qiling.
+</QA>
+
+<QA q="Toʻliq boʻlmagan ma'lumot bilan qaror qabul qilishingizga toʻgʻri kelgan payt haqida aytib bering." level="senior">
+Xavf darajasini va nima noma'lum ekanini tasvirlang; noaniqlikni qanday chegaralaganingizni (tez eksperimentlar, toʻgʻri odamlardan soʻrash, qarorni nima oʻzgartirishini aniqlash), qaytariladigan variantni tanlaganingizni yoki himoya choralari qoʻshganingizni (feature flag'lar, bosqichma-bosqich joriy qilish, orqaga qaytarish rejasi), qayta koʻrib chiqish nuqtalarini belgilaganingizni va natijani tushuntiring. Xavfni manfaatdor tomonlarga qanday yetkazganingizni ta'kidlang.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "STAR'ning qaysi qismi eng koʻp vaqt olishi kerak?", options: ["Situation", "Task", "Action", "Result"], answer: 2, explain: "Harakatlaringiz va qarorlaringiz — dalil." },
+  { q: "'Ziddiyat haqida aytib bering' uchun eng yaxshi javob uslubi?", options: ["gipotetik 'men … qilardim'", "harakatlaringiz va natijasi bilan aniq oʻtmish hikoyasi", "hech qachon ziddiyatingiz boʻlmaganini aytish", "boshqa odamni ayblash"], answer: 1, explain: "Behavioral savollar real oʻtmishdagi xatti-harakatni xohlaydi." },
+  { q: "Senior darajadagi hikoya odatda nimani koʻrsatadi?", options: ["tayinlangan tiketlarni tez yopish", "jamoalararo ta'sir va noaniqlik bilan ishlash", "har dam olish kunida ishlash", "eng yangi framework'dan foydalanish"], answer: 1, explain: "Doira va mulohaza senior hikoyalarni ajratib turadi." }
+]} />
+
+## Resurslar
+
+<Resources topic="interview/behavioral-star" />

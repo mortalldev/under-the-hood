@@ -1,0 +1,109 @@
+## TL;DR
+
+**ES modules** are static (imports are known before any code runs), asynchronous to load, strict by default, and exports are <Term id="live-binding">live bindings</Term>. **CommonJS** `require` is a synchronous function call that returns a *copy* of `module.exports` at that moment. For equality: `===` never converts types, `==` applies <Term id="coercion" /> rules, and `Object.is` differs from `===` only for `NaN` and `±0`. Interviews ask about the handful of coercion cases that bite in real code, not trivia tables.
+
+## Visual model
+
+```text
+ESM lifecycle:  parse all modules → link (create bindings) → evaluate (depth-first, once each)
+                imports are hoisted; a cycle sees uninitialised bindings (TDZ) until evaluated
+
+CJS:            require("x") → run x.js now (if not cached) → return module.exports object
+                a cycle returns the PARTIALLY filled exports object of the in-progress module
+
+==  null == undefined → true, nothing else == null
+    number vs string  → string converted ToNumber
+    boolean vs any    → boolean converted to number FIRST  ("1" == true → 1 == 1 → true)
+    object vs prim    → object ToPrimitive (valueOf / toString / Symbol.toPrimitive)
+```
+
+## Mechanism
+
+**Live bindings**: an ESM import is a read-only *view* of the exporter's variable. If the exporter later reassigns it, every importer sees the new value. CJS destructuring (`const { count } = require("./c")`) copies the value once.
+
+```js
+// counter.mjs
+export let count = 0;
+export function inc() { count++; }
+
+// main.mjs
+import { count, inc } from "./counter.mjs";
+inc();
+console.log(count);   // 1 — live binding. (CJS: `const { count } = require(...)` would still print 0)
+```
+
+**Cycles**: in ESM, because bindings are created during linking, a cycle can still work if bindings are only *used* after evaluation (e.g. inside functions). Touching an imported `let`/`const` before its module evaluated throws a TDZ ReferenceError. In CJS you silently get an incomplete `exports` object — often `undefined` functions.
+
+**Coercion with `+`**: if either operand is a string after ToPrimitive, it concatenates; otherwise it adds numbers. `[] + {}` → `"[object Object]"`; `1 + "2"` → `"12"`; `1 - "2"` → `-1` (minus always converts to numbers).
+
+## Code
+
+```js
+// Equality you actually need
+x == null                    // idiomatic "null or undefined" check — the one widely accepted use of ==
+Number.isNaN(x)              // not isNaN(x), which coerces ("abc" → NaN → true)
+Object.is(NaN, NaN)          // true;  NaN === NaN is false
+Object.is(0, -0)             // false; 0 === -0 is true
+[1, 2].includes(NaN)         // uses SameValueZero: finds NaN; indexOf (===) does not
+
+// Coercion traps that cause bugs
+"10" > "9"                   // false — string comparison is lexicographic
+[] == false                  // true  ([] → "" → 0, false → 0)
+if ([]) {}                   // truthy — every object is truthy, even empty arrays
+0.1 + 0.2 === 0.3            // false — IEEE-754; compare with a tolerance or use integers (cents)
+parseInt("08")               // 8 now; always pass a radix anyway: parseInt(s, 10)
+
+// Interop
+import fs from "node:fs";                       // ESM importing CJS: default = module.exports
+const { readFile } = await import("node:fs/promises");   // dynamic import works from CJS too
+```
+
+## When to use / when not to
+
+**Prefer ESM** for new code: static analysis enables tree-shaking, top-level `await`, and the same syntax in browsers and Node. **CJS** remains in older packages and some tooling; know the interop rules.
+
+**Use `===` by default**; reserve `== null` for the null/undefined check. Never rely on `==` between objects and primitives in application code.
+
+## Trade-offs
+
+| | ESM | CommonJS |
+| --- | --- | --- |
+| Loading | static graph, async, can be parallel | synchronous `require` at runtime |
+| Bindings | live, read-only for importers | value copied when destructured |
+| Tree-shaking | yes (static imports) | limited |
+| Top-level `await` | yes | no |
+| Conditional loading | `import()` (async) | `require` anywhere (sync) |
+| `this` at top level | `undefined` | `module.exports` |
+
+## Senior nuance
+
+- **Dual-package hazard**: shipping both ESM and CJS builds can load **two copies** of a package in one process (one per format), so `instanceof` checks and singletons break. Package `exports` maps with conditional entries mitigate it.
+- **Node now supports `require(esm)`** for synchronous ESM graphs in recent versions, but modules using top-level `await` still cannot be required — check the Node version you target before relying on it.
+- **Side-effect imports** (`import "./polyfill"`) run once per module instance; ESM caches by resolved URL, CJS by resolved filename — symlinks and different paths can create duplicates.
+- **`typeof null === "object"`** is a historical bug kept for compatibility; check `x === null` explicitly.
+
+## Interview questions
+
+<QA q="What is a live binding?" level="mid">
+An ESM import is not a copy of a value but a reference to the exporting module's variable. If the exporter reassigns it (export let x; later x = 2), every importer reads the new value. Importers cannot assign to it themselves.
+</QA>
+
+<QA q="How do circular dependencies behave in ESM vs CommonJS?" level="senior">
+In CJS, require returns the in-progress module's exports object as it is at that moment — usually incomplete, so you get undefined members without an error. In ESM, all bindings are created during linking before evaluation; evaluation is depth-first, so a module in the cycle may run before the other has initialised its exports. Function declarations are hoisted and usable; let/const/class exports throw a TDZ ReferenceError if accessed too early. Fix by moving shared code to a third module or deferring access into functions.
+</QA>
+
+<QA q="Why is [] == ![] true?" level="mid">
+![] is false (objects are truthy). Comparing an object to a boolean converts the boolean to a number: false → 0. Then the object is converted ToPrimitive: [] → "" → 0. 0 == 0 is true. The lesson: == with mixed types follows a conversion algorithm, not intuition — use ===.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "export let n = 0; the exporter later sets n = 5. An ESM importer reads n…", options: ["0", "5", "TypeError", "undefined"], answer: 1, explain: "Imports are live bindings." },
+  { q: "Which check is true ONLY for null and undefined?", options: ["x === null", "x == null", "!x", "typeof x === 'undefined'"], answer: 1, explain: "Loose equality treats null and undefined as equal to each other and nothing else." },
+  { q: "[NaN].indexOf(NaN) and [NaN].includes(NaN) return…", options: ["0 and true", "−1 and true", "−1 and false", "0 and false"], answer: 1, explain: "indexOf uses ===; includes uses SameValueZero." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/modules-equality-coercion" />

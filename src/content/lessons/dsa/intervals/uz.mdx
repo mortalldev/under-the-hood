@@ -1,0 +1,114 @@
+## TL;DR
+
+Interval masalalari **start boʻyicha saralash** (birlashtirish, qoʻshish) yoki **end boʻyicha saralash**dan (kesishmaydigan maksimal toʻplam) keyin chiziqli boʻladi. Savol "eng band lahzada nechtasi kesishadi?" boʻlsa, interval'larni **event**'larga (start'da +1, end'da −1) aylantiring va vaqt tartibida suring — sweep line.
+
+## Vizual model
+
+```text
+start boʻyicha:    [1───3]
+                     [2───────6]
+                                   [8──10]
+                                              [15────18]
+                                                  [17──20]
+birlashgan:        [1─────────6]   [8──10]    [15────────20]
+```
+
+## Mexanizm
+
+Start boʻyicha saralangandan keyin interval faqat **oxirgi birlashtirilgan** bilan kesisha oladi: har bir oldingi birlashtirilgan interval oxirgisi boshlanishidan oldin tugaydi… demak joriysi boshlanishidan oldin ham. Shuning uchun natijaning oxirgi elementi bilan bitta taqqoslash "kengaytirish yoki yangisini boshlash"ni hal qiladi.
+
+<IntervalsViz />
+
+Kengaytirishdagi `max`ga e'tibor bering: ichidagi interval (`[1, 10]` ichidagi `[2, 3]`) oxirni qisqartirmasligi kerak.
+
+"Minimal uchrashuv xonalari" uchun **sweep line**: `(start, +1)` va `(end, −1)` event'larini yarating, vaqt boʻyicha saralang — interval'lar yarim ochiq boʻlsa, teng vaqtlarda end'lar start'lardan oldin — va jamlanib boruvchi yigʻindini kuzating; uning maksimumi — javob.
+
+## Kod
+
+```ts
+type Iv = [number, number];
+
+function merge(ivs: Iv[]): Iv[] {
+  ivs.sort((a, b) => a[0] - b[0]);
+  const out: Iv[] = [];
+  for (const [s, e] of ivs) {
+    const last = out[out.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+
+// Minimal xonalar soni (interval'lar [start, end): 10 da tugagan uchrashuv 10 da boshlanadiganga xonani boʻshatadi)
+function minRooms(ivs: Iv[]): number {
+  const events: [number, number][] = [];
+  for (const [s, e] of ivs) events.push([s, +1], [e, -1]);
+  events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);   // teng vaqtda −1, +1 dan oldin
+  let cur = 0, best = 0;
+  for (const [, d] of events) best = Math.max(best, (cur += d));
+  return best;
+}
+
+// Kesishmaydigan interval'larning maksimal soni: eng erta END boʻyicha greedy
+function maxNonOverlapping(ivs: Iv[]): number {
+  ivs.sort((a, b) => a[1] - b[1]);
+  let count = 0, lastEnd = -Infinity;
+  for (const [s, e] of ivs) if (s >= lastEnd) { count++; lastEnd = e; }
+  return count;   // "erase overlap intervals" = n − count
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- Input'lar `[start, end]` juftliklari: uchrashuvlar, bronlar, oraliqlar, chiziqdagi segment'lar.
+- "Birlashtirish", "qoʻshish", "kesishmaslik uchun minimal olib tashlash", "minimal xonalar/platformalar/oʻqlar".
+- "Qaysi vaqtda yuklama eng yuqori?" → event'lar + sweep.
+
+**Qachon kerak emas**
+- Tez-tez qoʻshiladigan va stabbing soʻrovli ("qaysi interval'lar x ni oʻz ichiga oladi?") dinamik interval'lar → interval tree yoki segment tree.
+- Koordinatalar kichik butun sonlar va har bir nuqta uchun sanoq kerak → difference array event'larni saralashdan soddaroq.
+
+## Trade-off'lar
+
+| Masala | Saralash key'i | Vaqt | Xotira |
+| --- | --- | --- | --- |
+| Birlashtirish / qoʻshish | start | O(n log n) (allaqachon saralangan boʻlsa O(n)) | O(n) natija |
+| Maksimal kesishmaydiganlar | end | O(n log n) | O(1) |
+| Maksimal parallel (xonalar) | vaqt boʻyicha event'lar | O(n log n) | O(n) |
+| Kichik butun koordinatalarda sanoqlar | — | O(n + oraliq) | O(oraliq) difference array |
+
+## Senior nuance
+
+- **Ochiq va yopiq chegaralar** javobni oʻzgartiradi: `[1, 3]` `[3, 5]` bilan kesishadimi? Soʻrang. Bu `<` yoki `<=` ni va event saralashidagi tenglik qoidasini belgilaydi.
+- **Nega greedy uchun eng erta end?** Exchange argument: har qanday optimal jadvalda birinchi interval'ni eng erta tugaydigani bilan almashtiring; u kechroq tugamaydi, shuning uchun keyingilarning hammasi baribir sigʻadi. Start (yoki uzunlik) boʻyicha saralashning oson qarshi misollari bor.
+- **Kalendarlar va vaqt zonalari**: production'dagi interval kodi algoritmda emas, DST oʻzgarishlari va kiritilgan/kiritilmagan kun chegaralarida yiqiladi. Lahzalarni UTC'da, oraliqlarni yarim ochiq `[start, end)` sifatida saqlang.
+- **Insert Interval saralashsiz O(n) da**: yangisi boshlanishidan oldin tugaydigan barcha interval'larni nusxalang, kesishadiganlarni birlashtiring, qolganini nusxalang.
+
+## Interview savollari
+
+<QA q="Barcha sharlarni yorish uchun minimal oʻqlar — qaysi greedy va nega?" level="mid">
+End boʻyicha saralang. Birinchi oʻqni birinchi sharning end'iga uring: bu pozitsiya undan oldin yoki unda boshlanadigan har bir sharni yoradi. Bunday sharlarning hammasini oʻtkazing, keyin keyingi yorilmagan sharning end'iga uring. Eng erta end'ni tanlash keyingi sharlar uchun eng koʻp joy qoldiradi (exchange argument).
+</QA>
+
+<QA q="Koʻp interval'lar va koʻp nuqta soʻrovlari berilgan: har bir nuqtani nechta interval qoplaydi?" level="senior">
+Offline: interval start va end'larini alohida saralang; x nuqta uchun qoplangan = (#start ≤ x) − (#end < x), har soʻrovga ikki binary search, O((n + q) log n). Kichik koordinata oraliqlari uchun bitta prefix sum'li difference array har bir soʻrovga O(1) da javob beradi.
+</QA>
+
+<QA q="Employee Free Time: har bir xodimning saralangan band interval'lari berilgan, umumiy boʻsh vaqtni qaytaring." level="senior">
+Barcha xodimlarning barcha interval'larini birlashtiring (O(N log k) uchun har bir xodimning keyingi interval'i heap'i, yoki O(N log N) uchun yassilab saralash); ketma-ket birlashtirilgan interval'lar orasidagi boʻshliqlar — boʻsh vaqtlar.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Birlashtirish: [1,4] va [2,3] nima beradi?", options: ["[1,3]", "[1,4]", "[2,4]", "ikkalasi oʻzgarmaydi"], answer: 1, explain: "max(4, 3) = 4 ishlating — ichidagi interval oxirni qisqartira olmaydi." },
+  { q: "Kesishmaydigan interval'lar sonini maksimallashtirish uchun nima boʻyicha saralanadi?", options: ["start", "uzunlik", "end", "start kamayuvchi"], answer: 2, explain: "Eng erta end eng koʻp joy qoldiradi; exchange argument bilan isbotlanadi." },
+  { q: "Yarim ochiq uchrashuvlar [1,10) va [10,20). Event'lar (vaqt, delta) boʻyicha saralangan; 10 da qaysi biri avval?", options: ["avval +1", "avval −1", "farqi yoʻq", "hech biri"], answer: 1, explain: "Xona keyingi uchrashuv uni egallashidan oldin boʻshaydi, shuning uchun bitta xona yetadi." }
+]} />
+
+**Klassik masalalar:** Merge Intervals (Medium) · Insert Interval (Medium) · Non-overlapping Intervals (Medium) · Minimum Number of Arrows to Burst Balloons (Medium) · Meeting Rooms II (Medium) · Car Pooling (Medium).
+
+## Resurslar
+
+<Resources topic="dsa/intervals" />

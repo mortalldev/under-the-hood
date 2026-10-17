@@ -1,0 +1,129 @@
+## TL;DR
+
+Cache Components bilan (`cacheComponents: true`, yangi Next.js 16 ilovalari uchun sukut boʻyicha) **data fetching sukut boʻyicha dinamik** va caching'ni async funksiya yoki komponentlarda `'use cache'` direktivasi bilan aniq yoqasiz. Har bir cache'langan scope **`cacheLife`** bilan umrini e'lon qilishi kerak va **`cacheTag`** bilan tag olishi mumkin. Mutatsiyadan keyin **`updateTag`** (read-your-own-writes, faqat Server Action'larda), **`revalidateTag`** (stale-while-revalidate) yoki **`revalidatePath`** bilan invalidate qilasiz. Brauzerda **client cache** tashrif buyurilgan va prefetch qilingan route'larning RSC payload'larini saqlaydi.
+
+<Callout kind="note" title="Versiyaga bogʻliq">
+Bu yerdagi hamma narsa Next.js 16.4 bilan birga keladigan hujjatlar bilan tekshirilgan. Cache Components'siz ilovalar oldingi modelni (fetch cache opsiyalari, `revalidate` route export'lari) ishlatadi; uni rasmiy "Caching without Cache Components" qoʻllanmasi yoritadi.
+</Callout>
+
+## Vizual model
+
+```text
+request ─▶ static shell (prerender qilingan: statik + cache'langan komponentlar + Suspense fallback'lari)  ── CDN'dan
+              │
+              ├─ 'use cache' scope'lari  key = funksiya identity + argumentlar + ushlangan qiymatlar
+              │      cacheLife: stale / revalidate / expire        cacheTag: "products", "product:42"
+              │
+              └─ dinamik boʻshliqlar (runtime API'lar, cache'lanmagan I/O) ─▶ request vaqtida stream
+
+mutatsiya (Server Action) ─▶ updateTag("products")   → hozir expire, foydalanuvchi oʻzgarishni shu javobda koʻradi
+                          ─▶ revalidateTag("products", "max") → eskisini berish, fonda yangilash
+brauzer ─▶ client cache: tashrif buyurilgan/prefetch qilingan segment'larning RSC payload'lari (layout'lar, loading holatlari)
+```
+
+## Mexanizm
+
+Async funksiya yoki komponent tepasidagi **`'use cache'`** uning return qiymatini cache qilinadigan qiladi. **Cache key** funksiya identity'si va uning **argumentlari hamda ushlangan oʻzgaruvchilar**idan olinadi — shuning uchun `userId` uzatish har foydalanuvchiga bitta yozuv yaratadi. Argumentlar va return qiymatlari serializable boʻlishi shart.
+
+**`cacheLife(profile)`** uchta vaqtni oʻrnatadi:
+
+| Profil | `stale` (client tekshirmasdan qayta ishlatishi mumkin) | `revalidate` (shundan keyin fonda yangilash) | `expire` (qat'iy chegara) |
+| --- | --- | --- | --- |
+| `default` | 5m | 15m | hech qachon |
+| `seconds` | 30s | 1s | 60s |
+| `minutes` | 5m | 1m | 1h |
+| `hours` | 5m | 1h | 1d |
+| `days` | 5m | 1d | 1w |
+| `weeks` | 5m | 1w | 30d |
+| `max` | 5m | 30d | 1y |
+
+Qisqa umrli cache'lar (`seconds`, `revalidate: 0` yoki 5 daqiqadan kam `expire`) prerendering'dan chiqariladi va dinamik boʻshliqlarga aylanadi.
+
+**Invalidation**:
+- `updateTag(tag)` — darhol expire qiladi; faqat Server Action'larda; action javobi qayta render qilingan route'ni oʻz ichiga oladi, shuning uchun foydalanuvchi oʻz yozuvini koʻradi.
+- `revalidateTag(tag, profile)` — stale-while-revalidate: yangi kontent yaratilayotganda eskisi beriladi (eng uzun stale oynasi uchun `'max'`); Server Action va Route Handler'larda ruxsat.
+- `revalidatePath(path)` — route uchun cache'langan hamma narsani invalidate qiladi; aniqlik uchun tag'larni afzal koʻring.
+- `refresh()` (faqat Server Action'larda) — cache'larni invalidate qilmasdan client router'ni yangilaydi.
+
+**Variantlar**: `'use cache: private'` cookie/header'larni toʻgʻridan-toʻgʻri oʻqiydigan funksiyalarni cache qiladi (har foydalanuvchiga, prefetch'larga qoʻshila oladi); `'use cache: remote'` uzoq muddatli umumiy cache handler'dan foydalanadi — sukut boʻyicha runtime cache xotirada va serverless chaqiruvlar orasida saqlanmasligi mumkin.
+
+## Kod
+
+```ts
+// lib/products.ts
+import { cacheLife, cacheTag } from "next/cache";
+
+export async function getProduct(id: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("products", `product:${id}`);
+  return db.product.findUnique({ where: { id } });
+}
+
+// app/products/actions.ts
+"use server";
+import { updateTag } from "next/cache";
+
+export async function renameProduct(id: string, name: string) {
+  const session = await auth();
+  if (!session?.isAdmin) throw new Error("Forbidden");    // action'lar — ommaviy endpoint'lar
+  await db.product.update({ where: { id }, data: { name } });
+  updateTag(`product:${id}`);                              // admin yangi nomni darhol koʻradi
+}
+
+// app/api/webhooks/cms/route.ts — tashqi tizim kontentni oʻzgartirdi
+import { revalidateTag } from "next/cache";
+export async function POST(req: Request) {
+  const { tag } = await req.json();
+  revalidateTag(tag, "max");                               // tashrif buyuruvchilar stale-while-revalidate oladi
+  return Response.json({ ok: true });
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Cache qiling**: koʻp request'lar boʻlishadigan va biroz eski boʻlishga chidaydigan ma'lumotlarni: kataloglar, CMS kontenti, konfiguratsiya, qimmat agregatsiyalar. Aniq invalidate qilish uchun entity boʻyicha tag qoʻying.
+
+**Cache qilmang**: har request'ga xos yoki xavfsizlikka sezgir natijalarni global (ruxsatlar, balanslar) — ularni request vaqtida Suspense ortida oʻqing yoki ongli ravishda foydalanuvchi boʻyicha key'lardan foydalaning (`'use cache: private'` yoki user ID argumenti). Tuzatish mumkin boʻlgan sekin query'ni yashirish uchun `'use cache'` ishlatmang.
+
+## Trade-off'lar
+
+| Vosita | Yozishdan keyin yangilik | Oʻzgarishni kim koʻradi | Qayerda ruxsat |
+| --- | --- | --- | --- |
+| `updateTag` | darhol | yozuvchi shu javobda; keyin hamma | Server Action'lar |
+| `revalidateTag(tag, "max")` | oxir-oqibat (fonda) | yangilangandan keyingi oʻquvchilar | Server Action'lar, Route Handler'lar |
+| `revalidatePath` | shu route uchun darhol | hamma | Server Action'lar, Route Handler'lar |
+| qisqa `cacheLife` | vaqtga asoslangan | hamma | caching ishlatiladigan har joyda |
+
+## Senior nuance
+
+- **Ushlangan qiymatlar key'ning bir qismi**: katta obyekt yoki request'ga xos qiymatni closure qiladigan cache'langan komponent cache yozuvlarini koʻpaytiradi. Minimal argumentlar uzating.
+- **Serverless + xotiradagi cache** = past hit rate. Nusxalar boʻylab uzoq muddatli ulashish uchun remote cache handler'ni (`'use cache: remote'`) sozlang yoki qayta hisoblashni qabul qiling.
+- **Read-your-own-writes va masshtab**: `updateTag` yangi kontentni majburlaydi; yuqori trafikli ommaviy sahifalar uchun stale-while-revalidate'li `revalidateTag` origin'dagi stampede'lardan saqlaydi.
+- **Client cache**: layout'lar va loading holatlari navigatsiyada darhol qayta ishlatiladi; sahifalar sukut boʻyicha cache'lanmaydi, lekin back/forward'da qayta ishlatiladi. Eksperimental `staleTimes` opsiyasi qayta ishlatishni uzaytirishi mumkin — eskirgan ma'lumotni koʻrsatish xavfi bilan.
+
+## Interview savollari
+
+<QA q="Cache Components bilan Next.js 16 da caching qanday ishlaydi?" level="mid">
+Fetching sukut boʻyicha dinamik. Siz async funksiya yoki komponentlarni 'use cache' bilan belgilaysiz; ularning natijalari funksiya identity'si, argumentlar va ushlangan qiymatlar boʻyicha, cacheLife'dan umr va cacheTag'dan ixtiyoriy tag'lar bilan cache'lanadi. Cache'langan natijalar prerender qilingan static shell'ning bir qismi boʻlishi mumkin. Invalidation vaqt boʻyicha (cacheLife) yoki talab boʻyicha updateTag, revalidateTag yoki revalidatePath bilan boʻladi.
+</QA>
+
+<QA q="updateTag va revalidateTag?" level="senior">
+updateTag tag'ni darhol expire qiladi va faqat Server Action'larda ruxsat: action javobi yangi ma'lumot bilan qayta render boʻladi, shuning uchun foydalanuvchi oʻz oʻzgarishini koʻradi (read-your-own-writes). 'max' kabi profilli revalidateTag stale-while-revalidate'dan foydalanadi: yangi kontent fonda yaratilayotganda mavjud yozuvlar berilishda davom etadi — qisqa kechikish maqbul boʻlgan kontent va yuklama ostida origin'ni himoya qilish uchun yaxshiroq. revalidateTag'ni Route Handler'lardan ham chaqirish mumkin (masalan, CMS webhook'lari).
+</QA>
+
+<QA q="'use cache' yozuvi key'iga nima kiradi va bu nega muhim?" level="senior">
+Funksiya identity'si (build vaqtidagi ID), uning serialize qilingan argumentlari va oʻrab turgan scope'lardan ushlagan har qanday qiymatlar. Har xil input'lar har xil yozuvlar yaratadi. Request'ga xos yoki yuqori kardinallikdagi qiymatlarni ushlash koʻp yozuv va past hit rate yaratadi; secret'larni ushlash ularni cache'langan natijaga sizdiradi — shuning uchun faqat minimal barqaror input'larni uzating.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Admin Server Action'da mahsulot nomini tahrirlaydi va uni darhol koʻrishi shart. Nima ishlatiladi?", options: ["revalidateTag(tag, 'max')", "updateTag(tag)", "cacheLife('seconds')", "hech narsa — avtomatik"], answer: 1, explain: "updateTag action javobi ichida read-your-own-writes beradi." },
+  { q: "CMS webhook Route Handler'ga keladi. U yerda qaysi biri ishlaydi?", options: ["updateTag", "revalidateTag", "refresh", "hech biri"], answer: 1, explain: "updateTag va refresh faqat Server Action uchun." },
+  { q: "'use cache' ichida cacheLife boʻlmasa…", options: ["natija hech qachon cache'lanmaydi", "default profil qoʻllaniladi", "xato beradi", "abadiy cache'lanadi"], answer: 1, explain: "Yashirin default profil ishlatiladi; Next.js doim umr belgilashni tavsiya qiladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="nextjs/caching" />

@@ -1,0 +1,118 @@
+## TL;DR
+
+React ichida hook'larning nomi yoʻq: har bir komponentning fiber'i hook obyektlarining **bogʻlangan roʻyxati**ni saqlaydi va render'dagi n-chi hook chaqiruvi n-chi node'ni oʻqiydi. Rules of Hooks'ning yagona sababi shu — ularni shartsiz, bir xil tartibda, yuqori darajada chaqiring. Effect'lar render paytida rejalashtiriladi va **commit'dan keyin** ishlaydi; har bir render'ning handler va effect'lari **oʻsha render'ning** props va state'ini closure qiladi — <Term id="stale-closure" /> muammosi shundan kelib chiqadi.
+
+## Vizual model
+
+```text
+fiber.memoizedState ─▶ [useState: "Ada"] ─▶ [useEffect: deps, cleanup] ─▶ [useRef: { current }] ─▶ null
+2-render XUDDI SHU roʻyxatni boshidan aylanadi:
+   #0 chaqiruv useState  → 0-node ✓
+   #1 chaqiruv useRef    → 1-node, unda EFFECT turibdi  ✗  (shartli hook hamma narsani siljitdi)
+```
+
+## Mexanizm
+
+### Hook roʻyxati
+
+Komponentni har xil hook ketma-ketliklari bilan ikki marta render qiling. Ikkinchi render hook'ni oʻtkazib yuborganda, keyingi har bir chaqiruv notoʻgʻri node'ni oʻqiydi — React aynan shu xatoni xabar qiladi.
+
+<HooksViz />
+
+### Effect'lar hayot sikli
+
+1. **Render**: `useEffect(fn, deps)` faqat `fn` va `deps`ni hook node'iga yozadi.
+2. **Commit**: DOM yangilanadi; `useLayoutEffect` cleanup va tanalari sinxron ishlaydi (paint'dan oldin).
+3. **Paint'dan keyin**: deps'i oʻzgargan (`Object.is` bilan solishtirilgan) har bir effect uchun React **oldingi cleanup**'ni, keyin yangi effect tanasini ishga tushiradi.
+4. **Unmount**: oxirgi cleanup ishlaydi.
+
+### Stale closure'lar
+
+Har bir render — oʻzining `count` konstantasiga ega yangi funksiya chaqiruvi. 1-render'da yaratilgan effect yoki callback `count`ni abadiy 1-render'dagidek koʻradi — agar u qayta yaratilmasa (deps) yoki ref oʻqimasa / functional update ishlatmasa.
+
+## Kod
+
+```tsx
+function Ticker() {
+  const [count, setCount] = useState(0);
+
+  // ✗ Stale: interval birinchi render'dagi count = 0 ni closure qiladi
+  useEffect(() => {
+    const id = setInterval(() => setCount(count + 1), 1000);
+    return () => clearInterval(id);
+  }, []);                                  // lint ogohlantiradi: 'count' bogʻliqligi yetishmaydi
+
+  // ✓ Functional update: count'ni umuman oʻqish kerak emas
+  useEffect(() => {
+    const id = setInterval(() => setCount((c) => c + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <p>{count}</p>;
+}
+
+// Qayta subscribe qilmasdan uzoq yashaydigan callback ichida eng soʻnggi qiymatni oʻqish
+function useEvent(handler: (e: Event) => void, target: EventTarget) {
+  const onEvent = useEffectEvent(handler);   // React 19.2+: doim eng soʻnggi props/state'ni koʻradi, bogʻliqlik emas
+  useEffect(() => {
+    const fn = (e: Event) => onEvent(e);
+    target.addEventListener("message", fn);
+    return () => target.removeEventListener("message", fn);
+  }, [target]);
+}
+
+// Race condition'lardan saqlanish uchun cleanup bilan fetch (tartibsiz kelgan javob yangisini ustidan yozmasligi uchun)
+useEffect(() => {
+  let ignore = false;
+  fetchUser(id).then((u) => { if (!ignore) setUser(u); });
+  return () => { ignore = true; };
+}, [id]);
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Effect'lar React'dan tashqaridagi narsa bilan sinxronlash uchun**: subscription'lar, timer'lar, DOM API'lari, React'ga tegishli boʻlmagan widget'lar, ekrandagi narsaga bogʻliq tarmoq soʻrovlari.
+
+**Ehtimol sizga effect kerak emas**: props/state'dan ma'lumot chiqarish uchun (render paytida hisoblang), prop oʻzgarganda state'ni tiklash uchun (`key` ishlating), foydalanuvchi event'iga javob berish uchun (handler'da qiling) yoki state yangilanishlarini zanjirlash uchun (yakuniy state'ni birdaniga hisoblang).
+
+## Trade-off'lar
+
+| Hook | Qachon ishlaydi | Nima uchun |
+| --- | --- | --- |
+| `useEffect` | paint'dan keyin | subscription'lar, log'lash, koʻrinishga bogʻliq fetch |
+| `useLayoutEffect` | DOM mutatsiyasidan keyin, paint'dan oldin | layout'ni oʻlchab, sinxron tuzatish (tooltip'lar) |
+| `useInsertionEffect` | layout effect'lardan oldin | stil qoʻshadigan CSS-in-JS kutubxonalari |
+| `useSyncExternalStore` | render paytida (subscription) | tearing'siz tashqi oʻzgaruvchan store'lar |
+| `useRef` | — | render'ni trigger qilmaydigan oʻzgaruvchan qiymat |
+
+## Senior nuance
+
+- **Dependency array'lar `Object.is` ishlatadi**: har render'da yangi obyekt/array/funksiya literal effect har render'da ishlashini bildiradi. Uni effect ichiga koʻchiring, memoize qiling yoki primitivlarga bogʻlang.
+- Development'dagi **Strict Mode** har bir komponentni bir marta mount, unmount va qayta mount qiladi: effect → cleanup → effect. Bu kodingizni buzsa, cleanup toʻliq emas.
+- **Batching**: React 18 dan beri istalgan manbadan (handler'lar, timeout'lar, promise'lar) kelgan yangilanishlar avtomatik birlashtiriladi; DOM'ni darhol oʻqish kerak boʻlsa `flushSync` bundan chiqaradi.
+- **`useEffectEvent`** (React 19.2 da stable) "reaktiv" mantiqni (deps) effect'ni qayta ishga tushirmasdan eng soʻnggi qiymatlarni oʻqishi kerak boʻlgan "event'ga oʻxshash" mantiqdan ajratadi.
+
+## Interview savollari
+
+<QA q="Nega hook'larni shartli chaqirib boʻlmaydi?" level="mid">
+React hook'larni chaqiruv tartibi boʻyicha aniqlaydi: fiber hook state'larining bogʻlangan roʻyxatini saqlaydi va har bir chaqiruv keyingi node'ni iste'mol qiladi. Biror render'da chaqiruv oʻtkazib yuborilsa, keyingi har bir hook boshqa hook'ning state'ini oʻqiydi va notoʻgʻri qiymatlar yoki qulash yuz beradi. Development'da React tartib oʻzgarishlarini aniqlab ogohlantiradi; hook soni oʻzgarishi xato tashlaydi.
+</QA>
+
+<QA q="React'da stale closure nima va uni qanday tuzatasiz?" level="mid">
+Oldingi render'da yaratilgan callback yoki effect oʻsha render'ning props/state'ini saqlaydi, chunki har bir render qiymatlari closure'lar ushlab qolgan konstantalar. Tuzatishlar: effect qayta yaratilishi uchun qiymatni dependency array'ga qoʻshish; functional state update ishlatish; eng soʻnggi qiymatni ref'dan oʻqish; yoki effect ichidagi event'ga oʻxshash mantiq uchun useEffectEvent ishlatish.
+</QA>
+
+<QA q="Deps oʻzgarganda effect cleanup'lari va yangi effect'lar qanday tartibda ishlaydi?" level="senior">
+Yangi render commit'idan keyin React oldingi effect cleanup'ini, keyin yangi effect tanasini ishga tushiradi (har bir oʻzgargan effect uchun, bolalar otalardan oldin). Layout effect cleanup/tanalari commit paytida sinxron, passive'lari paint'dan keyin ishlaydi. Unmount'da faqat cleanup ishlaydi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "[] deps'li effect'da setInterval(() => setCount(count + 1)) nimani koʻrsatadi?", options: ["1, 2, 3 …", "1 da qotib qoladi", "xato", "NaN"], answer: 1, explain: "Oʻsha closure'da count doim 0, shuning uchun u doim 1 ni oʻrnatadi." },
+  { q: "Elementni oʻlchab, miltillamasdan qayta joylashtirish qayerga tegishli?", options: ["useEffect", "useLayoutEffect", "render", "useMemo"], answer: 1, explain: "U brauzer paint qilishidan oldin ishlaydi." },
+  { q: "docId oʻzgarganda <Editor>ning barcha state'ini tiklashning eng yaxshi usuli?", options: ["setter'larni chaqiradigan useEffect", "key={docId}", "useMemo", "ref"], answer: 1, explain: "Yangi key komponentni yangi state bilan remount qiladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="react/hooks-internals" />

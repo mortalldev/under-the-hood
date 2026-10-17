@@ -1,0 +1,119 @@
+## TL;DR
+
+The **iteration protocol** is a contract: an object is iterable if `obj[Symbol.iterator]()` returns an iterator, and an iterator is anything with `next()` returning `{ value, done }`. `for…of`, spread, destructuring, `Array.from`, `Promise.all` and `new Map(…)` all consume this contract. A <Term id="generator" /> is the easiest way to implement it: a function that can **pause** at `yield` and **resume** later with its local state intact. Async iterators add `await` to the protocol, which is how `for await…of` consumes streams.
+
+## Visual model
+
+```text
+caller                     generator body
+it = gen()        ──▶      (nothing runs yet — returns an iterator)
+it.next()         ──▶      runs until first `yield 1`   ──▶ { value: 1, done: false }
+it.next("hi")     ──▶      `yield` expression evaluates to "hi", runs to `yield 2`
+it.next()         ──▶      runs to the end / return x   ──▶ { value: x, done: true }
+it.return(v)      ──▶      resumes as if `return v` were at the paused yield (finally blocks run)
+```
+
+## Mechanism
+
+A generator object holds a suspended **execution context**: its local variables, the position in the body, and its own scope chain — the same structures the engine uses for any call, just not discarded on pause. Each `next()` pushes that context back onto the call stack, runs until the next `yield`, and pops it again. That is why generators can model lazy sequences, state machines and coroutines without callbacks.
+
+Laziness is the key property: nothing is computed until a consumer pulls. An infinite generator is fine as long as the consumer stops.
+
+```js
+function* naturals() { let n = 0; while (true) yield n++; }
+function* take(it, k) { for (const x of it) { if (k-- <= 0) return; yield x; } }
+function* map(it, f) { for (const x of it) yield f(x); }
+
+[...take(map(naturals(), (x) => x * x), 5)];   // [0, 1, 4, 9, 16] — only 5 squares computed
+```
+
+Early exit matters: when `for…of` stops early (`break`, `return`, an exception), it calls the iterator's `return()`, so a generator's `finally` block runs — that is how resources (file handles, locks) get released.
+
+## Code
+
+```js
+// A custom iterable without a generator — the raw protocol
+class Range {
+  constructor(start, end) { this.start = start; this.end = end; }
+  [Symbol.iterator]() {
+    let cur = this.start;
+    const end = this.end;
+    return { next: () => (cur < end ? { value: cur++, done: false } : { value: undefined, done: true }) };
+  }
+}
+[...new Range(1, 4)];   // [1, 2, 3]
+
+// The same with a generator
+class Range2 {
+  constructor(start, end) { this.start = start; this.end = end; }
+  *[Symbol.iterator]() { for (let i = this.start; i < this.end; i++) yield i; }
+}
+
+// Tree traversal without recursion depth worries in the consumer
+function* inorder(node) {
+  if (!node) return;
+  yield* inorder(node.left);   // delegate to another iterator
+  yield node.val;
+  yield* inorder(node.right);
+}
+
+// Async iteration: paginated API as one lazy stream
+async function* fetchAll(url) {
+  let next = url;
+  while (next) {
+    const res = await fetch(next);
+    const { items, nextPage } = await res.json();
+    yield* items;
+    next = nextPage;
+  }
+}
+for await (const item of fetchAll("/api/items")) { /* backpressure: next page is fetched only when needed */ }
+```
+
+## When to use / when not to
+
+**Use generators/iterators for**: lazy or infinite sequences, pipelines over large data (only one element in memory at a time), custom collection types that should work with `for…of`, tree/graph traversals exposed as streams, paginated APIs and streams with `for await`.
+
+**Avoid when**: you need random access, length, or multiple passes (materialise into an array); in very hot numeric loops (generator resumption has overhead compared to a plain loop); when a simple array method chain is clearer and the data is small.
+
+## Trade-offs
+
+| Approach | Memory | Laziness | Overhead |
+| --- | --- | --- | --- |
+| Array + `map/filter` | all intermediate arrays | eager | low per element, allocations per stage |
+| Generator pipeline | one element at a time | lazy | resumption cost per element |
+| Iterator helpers (`Iterator.prototype.map/filter/take`) | lazy | lazy | built-in; check runtime support before relying on them |
+| Async iterator | one chunk at a time | lazy, natural backpressure | promise per element |
+
+## Senior nuance
+
+- **Iterators are single-use**: a generator object can be consumed once. Iterables (objects with `[Symbol.iterator]`) can usually produce fresh iterators — expose iterables, not iterators, from APIs.
+- **Node.js readable streams are async iterables**: `for await (const chunk of stream)` respects backpressure because the next chunk is only read when the loop asks for it.
+- **`yield*` delegates** including return values and `throw()`/`return()` calls — it is the generator equivalent of calling a sub-function.
+- **Before async/await, generators + a runner (co) implemented the same idea**: `yield promise` paused until the promise settled. async/await is that pattern built into the language.
+
+## Interview questions
+
+<QA q="What makes an object usable in for…of?" level="mid">
+It must implement `[Symbol.iterator]()` returning an iterator — an object whose `next()` returns `{ value, done }`. Built-ins like arrays, strings, Map, Set and NodeList already do. Plain objects do not, which is why `for…of` over an object throws (use Object.entries).
+</QA>
+
+<QA q="How does a generator 'remember' its state between next() calls?" level="senior">
+Calling a generator function creates a generator object holding a suspended execution context: the local environment, the instruction position and the scope chain. next() resumes that context on the call stack until the next yield, then suspends it again. Nothing is copied — the same environment record persists, just like a closure keeps an environment alive.
+</QA>
+
+<QA q="Implement a lazy `take(iterable, n)` that works with infinite sequences." level="mid">
+`function* take(it, n) { if (n <= 0) return; for (const x of it) { yield x; if (--n === 0) return; } }` — returning inside for…of calls the source iterator's return(), so the upstream generator can clean up. Checking n before pulling avoids consuming one extra element.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Calling a generator function function* g(){ console.log('x') } as g() logs…", options: ["'x' immediately", "nothing until next() is called", "an error", "'x' twice"], answer: 1, explain: "The body starts running only on the first next()." },
+  { q: "`break` inside for…of over a generator causes…", options: ["nothing", "the generator's return() to be called, running finally blocks", "an exception", "the generator to restart"], answer: 1, explain: "Iterator closing ensures cleanup." },
+  { q: "Best way to stream a paginated API without loading everything?", options: ["Promise.all of all pages", "async generator + for await", "recursion", "a while loop collecting arrays"], answer: 1, explain: "Pulls one page at a time, only when the consumer needs it." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/iterators-generators" />

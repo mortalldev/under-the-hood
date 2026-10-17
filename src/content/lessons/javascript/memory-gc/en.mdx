@@ -1,0 +1,96 @@
+## TL;DR
+
+JavaScript memory is reclaimed by a tracing <Term id="garbage-collection">garbage collector</Term>: anything **reachable** from the roots (globals, the current call stack, active closures, pending callbacks) is kept; everything else is garbage, even if it forms a cycle. A <Term id="memory-leak" /> in JS is therefore never "forgot to free" — it is "accidentally still reachable".
+
+## Visual model
+
+```text
+roots ─▶ window ─▶ app ─▶ cache ─▶ user     reachable: kept
+roots ─▶ stack  ─▶ tmp                      reachable: kept
+         old ◀──▶ orphan                     cycle, but unreachable: collected
+```
+
+## Mechanism
+
+<Term id="mark-and-sweep" />: start from the roots and mark everything reachable by following references (a graph traversal); then sweep the heap and free every unmarked object. Step through it — note that `old` and `orphan` reference each other, yet they are freed: reference counting would leak this cycle, tracing does not.
+
+<MarkSweepViz />
+
+**Generational GC in V8** builds on the observation that most objects die young:
+- The **young generation** is small and collected often by a *scavenger*: live objects are copied to another space (and promoted to the old generation after surviving a couple of collections). Cost is proportional to the **live** objects, not the garbage — cheap when most objects are dead.
+- The **old generation** is collected less often with mark-sweep(-compact). V8 does much of the marking **concurrently** on helper threads and **incrementally** in small steps to keep pauses short; compaction defragments memory.
+
+## Code
+
+Five leak patterns that appear in real code and interviews:
+
+```js
+// 1. Forgotten listener: the handler (and everything it closes over) stays reachable from `window`
+function mount(el) {
+  const big = new Array(1e6).fill(0);
+  const onResize = () => el.textContent = String(big.length);
+  window.addEventListener("resize", onResize);
+  return () => window.removeEventListener("resize", onResize);   // ✓ call this on unmount
+}
+
+// 2. Interval never cleared
+const id = setInterval(poll, 1000);   // keeps poll and its closure alive forever → clearInterval(id)
+
+// 3. Unbounded cache keyed by objects
+const cache = new Map();              // keeps keys alive → use WeakMap for object keys, or an LRU bound
+const meta = new WeakMap();           // entry disappears when the key object is collected
+
+// 4. Detached DOM nodes still referenced from JS
+let saved = document.querySelector("#row");
+saved.remove();                       // removed from the document, but `saved` keeps the whole subtree
+
+// 5. Accidental globals (sloppy mode): `count = 0` inside a function creates window.count
+```
+
+## When to use / when not to
+
+**Think about reachability when**: memory grows over time in a long-lived page or Node process, after many navigations in an SPA, or with caches, subscriptions and timers.
+
+**Do not micro-manage**: setting variables to `null` at the end of a function does nothing useful (locals die with the frame anyway); `delete obj.prop` to "free memory" can deoptimise the object's shape. Fix ownership and lifetimes instead.
+
+## Trade-offs
+
+| Strategy | Collects cycles | Pause behaviour | Overhead |
+| --- | --- | --- | --- |
+| Reference counting | no (needs a cycle collector) | incremental, immediate | counter updates on every assignment |
+| Mark-sweep | yes | marking proportional to live objects; sweeping to heap | fragmentation without compaction |
+| Copying (scavenger) | yes | proportional to live objects only | needs 2× space for the copied region |
+| Generational + concurrent | yes | short, mostly off the main thread | write barriers to track old→young pointers |
+
+## Senior nuance
+
+- **Shallow vs retained size** in heap snapshots: shallow = the object itself; retained = everything that would be freed if this object were collected. Leaks are found by sorting by retained size and reading the **retainer chain**.
+- **Closures share contexts**: two closures created in one scope share a context object; a tiny closure can keep a large array alive because a sibling closure used it.
+- **WeakMap/WeakRef are not caches with eviction policy** — entries disappear only when keys become unreachable, at the GC's discretion. Do not rely on `WeakRef` or `FinalizationRegistry` timing for correctness.
+- **Node.js heap limits**: the old-space size has a default limit (configurable with `--max-old-space-size`); exceeding it crashes the process with "JavaScript heap out of memory". Containers need the limit set below the cgroup memory limit.
+
+## Interview questions
+
+<QA q="Does JavaScript use reference counting?" level="mid">
+Modern engines use tracing GC (mark-and-sweep/mark-compact plus a copying young-generation collector). Reachability from roots decides liveness, so unreachable cycles are collected. Reference counting alone cannot free cycles, which is why old IE versions leaked DOM↔JS cycles.
+</QA>
+
+<QA q="How would you find a memory leak in a SPA?" level="senior">
+Reproduce the suspected action several times (e.g. open/close a modal 10×), force GC, take heap snapshots before and after, and use the comparison view: objects whose count grows with each repetition are suspects. Sort by retained size, inspect the retainer chain — often an event listener, a store subscription, a timer, or a cache. Confirm the fix by repeating the measurement; the Allocation instrumentation on timeline also shows what keeps getting allocated and never freed.
+</QA>
+
+<QA q="Why is generational GC effective?" level="senior">
+The generational hypothesis: most objects die shortly after allocation. Collecting only the small young space frequently with a copying collector costs time proportional to the few survivors, so short-lived garbage is almost free. Long-lived objects are promoted and examined rarely. A write barrier records old→young pointers so young collections do not have to scan the whole old space.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Two objects reference only each other and nothing else references them. They are…", options: ["leaked forever", "collected by tracing GC", "collected only with WeakRef", "collected only in Node"], answer: 1, explain: "Unreachable from roots ⇒ garbage, cycle or not." },
+  { q: "Best structure to attach metadata to DOM nodes without keeping them alive?", options: ["Map", "Object", "WeakMap", "Array"], answer: 2, explain: "WeakMap keys do not keep their objects alive." },
+  { q: "A heap snapshot shows a large 'retained size' for an object. That means…", options: ["the object itself is large", "freeing it would free that much memory", "it is a leak for sure", "it is in the young generation"], answer: 1, explain: "Retained size includes everything only reachable through it." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/memory-gc" />

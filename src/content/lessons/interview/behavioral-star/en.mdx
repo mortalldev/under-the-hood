@@ -1,0 +1,88 @@
+## TL;DR
+
+Behavioral interviews predict how you'll act by examining how you **have** acted. Answer with concrete stories structured as <Term id="star" /> — **Situation**, **Task**, **Action**, **Result** — with most of the time on **your actions** and **measurable results**, followed by what you learned. Prepare a **story bank** of 8–10 real stories that you can adapt to dozens of questions.
+
+## Visual model
+
+```text
+S  Situation  ~10%   context in 1–2 sentences: team, product, stakes
+T  Task       ~10%   your responsibility / the goal / the constraint
+A  Action     ~60%   what YOU did — decisions, trade-offs, how you influenced others ("I", not "we")
+R  Result     ~20%   numbers, outcomes, what changed; then: what you learned / would do differently
+```
+
+## Mechanism
+
+**Why stories work**: interviewers score observable behaviours against competencies (ownership, collaboration, dealing with ambiguity, conflict, customer focus, delivering results). A specific story with your decisions and their consequences is evidence; hypothetical answers ("I would…") are not.
+
+**Building a story bank**: list projects and moments from the last 2–4 years — a hard technical problem, a failure, a conflict, a time you led without authority, a tight deadline, a production incident, a time you changed your mind, a time you mentored someone, a time you pushed back on a decision. For each, write STAR bullet points with numbers. Tag each story with the competencies it demonstrates; one story can answer several questions.
+
+**Delivery**: 2–3 minutes per answer, then stop and let the interviewer dig. Expect follow-ups: *What exactly did you do? What would you do differently? How did you measure it? What did the other person think?* Honest reflection beats a polished but shallow story.
+
+**Company principles**: some companies publish the behaviours they hire for (e.g. Amazon's Leadership Principles). Read them and map your stories to them — but don't recite slogans.
+
+## Code
+
+```text
+Question: "Tell me about a time you disagreed with a technical decision."
+
+S  Our team planned to rewrite the checkout service in a new framework before peak season.
+T  As the engineer owning payments reliability, I had to make sure the change wouldn't put
+   Black Friday revenue at risk.
+A  I gathered data: 3 of the last 5 incidents came from integration code the rewrite would touch.
+   I proposed a two-phase plan — strangler pattern for low-risk endpoints now, payment flows after
+   peak — wrote a one-page comparison of risk and effort, and reviewed it 1:1 with the tech lead
+   before the team meeting so it wasn't a public surprise. I volunteered to build the routing layer.
+R  We shipped 40% of endpoints before peak with zero checkout incidents; the remaining migration
+   finished 6 weeks later. Learned: disagreement lands better with data and a concrete alternative,
+   and I now write risk notes for any change near peak periods.
+```
+
+## When to use / when not to
+
+**Use STAR** for any "Tell me about a time…" question and for open questions like "Why are you leaving?" (keep that one short and positive).
+
+**Avoid**: "we" without clarifying your part; stories with no result or no reflection; blaming others; stories that are too old or too trivial for the level you're applying to; invented or exaggerated stories — follow-ups will expose them.
+
+## Trade-offs
+
+| Common question | Competency probed | Good story shows |
+| --- | --- | --- |
+| A time you failed | ownership, learning | you owned it, fixed it, changed a process |
+| Conflict with a colleague | collaboration, empathy | you sought to understand, used data, found common ground |
+| Ambiguous project | dealing with ambiguity | you clarified goals, made reversible decisions, iterated |
+| Tight deadline | prioritisation | you cut scope deliberately and communicated trade-offs |
+| Influenced without authority | leadership | you built alignment with evidence and listening |
+
+## Senior nuance
+
+- **Scope must match the level**: senior stories involve cross-team impact, ambiguous problems, long-term technical direction, mentoring and raising the bar — not just finishing assigned tickets well.
+- **Quantify honestly**: latency −40%, incidents per quarter 6 → 1, onboarding time 3 weeks → 1 week. If you don't have exact numbers, give ranges and say how you'd measure.
+- **Show judgment, not heroics**: interviewers worry about engineers who "saved the day" by working all weekend repeatedly; prefer stories where you fixed the system that caused the emergency.
+- **Reflection is the senior signal**: what you'd do differently tells the interviewer how you learn.
+
+## Interview questions
+
+<QA q="Tell me about a time you failed." level="mid">
+Pick a real, meaningful failure (not a disguised strength). Briefly set context, own your part clearly, describe what you did to mitigate the impact, the root cause you found, and the lasting change you made (process, test, checklist, communication). End with what you'd do differently — the learning is what's being evaluated.
+</QA>
+
+<QA q="How do you prepare for behavioral interviews?" level="mid">
+Build a story bank of 8–10 STAR stories from recent work covering failure, conflict, leadership, ambiguity, deadlines, incidents and mentoring; add metrics and reflections; map them to the company's stated values; rehearse aloud to 2–3 minutes each; and practice follow-ups with a friend or mock interviewer.
+</QA>
+
+<QA q="Tell me about a time you had to make a decision with incomplete information." level="senior">
+Describe the stakes and what was unknown; explain how you bounded the uncertainty (quick experiments, asking the right people, identifying what would change the decision), chose a reversible option or added guardrails (feature flags, staged rollout, rollback plan), set checkpoints to revisit, and the outcome. Highlight how you communicated risk to stakeholders.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which part of STAR should take the most time?", options: ["Situation", "Task", "Action", "Result"], answer: 2, explain: "Your actions and decisions are the evidence." },
+  { q: "Best answer style for 'Tell me about a conflict'?", options: ["a hypothetical 'I would…'", "a specific past story with your actions and outcome", "say you never have conflicts", "blame the other person"], answer: 1, explain: "Behavioral questions want real past behaviour." },
+  { q: "A senior-level story typically shows…", options: ["closing assigned tickets quickly", "cross-team impact and handling ambiguity", "working every weekend", "using the newest framework"], answer: 1, explain: "Scope and judgment distinguish senior stories." }
+]} />
+
+## Resources
+
+<Resources topic="interview/behavioral-star" />

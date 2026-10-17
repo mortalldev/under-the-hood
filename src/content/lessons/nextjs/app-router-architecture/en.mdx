@@ -1,0 +1,110 @@
+## TL;DR
+
+The <Term id="app-router" /> maps folders to **route segments** and special files inside them to **React components with fixed roles**: `layout` (persists across navigations), `page` (the leaf UI), `loading` (a Suspense fallback), `error` (an error boundary), `not-found`, `template` (a layout that remounts). Each segment's files are composed into a nested component tree, so a navigation re-renders only the segments that changed while layouts above keep their state.
+
+## Visual model
+
+<FlowDiagram height={62} nodes={[
+  { id: "root", label: "app/layout.tsx", sub: "<html>, <body>, providers", x: 50, y: 6, w: 30 },
+  { id: "dash", label: "app/dashboard/layout.tsx", sub: "sidebar — persists", x: 50, y: 20, w: 34 },
+  { id: "err", label: "error.tsx", sub: "error boundary", x: 16, y: 34, w: 22, kind: "note" },
+  { id: "load", label: "loading.tsx", sub: "<Suspense fallback>", x: 50, y: 34, w: 24, kind: "note" },
+  { id: "nf", label: "not-found.tsx", sub: "notFound()", x: 84, y: 34, w: 22, kind: "note" },
+  { id: "page", label: "app/dashboard/[id]/page.tsx", sub: "leaf — changes on navigation", x: 50, y: 52, w: 38, kind: "client" }
+]} edges={[
+  { from: "root", to: "dash" }, { from: "dash", to: "load" }, { from: "dash", to: "err", dashed: true }, { from: "dash", to: "nf", dashed: true }, { from: "load", to: "page" }
+]} caption="Each segment wraps its children as: layout → template → error boundary → Suspense(loading) → not-found boundary → page." />
+
+## Mechanism
+
+**Composition order** per segment: `layout` wraps `template`, which wraps an error boundary (`error.tsx`), which wraps a Suspense boundary (`loading.tsx`), which wraps a not-found boundary, which wraps the `page` (or the next segment's layout). Because `error.tsx` sits *inside* the same segment's layout, an error in a page leaves its layout intact; to catch errors in a layout, put `error.tsx` in the parent segment.
+
+**Navigation**: `<Link>` triggers a client-side transition. The router fetches the RSC payload for the segments that change and keeps shared layouts mounted (their state, scroll and focus survive). With Cache Components, recently visited routes are kept hidden with React `<Activity>` so their state is preserved when you go back.
+
+**Dynamic segments**: `[id]` captures one segment, `[...slug]` catch-all, `[[...slug]]` optional catch-all. Params arrive as a **promise** (`await params`) — reading them is runtime data unless the values are known through `generateStaticParams`.
+
+**Advanced routing**:
+- **Route groups** `(marketing)` organise files or give subtrees different root layouts without affecting the URL.
+- **Parallel routes** `@modal`, `@feed` render several pages in one layout simultaneously, each with its own loading/error states; `default.tsx` supplies a fallback when a slot has no match after a hard navigation.
+- **Intercepting routes** `(.)photo/[id]` show a route in the current layout (e.g. a modal) on soft navigation while a direct visit renders the full page.
+
+## Code
+
+```tsx
+// app/dashboard/layout.tsx — persists across /dashboard/* navigations
+export default function DashboardLayout({ children }: LayoutProps<"/dashboard">) {
+  return (
+    <div className="grid grid-cols-[240px_1fr]">
+      <Sidebar />          {/* client state here survives navigation between child pages */}
+      <main>{children}</main>
+    </div>
+  );
+}
+
+// app/dashboard/[id]/page.tsx
+import { notFound } from "next/navigation";
+export default async function Page({ params }: PageProps<"/dashboard/[id]">) {
+  const { id } = await params;
+  const report = await getReport(id);
+  if (!report) notFound();             // renders the nearest not-found.tsx
+  return <ReportView report={report} />;
+}
+
+// app/dashboard/error.tsx — must be a Client Component
+"use client";
+export default function Error({ error, reset }: { error: Error; reset: () => void }) {
+  return <button onClick={() => reset()}>Try again ({error.message})</button>;
+}
+```
+
+## When to use / when not to
+
+**Layouts** for shared chrome and state that should survive navigation (sidebars, tabs, players). **Templates** when you *want* a fresh instance per navigation (enter animations, per-page effects, resetting forms).
+
+**`loading.tsx`** for a whole-segment fallback; prefer finer `<Suspense>` boundaries inside the page when parts can render independently.
+
+**Parallel + intercepting routes** for modals with shareable URLs (photo viewers, quick edit) — not for simple conditional UI, where a client component is simpler.
+
+## Trade-offs
+
+| File | Remounts on navigation | Can be a Server Component | Purpose |
+| --- | --- | --- | --- |
+| `layout` | no | yes | shared UI + state |
+| `template` | yes | yes | per-navigation fresh instance |
+| `page` | when the segment changes | yes | route UI |
+| `loading` | — | yes | Suspense fallback for the segment |
+| `error` | — | **no** (client) | error boundary with retry |
+| `not-found` | — | yes | `notFound()` UI |
+
+## Senior nuance
+
+- **Layouts don't receive `searchParams`** and don't re-render on every navigation within them — reading request-specific data there is a common mistake; do it in pages or in client components with `useSearchParams`.
+- **`params` and `searchParams` are promises** in current Next.js; awaiting them high in the tree makes everything below runtime-dependent — pass the promise down and await inside a Suspense boundary to keep more of the shell static.
+- **Root layout must render `<html>` and `<body>`**; multiple root layouts via route groups cause a full page load when navigating between them.
+- **Component-level error boundaries**: `catchError` from `next/error` creates boundaries anywhere in the tree that cooperate with `redirect()`/`notFound()` and offer `retry()`.
+
+## Interview questions
+
+<QA q="Why do layouts preserve state during navigation?" level="mid">
+The router only re-renders the segments that change. A shared layout is the same component at the same position in the tree, so React keeps its instance (state, effects, DOM) and only swaps the children prop with the new segment's content.
+</QA>
+
+<QA q="An error thrown in a layout isn't caught by error.tsx in the same folder. Why?" level="senior">
+The error boundary created by error.tsx is rendered inside that segment's layout, so it only catches errors from the segment's children (page and nested segments). To handle errors from the layout itself, place error.tsx in the parent segment (or use global-error for the root layout).
+</QA>
+
+<QA q="How would you build an Instagram-style photo modal with a shareable URL?" level="senior">
+Use a parallel route slot (e.g. @modal) in the feed layout with an intercepting route (.)photo/[id] inside it, so a soft navigation from the feed renders the photo in the modal slot while the feed stays mounted. A direct visit or refresh to /photo/[id] isn't intercepted and renders the full photo page. Provide default.tsx for the slot so unmatched states render nothing.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which special file must be a Client Component?", options: ["layout.tsx", "loading.tsx", "error.tsx", "page.tsx"], answer: 2, explain: "Error boundaries need client-side state and the reset function." },
+  { q: "You want an enter animation every time a child page changes. Use…", options: ["layout", "template", "loading", "route group"], answer: 1, explain: "Templates remount per navigation." },
+  { q: "(marketing)/about/page.tsx is served at…", options: ["/marketing/about", "/about", "/(marketing)/about", "nowhere"], answer: 1, explain: "Route groups don't appear in the URL." }
+]} />
+
+## Resources
+
+<Resources topic="nextjs/app-router-architecture" />

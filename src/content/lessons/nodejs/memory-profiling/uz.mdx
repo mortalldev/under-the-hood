@@ -1,0 +1,108 @@
+## TL;DR
+
+Node.js'dagi <Term id="memory-leak" /> — foydali boʻlishdan toʻxtagandan keyin ham yetib boriladigan boʻlib qolgan xotira — odatda global map, listener, timer yoki closure orqali. Uni takroriy yuklama ostida olingan **heap snapshot'larni solishtirib** va soni oʻsib boradigan obyektlarning **retainer zanjirini** oʻqib topasiz. CPU muammolari **CPU profillar** (flame graph'lar) bilan topiladi, servis salomatligi esa **event-loop kechikishi**, limitga nisbatan ishlatilgan heap va GC pauzalari bilan kuzatiladi.
+
+## Vizual model
+
+```text
+heapUsed
+  ▲            leak: tagi koʻtarilib boruvchi arra            sogʻlom: tekis chiziq atrofidagi arra
+  │        /\  /\  /\
+  │   /\  /  \/  \/  \/                                        /\  /\  /\  /\
+  │  /  \/                                                    /  \/  \/  \/  \
+  └─────────────────────────▶ vaqt (GC choʻqqilarni pasaytiradi; faqat leak chuqurliklarni koʻtaradi)
+```
+
+## Mexanizm
+
+**V8 heap tuzilishi**: yangi obyektlar young generation'ga tushadi; omon qolganlari old generation'ga koʻtariladi, u limitigacha oʻsadi (sukut boʻyicha Node versiyasi va mavjud xotiraga bogʻliq; `--max-old-space-size` bilan sozlanadi). Heap'ni limitdan pastga tushirib boʻlmasa, jarayon *"JavaScript heap out of memory"* bilan qulaydi.
+
+**Heap snapshot nimani oʻz ichiga oladi**: har bir obyekt, uning **shallow size**'i (obyektning oʻzi) va **retained size**'i (u yigʻilsa ozod boʻladigan xotira) hamda uni tirik saqlayotgan edge'lar. **Retainers** koʻrinishi GC root'gacha (global, modul, timer roʻyxati, faol handle) orqaga yurib "nega bu hali xotirada?" savoliga javob beradi.
+
+**Uch snapshot usuli**: isitib oling, 1-snapshot'ni oling; shubhali amalni N marta bajaring; 2-snapshot'ni oling; N marta takrorlang; 3-snapshot'ni oling. 1 va 2 orasida ajratilgan, **3 da hali ham mavjud** va soni N bilan oʻsadigan obyektlar — leak.
+
+**JS heap'ida boʻlmagan xotira**: `Buffer`lar va native addon'lar V8 heap'idan tashqarida ajratiladi (`process.memoryUsage()`dagi `external` / `arrayBuffers`), RSS esa kod, stack'lar va allocator fragmentatsiyasini ham oʻz ichiga oladi — `heapUsed` tekis boʻlib, RSS oʻssa, sabab oʻsha yerda.
+
+## Kod
+
+```js
+// Keng tarqalgan leak: request ma'lumoti bilan kalitlangan cheksiz cache
+const cache = new Map();
+app.get("/user/:id", async (req, res) => {
+  if (!cache.has(req.params.id)) cache.set(req.params.id, await loadUser(req.params.id)); // abadiy oʻsadi
+  res.json(cache.get(req.params.id));
+});
+// ✓ Uni cheklang (max hajm + TTL'li LRU) yoki tashqi cache ishlating
+
+// Keng tarqalgan leak: uzoq yashaydigan emitter'ga har request'da listener
+app.get("/stream", (req, res) => {
+  const onTick = (t) => res.write(`data: ${t}\n\n`);
+  ticker.on("tick", onTick);
+  req.on("close", () => ticker.off("tick", onTick));   // ✓ busiz har bir client closure'ni (va res'ni) leak qiladi
+});
+
+// Instrumentatsiya
+const { monitorEventLoopDelay } = require("node:perf_hooks");
+const h = monitorEventLoopDelay({ resolution: 20 });
+h.enable();
+setInterval(() => {
+  const m = process.memoryUsage();
+  console.log({ p99LagMs: h.percentile(99) / 1e6, heapUsedMB: m.heapUsed / 2 ** 20, rssMB: m.rss / 2 ** 20 });
+  h.reset();
+}, 10_000).unref();
+
+// CLI'dan snapshot va profillar
+//   node --inspect app.js                   → Chrome DevTools: Memory / Performance tab'lari
+//   node --heapsnapshot-signal=SIGUSR2 app.js   → kill -USR2 <pid> .heapsnapshot yozadi
+//   node --cpu-prof app.js                  → chiqishda .cpuprofile yozadi
+//   require("node:v8").writeHeapSnapshot()  → dasturiy snapshot (jarayonni toʻxtatadi!)
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Xotirani profil qiling**: heap ishlatilishi GC'lar boʻylab koʻtariluvchi tagga ega boʻlsa, OOM qulashlaridan keyin yoki latency ishlash vaqti davomida yomonlashsa. **CPU'ni profil qiling**: event-loop kechikishi yuqori boʻlsa yoki bitta endpoint I/O kutishsiz sekin boʻlsa.
+
+**Production'da ehtiyot boʻling**: heap snapshot davomida jarayonni toʻxtatadi (katta heap'lar uchun soniyalar) va xotirada yana taxminan heap hajmicha joy talab qiladi. Uni rotatsiyadan chiqarilgan bitta nusxadan oling yoki staging'da qayta yarating.
+
+## Trade-off'lar
+
+| Vosita | Nimaga javob beradi | Narx |
+| --- | --- | --- |
+| `process.memoryUsage()` / metrikalar | xotira oʻsyaptimi? qaysi turi? | ahamiyatsiz |
+| Heap snapshot | nima va kim tomonidan ushlab qolingan | pauza + xotira, faylda maxfiy ma'lumot |
+| Allocation timeline / sampling heap profiler | ajratishlar qayerda sodir boʻladi | oʻrtacha xarajat |
+| CPU profil (`--cpu-prof`) | CPU vaqti qayerga ketadi | past–oʻrta |
+| Event-loop delay histogrammasi | main thread bloklanganmi? | ahamiyatsiz |
+
+## Senior nuance
+
+- **Heap snapshot'larda ma'lumot bor**: xotiradagi token'lar, PII va secret'lar faylga tushadi — ularni maxfiy artefakt sifatida koʻring.
+- **Konteyner limitlari**: `--max-old-space-size`ni konteynerning xotira limitidan pastroq qoʻying (Buffer'lar, kod va native xotira uchun joy qoldirib), aks holda kernel V8 foydali narsa xabar qilishidan oldin jarayonni OOM-kill qiladi.
+- **Dizayn boʻyicha ishlayotgan cache'lar boʻlgan "leak"lar** — cheksiz memoization, ORM identity map'lari, koʻp socket'li HTTP keep-alive agent'lari — baribir chegaraga muhtoj.
+- **GC bosimi ≠ leak**: juda yuqori ajratish tezligi leak'siz ham tez-tez GC va CPU xarajatiga sabab boʻladi; hot path'larda ajratishlarni kamaytiring (buffer'larni qayta ishlatish, oraliq array'lardan qochish).
+
+## Interview savollari
+
+<QA q="Node.js servisida memory leak'ni qanday topasiz?" level="senior">
+Uni metrikalar bilan tasdiqlang (ishlatilgan heap GC sikllari boʻylab oʻsadi). Takrorlanadigan yuklama bilan qayta yarating, uchta heap snapshot oling (boshlangʻich, N amaldan keyin, 2N dan keyin) va solishtiring: soni N bilan oʻsadigan konstruktorlarni qidiring, retained size boʻyicha saralang va retainer'lar boʻylab GC root'gacha yuring — odatda modul darajasidagi Map, event listener, timer yoki closure context. Egalikni tuzating (listener'larni olib tashlash, cache'larni cheklash, timer'larni tozalash) va xuddi shu jarayon bilan tekshiring.
+</QA>
+
+<QA q="RSS oʻsishda davom etadi, lekin heapUsed tekis. Bu nima boʻlishi mumkin?" level="senior">
+JS heap'idan tashqaridagi xotira: Buffer/ArrayBuffer'lar (process.memoryUsage().external va arrayBuffers'ni tekshiring), native addon'lar, koʻp ochiq socket/handle'lar yoki allocator fragmentatsiyasi. Buffer ishlatilishini (masalan, iste'mol qilinmagan stream'lardan ushlab qolingan Buffer'lar), native modul xatti-harakatini va handle sonini tekshiring.
+</QA>
+
+<QA q="Heap snapshot'da 'retained size' nimani bildiradi?" level="mid">
+Oʻsha obyekt garbage collection qilinsa ozod boʻladigan umumiy xotira: obyektning oʻzi va faqat u orqali yetib boriladigan hamma narsa. Katta retained size'lar katta subgraph'larni tirik saqlashga mas'ul obyektlarni koʻrsatadi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "heapUsed chuqurliklari soatlar davomida koʻtariladigan arrani koʻrsatadi. Bu nimani bildiradi?", options: ["normal GC", "leak", "yuqori CPU", "tarmoq latency'si"], answer: 1, explain: "Har bir GC'dan keyin koʻproq xotira yetib boriladigan qoladi." },
+  { q: "Production'da heap snapshot olish…", options: ["bepul", "jarayonni toʻxtatadi va secret'larni ochib qoʻyishi mumkin", "faqat Linux'da ishlaydi", "leak'larni tuzatadi"], answer: 1, explain: "U dunyoni toʻxtatadi va xotira tarkibini chiqaradi." },
+  { q: "off()siz har request'dagi ticker.on('tick', fn) nega leak qiladi?", options: ["fn katta", "emitter har bir fn'ni (va u closure qilgan narsalarni) yetib boriladigan saqlaydi", "GC oʻchirilgan", "listener'lar global"], answer: 1, explain: "Uzoq yashaydigan emitter'ning listener array'i har bir closure'ni ushlab qoladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="nodejs/memory-profiling" />

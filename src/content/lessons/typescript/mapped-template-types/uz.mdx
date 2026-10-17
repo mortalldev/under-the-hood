@@ -1,0 +1,100 @@
+## TL;DR
+
+<Term id="mapped-type" /> `{ [K in Keys]: … }` key'lar union'i boʻylab aylanib obyekt turini quradi — `Partial`, `Readonly`, `Pick` va `Record` shunday yozilgan. Modifier'lar (`?`, `readonly` va ularni olib tashlash `-?`, `-readonly`) hamda `as` bilan **key remapping** key'larni qayta nomlash yoki filtrlashga imkon beradi. **Template literal type'lar** string'lar uchun xuddi shuni qiladi: string literal turlarini birlashtiradi, boʻladi va pattern bilan moslashtiradi — tiplangan route'lar, event nomlari va CSS'ga oʻxshash API'lar shunday quriladi.
+
+## Vizual model
+
+```text
+type User = { id: string; name: string; age?: number };
+
+{ [K in keyof User]: User[K] }                 → User bilan bir xil (homomorphic: ? va readonly'ni saqlaydi)
+{ readonly [K in keyof User]-?: User[K] }      → hammasi readonly, hammasi majburiy
+{ [K in keyof User as `get${Capitalize<K>}`]: () => User[K] }
+                                               → { getId(): string; getName(): string; getAge(): number | undefined }
+
+`on${Capitalize<"click" | "focus">}`           → "onClick" | "onFocus"      (union'lar ustida taqsimlanadi)
+```
+
+## Mexanizm
+
+**Homomorphic mapped type'lar** — biror T ning `keyof T`si boʻylab aylanadiganlari — asl property'larning optional va readonly modifier'larini saqlaydi, T array yoki tuple boʻlsa esa array/tuple hosil qiladi. Homomorphic boʻlmaganlari (`[K in "a" | "b"]`) noldan boshlanadi.
+
+**Key remapping** (`as NewKey`) har bir key uchun ishlaydi. Key'ni `never`ga aks ettirish uni **olib tashlaydi** — property'larni qiymat turi boʻyicha filtrlash shunday qilinadi.
+
+**Template literal type'lar** literal turlarni birlashtiradi va union'lar ustida taqsimlanadi (dekart koʻpaytma). `extends` qismida ular pattern'ga aylanadi: `` S extends `${infer Head}/${infer Rest}` `` string'ni boʻladi. Ichki yordamchilar `Uppercase`, `Lowercase`, `Capitalize`, `Uncapitalize` ularni oʻzgartiradi.
+
+## Kod
+
+```ts
+// Oʻrnatilganlarni yozish
+type MyPartial<T> = { [K in keyof T]?: T[K] };
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+type MyRecord<K extends PropertyKey, V> = { [P in K]: V };
+
+// Key'larni qiymat turi boʻyicha filtrlash (tashlash uchun never'ga remap)
+type PickByValue<T, V> = { [K in keyof T as T[K] extends V ? K : never]: T[K] };
+type StringFields = PickByValue<{ a: string; b: number; c: string }, string>; // { a: string; c: string }
+
+// Event payload'lari map'idan tiplangan event emitter
+type Events = { click: { x: number; y: number }; close: undefined };
+type Handlers = { [E in keyof Events as `on${Capitalize<string & E>}`]: (payload: Events[E]) => void };
+// { onClick: (p: { x: number; y: number }) => void; onClose: (p: undefined) => void }
+
+// Ichma-ich obyektning nuqtali yoʻllari: "user" | "user.name" | "user.address" | "user.address.city"
+type Paths<T> = T extends object
+  ? { [K in keyof T & string]: K | `${K}.${Paths<T[K]>}` }[keyof T & string]
+  : never;
+```
+
+<TypePuzzle id="template-literal-routes" />
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Mapped type'lardan foydalaning**: modelning variantlarini (forma state'i, patch'lar, faqat oʻqish uchun koʻrinishlar, API DTO'lari) bitta haqiqat manbaidan chiqarish uchun, shunda yangi field hamma joyda paydo boʻladi.
+
+**Template literal type'lardan foydalaning**: cheklangan, tuzilmali string toʻplamlari uchun: event nomlari, CSS birliklari, route parametrlari, i18n key'lari, muhit oʻzgaruvchilari nomlari.
+
+**Qoching**: ulkan union'lar yaratishdan (100 a'zoli uchta union ustidagi template literal — 1 000 000 a'zo, compiler rad etadi yoki sekinlashadi) va editor'ning issiq yoʻllarida katta obyektlarda chuqur rekursiv path turlaridan.
+
+## Trade-off'lar
+
+| Ehtiyoj | Vosita |
+| --- | --- |
+| Bir xil key'lar, boshqa qiymat turlari | homomorphic mapped type |
+| Key'larni qayta nomlash/filtrlash | `as` remapping (`never` key'ni tashlaydi) |
+| Tuzilmali string union'lari | template literal type'lar |
+| Type darajasida string'larni parse qilish | template literal pattern'lari ichida `infer` |
+| Ixtiyoriy foydalanuvchi string'lari | shunchaki `string` — turlar runtime ma'lumotni validatsiya qila olmaydi |
+
+## Senior nuance
+
+- **`keyof T & string`** key'larni template literal'larda ishlatganda kerak, chunki `keyof` `number` va `symbol`ni ham oʻz ichiga olishi mumkin.
+- **Mapped type ustidagi indexed access** (`{ … }[keyof T]`) natijalar obyektini uning qiymatlari union'iga aylantiradi — "barcha yoʻllar union'i" uchun standart hiyla.
+- **Array'lar ustidagi mapped type'lar** array'ligini faqat type parametri ustida homomorphic boʻlganda saqlaydi; aniq array turi ustida `keyof` bilan aks ettirish barcha array metodlari bor obyekt beradi — keng tarqalgan xato.
+- **Template literal union portlashi** qat'iy chegaraga ega (taxminan 100 000 a'zo); dekart koʻpaytma kichik qoladigan qilib turlarni loyihalang.
+
+## Interview savollari
+
+<QA q="Mapped type'lar uchun 'homomorphic' nimani bildiradi?" level="senior">
+T type parametri (yoki biror turning keyof'i) boʻlgan `{ [K in keyof T]: … }` shaklidagi mapped type. TypeScript uni T property'larini oʻzgartirish sifatida koʻradi, shuning uchun u har bir property'ning optional va readonly modifier'larini saqlaydi va array/tuple'larni array/tuple'larga aks ettiradi. Ixtiyoriy key union'i ustidagi homomorphic boʻlmagan mapped type'lar modifier'larni olib oʻtmaydi.
+</QA>
+
+<QA q="Qiymatlari funksiya boʻlgan key'larni qanday olib tashlaysiz?" level="mid">
+`type NonFunctionProps<T> = { [K in keyof T as T[K] extends (...args: never[]) => unknown ? never : K]: T[K] };` — key'ni never'ga remap qilish uni tushirib qoldiradi.
+</QA>
+
+<QA q="'/users/:id' kabi route'ni parametrlar tekshiriladigan qilib qanday tiplaysiz?" level="senior">
+String literal'ni rekursiv template literal conditional'lari bilan parse qilib, parametr nomlarini union'ga ajrating, keyin bu union'ni obyekt turiga aks ettiring: `{ [P in Params<Path>]: string }`. Shunda `link<P extends string>(path: P, params: { [K in Params<P>]: string })` router funksiyasi yetishmayotgan yoki xato yozilgan parametrlarni compile vaqtida rad etadi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "`${'a' | 'b'}-${'x' | 'y'}` da nechta a'zo bor?", options: ["2", "4", "1", "u string"], answer: 1, explain: "Template literal'lar taqsimlanadi: a-x, a-y, b-x, b-y." },
+  { q: "Key remapping'da key uchun `as never`…", options: ["uni optional qiladi", "uni olib tashlaydi", "uni never tipli qiladi", "xato beradi"], answer: 1, explain: "never'ga remap qilingan key'lar filtrlanadi." },
+  { q: "Qaysi modifier property'larni majburiy qiladi?", options: ["+?", "-?", "!", "required"], answer: 1, explain: "-? ixtiyoriylikni olib tashlaydi." }
+]} />
+
+## Resurslar
+
+<Resources topic="typescript/mapped-template-types" />

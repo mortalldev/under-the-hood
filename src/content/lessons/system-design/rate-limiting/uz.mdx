@@ -1,0 +1,137 @@
+## TL;DR
+
+Rate limiting client (foydalanuvchi, API key, IP, tenant) vaqt birligida nechta request qila olishini cheklaydi va mavjudlik, narx hamda adolatni himoya qiladi. Toʻrtta klassik algoritm: **fixed window** (sodda, oyna chegaralarida portlashli), **sliding window log** (aniq, xotiraga ogʻir), **sliding window counter** (yaxshi yaqinlashish, arzon) va **<Term id="token-bucket" />** (nazorat ostidagi portlashlarga ruxsat beradi, uzoq muddatda tekis tezlik). Taqsimlangan tizimda hisoblagich **umumiy boʻlishi va atomik yangilanishi** shart (masalan, atomik Redis `INCR`), rad etilgan client'lar esa qachon qayta urinish haqida maslahat bilan **HTTP 429** oladi.
+
+## Vizual model
+
+```text
+fixed window (limit 5/min)        sliding window counter                 token bucket (sigʻim 3, 1 token/s)
+|·····|·····|                      oldingi oynani kesishish boʻyicha vaznlash  ███  3 ta portlashga ruxsat
+ ^^^^^^^^^^ chegara boʻylab 2 s     ≈ prev × (1 − oʻtgan) + joriy           keyin soniyasiga 1 ta
+ ichida 10 request — ruxsat         tekis, har key'ga O(1) xotira          chegaralangan portlash + barqaror tezlik
+```
+
+## Mexanizm
+
+Soniyasiga 1 token bilan toʻldiriladigan, sigʻimi 3 boʻlgan token bucket'ni kuzating. Dastlabki portlash oʻtadi, keyin request'lar faqat token'lar toʻlishi bilan qabul qilinadi — uzoq muddatli tezlik hech qachon toʻldirish tezligidan oshmaydi.
+
+<TokenBucketViz />
+
+**Lazy refill**: bucket'ga timer kerak emas. Har bir request'da `tokens = min(capacity, tokens + elapsed × rate)`ni hisoblang, keyin bittasini sarflashga urining. Har key'ga state — ikki son (token'lar, oxirgi timestamp).
+
+**Leaky bucket** — oyna aksi: request'lar qat'iy tezlikda boʻshaydigan queue'ga kiradi — u portlashlarga ruxsat berish oʻrniga natijani **tekislaydi** (moʻrt quyi oqim oldida foydali).
+
+**Qayerda qoʻllash kerak**: dagʻal himoya va DDoS uchun chekkada (API gateway / CDN), biznes limitlari uchun servislarda (tarif, endpoint boʻyicha) va yaxshi xulqli client'lar sizni bombardimon qilmasligi uchun backoff bilan **client tomonida**.
+
+## Kod
+
+```ts
+// 1) Bitta Node.js jarayonidagi token bucket — aniq, har key'ga O(1) xotira, timer'siz (lazy refill)
+class TokenBucket {
+  private tokens: number;
+  private last = Date.now();
+  constructor(private capacity: number, private ratePerSec: number) {
+    this.tokens = capacity;
+  }
+  tryTake(now = Date.now()): boolean {
+    this.tokens = Math.min(this.capacity, this.tokens + ((now - this.last) / 1000) * this.ratePerSec);
+    this.last = now;
+    if (this.tokens < 1) return false;
+    this.tokens -= 1;
+    return true;
+  }
+  /** Bitta token paydo boʻlguncha soniyalar — Retry-After header'i uchun. */
+  retryAfter(): number {
+    return Math.max(0, Math.ceil((1 - this.tokens) / this.ratePerSec));
+  }
+}
+
+const buckets = new Map<string, TokenBucket>();   // production'da boʻsh key'larni chiqaring (masalan, LRU)
+export function allowLocal(key: string, capacity = 10, rate = 5) {
+  let b = buckets.get(key);
+  if (!b) buckets.set(key, (b = new TokenBucket(capacity, rate)));
+  return { ok: b.tryTake(), retryAfter: b.retryAfter() };
+}
+```
+
+```ts
+// 2) Koʻp serverlar uchun umumiy limit: Redis'da sliding window counter (ioredis client).
+// INCR Redis server'ida atomik, shuning uchun ikki ilova serveri hech qachon ikkalasi "9" ni oʻqib "10" yoza olmaydi.
+import Redis from "ioredis";
+const redis = new Redis(process.env.REDIS_URL!);
+
+export async function allowShared(key: string, limit: number, windowSec: number): Promise<boolean> {
+  const now = Date.now() / 1000;
+  const current = Math.floor(now / windowSec);
+  const curKey = `rl:${key}:${current}`;
+  const prevKey = `rl:${key}:${current - 1}`;
+  const results = await redis
+    .multi()                                  // bitta aylanish, buyruqlar ketma-ket bajariladi
+    .incr(curKey)
+    .expire(curKey, windowSec * 2)
+    .get(prevKey)
+    .exec();
+  const cur = Number(results?.[0]?.[1] ?? 0);
+  const prev = Number(results?.[2]?.[1] ?? 0);
+  const elapsed = (now % windowSec) / windowSec;          // joriy oynaning 0..1 qismi oʻtdi
+  const estimate = prev * (1 - elapsed) + cur;            // oldingi oynani kesishish boʻyicha vaznlash
+  return estimate <= limit;
+}
+
+// Express uslubidagi middleware
+export async function rateLimit(req: Req, res: Res, next: () => void) {
+  const key = req.user?.id ?? req.ip;
+  if (await allowShared(key, 100, 60)) return next();
+  res.setHeader("Retry-After", "60");
+  res.status(429).json({ error: "rate_limited" });
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Token bucket** qisqa portlashlar normal (sahifa yuklanishi bir nechta resursni oladi), lekin doimiy suiiste'mol normal boʻlmagan ommaviy API'lar uchun. **Sliding window counter** chegara portlashlarisiz "daqiqasiga N" semantikasi kerak boʻlganda. **Leaky bucket / queue** faqat qat'iy tezlikda qayta ishlay oladigan quyi oqimni himoya qilish uchun. **Concurrency limitlari** (maksimal jarayondagi request'lar) narx request soni emas, serverdagi vaqt boʻlganda.
+
+Rate limiting autentifikatsiya yoki authorization emas va sigʻimni rejalashtirishni almashtirmaydi; bu adolat va himoya qatlami.
+
+## Trade-off'lar
+
+| Algoritm | Har key'ga xotira | Portlash xatti-harakati | Aniqlik |
+| --- | --- | --- | --- |
+| Fixed window | 1 hisoblagich | chegaralarda 2× gacha | dagʻal |
+| Sliding window log | har request'ga bitta timestamp | aniq | aniq |
+| Sliding window counter | 2 hisoblagich | tekislangan | taxminiy |
+| Token bucket | 2 son | sigʻim bilan chegaralangan | oʻz modeli uchun aniq |
+| Leaky bucket (queue) | queue | yoʻq (tekislaydi) | aniq; latency qoʻshadi |
+
+## Senior nuance
+
+- **Atomiklik**: ilova kodidan GET + SET parallellik ostida race qiladi — ikki server ham 1 token koʻrib, ikkalasi ham ruxsat beradi. Atomik server tomonidagi amallardan (yuqoridagidek `MULTI` ichida expiry'li `INCR`), Redis server-side skriptidan yoki maxsus limiter servisidan foydalaning.
+- **Ochiq yoki yopiq holda yiqilish?** Limiter store'i ishlamasa, ochiq yiqilish mavjudlikni saqlaydi, lekin himoyani olib tashlaydi; yopiq yiqilish backend'ni himoya qiladi, lekin uzilishga sabab boʻladi. Har bir endpoint uchun hal qiling (login: yopiq; oʻqishlar: ochiq) va alert qoʻying.
+- **Multi-region**: global aniq limitlar regionlararo muvofiqlashtirishni talab qiladi; odatda limitlar global kvota ulushi bilan har region boʻyicha qoʻllaniladi, kichik oshib ketishni qabul qilib.
+- **Limitlarni bildiring**: `Retry-After` bilan 429 (RFC 6585 va HTTP semantikasida standartlashtirilgan); IETF `RateLimit` header'larini standartlashtirmoqda — ularga tayanishdan oldin joriy holatni tekshiring.
+
+## Interview savollari
+
+<QA q="10 million foydalanuvchili API uchun rate limiter loyihalang." level="senior">
+Limit oʻlchamlarini (foydalanuvchi/API key/IP/endpoint, tarif boʻyicha), tezlik va portlashni aniqlashtiring. API gateway'da va/yoki key boʻyicha shard qilingan umumiy Redis cluster'ni chaqiradigan middleware'da qoʻllang; boʻsh key'lar expire boʻlishi uchun sliding window counter'ni (yoki token bucket'ni) atomik Redis amallari va TTL'lar bilan implementatsiya qiling. Retry-After bilan 429 qaytaring. Redis nosozligini lokal xotiradagi zaxira limiter bilan hal qiling (oʻqishlar uchun ochiq yiqilish), rad etish tezligini kuzating va multi-region deploy'lar uchun har region kvotalaridan foydalaning. Xotira: 10 M faol key × ~100 B ≈ 1 GB — oson sigʻadi.
+</QA>
+
+<QA q="Fixed window va sliding window — fixed window'larning muammosi nima?" level="mid">
+Hisoblar oyna chegaralarida nolga tushadi, shuning uchun client bir oyna oxirida toʻliq kvotani va keyingisi boshida yana yuborishi mumkin — qisqa oraliqda limitning 2× gacha. Sliding window'lar (log yoki vaznlangan hisoblagich) istalgan lahzada oxirgi N soniyani baholaydi va chegara portlashidan qochadi.
+</QA>
+
+<QA q="Token bucket va leaky bucket?" level="mid">
+Token bucket token'lar qolguncha request'larni qabul qiladi, oʻrtacha tezlikni cheklab, sigʻimigacha portlashlarga ruxsat beradi. Leaky bucket request'larni queue'ga olib, ularni doimiy tezlikda chiqaradi, portlashlarsiz tekis natija beradi, lekin queue kechikishini qoʻshadi — barqaror sur'at kerak boʻlgan quyi oqimni himoya qilish uchun foydali.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Token bucket, sigʻim 3, toʻldirish 1/s, t=0 da boʻsh. t=2.5 da nechta request oʻta oladi?", options: ["0", "1", "2", "3"], answer: 2, explain: "2.5 token yigʻildi → sarflash uchun ikkita butun token." },
+  { q: "Ikki ilova serveri bir xil Redis hisoblagichini oʻqiydi, keyin ikkalasi +1 yozadi. Xavf?", options: ["yoʻq", "race sababli ortiqcha ruxsat berish", "kam ruxsat berish", "Redis qulashi"], answer: 1, explain: "Read-modify-write atomik boʻlishi shart." },
+  { q: "'Rate limited' uchun HTTP status…", options: ["403", "429", "503", "418"], answer: 1, explain: "429 Too Many Requests, ideal holda Retry-After bilan." }
+]} />
+
+## Resurslar
+
+<Resources topic="system-design/rate-limiting" />

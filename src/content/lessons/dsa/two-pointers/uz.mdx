@@ -1,0 +1,129 @@
+## TL;DR
+
+<Term id="two-pointers" /> "har bir juftlikni tekshirish"ni (O(n²)) qoida asosida harakatlanadigan ikki indeks bilan almashtiradi. Qoida faqat **har bir harakat javob boʻla olmaydigan nomzodlarni isbotli ravishda chiqarib tashlasa** toʻgʻri — saralangan input'da bu dalil oson, shuning uchun "saralangan + juftlik" eng kuchli signal.
+
+## Vizual model
+
+Ikki shakl deyarli har bir masalani qamraydi:
+
+```text
+qarama-qarshi uchlar (uchrashadi)   bir yoʻnalish (fast/slow, read/write)
+ l →               ← r              slow →   fast →→
+[1, 2, 4, 7, 11, 15]               [1, 1, 2, 2, 3]  → takrorlanmaslarni slow'ga yozish
+```
+
+## Mexanizm
+
+Saralangan array'da juftlik yigʻindisi uchun eng kichik (`l`) va eng katta (`r`) qiymatlardan boshlang:
+
+- Agar `nums[l] + nums[r] < target` boʻlsa, `nums[l]` qolganlarning **eng kattasi** bilan ham kichik, demak `nums[l]` har qanday kichikroq qiymat bilan ham kichik. `nums[l]` hech bir javobda boʻla olmaydi → `l++`.
+- Simmetrik ravishda, yigʻindi juda katta boʻlsa, `nums[r]` foydasiz → `r--`.
+
+Har bir qadam bitta elementni butunlay tashlaydi, shuning uchun koʻpi bilan n ta qadam boʻladi. Qadamma-qadam yuring va xiralashgan (chiqarilgan) hudud oʻsishini kuzating:
+
+<TwoPointersViz />
+
+Bir yoʻnalishdagi variant <Term id="invariant" /> saqlaydi: "`slow`'dan chapdagi hamma narsa — hozirgacha yakuniy javob". `fast` skanerlaydi; saqlashga arziydigan narsa topsa, uni `slow`'ga yozadi va `slow` oldinga siljiydi.
+
+## Kod
+
+```ts
+// Qarama-qarshi uchlar: saralangan array'da yigʻindisi target'ga teng juftlik
+function twoSumSorted(nums: number[], target: number): [number, number] | null {
+  let l = 0, r = nums.length - 1;
+  while (l < r) {
+    const sum = nums[l] + nums[r];
+    if (sum === target) return [l, r];
+    if (sum < target) l++; else r--;
+  }
+  return null;
+}
+
+// Bir yoʻnalish: dublikatlarni joyida olib tashlash, yangi uzunlikni qaytarish
+function dedupe(nums: number[]): number {
+  let slow = 0;
+  for (let fast = 0; fast < nums.length; fast++) {
+    if (fast === 0 || nums[fast] !== nums[fast - 1]) nums[slow++] = nums[fast];
+  }
+  return slow; // nums[0..slow) — javob
+}
+
+// 3Sum: bitta elementni qotirib, qolganiga two pointers, dublikatlarni oʻtkazib yuborish
+function threeSum(nums: number[]): number[][] {
+  nums.sort((a, b) => a - b);
+  const out: number[][] = [];
+  for (let i = 0; i < nums.length - 2; i++) {
+    if (i > 0 && nums[i] === nums[i - 1]) continue;
+    let l = i + 1, r = nums.length - 1;
+    while (l < r) {
+      const s = nums[i] + nums[l] + nums[r];
+      if (s < 0) l++;
+      else if (s > 0) r--;
+      else {
+        out.push([nums[i], nums[l], nums[r]]);
+        while (l < r && nums[l] === nums[l + 1]) l++;
+        while (l < r && nums[r] === nums[r - 1]) r--;
+        l++; r--;
+      }
+    }
+  }
+  return out;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- Saralangan array (yoki saralash mumkin) + target munosabatli juftlik/uchlik topish.
+- Palindrom'lar, joyida teskari qilish, ikki saralangan array'ni birlashtirish.
+- "Joyida", "O(1) qoʻshimcha xotira", "elementlarni olib tashlash/boʻlish".
+- Container With Most Water uslubidagi "ikki chiziq orasidagi maydon": qisqaroq chiziqdagi pointer'ni suring, chunki qisqa tomon u hali hosil qila oladigan har bir maydonni cheklaydi.
+
+**Qachon kerak emas**
+- Input saralanmagan va asl indekslarni qaytarish kerak → hash map (saralash indekslarni yoʻqotadi, agar ularni birga olib yurmasangiz).
+- Yigʻindili subarray'lar *soni* kerak va manfiylar bor → prefix sum.
+- Qaysi pointer'ni surish qarori chiqarib tashlash dalili bilan asoslanmagan — bu algoritm emas, taxmin.
+
+## Trade-off'lar
+
+| Yondashuv | Vaqt | Xotira | Asl indekslar saqlanadimi? |
+| --- | --- | --- | --- |
+| Brute force juftliklar | O(n²) | O(1) | ha |
+| Hash map | O(n) | O(n) | ha |
+| Saralash + two pointers | O(n log n) | O(1)–O(log n) | yoʻq (indeks juftliklarini saralamasangiz) |
+| Allaqachon saralangan input'da two pointers | O(n) | O(1) | ha |
+
+## Senior nuance
+
+- **Harakatni isbotlang.** Interviewer'lar koʻpincha "nega l ni sura olasiz?" deb soʻraydi. Javob doim chiqarib tashlash dalili; kod yozishdan oldin shuni ayting.
+- **Dublikatlar** — 3Sum/4Sum yechimlari yiqiladigan joy: tashqi loop'da *va* natijani yozgandan keyin teng qoʻshnilarni oʻtkazib yuboring.
+- **Comparator'siz `Array.prototype.sort` sonlarni string sifatida saralaydi** (`[10, 9, 1].sort()` → `[1, 10, 9]`). Doim `(a, b) => a - b` bering.
+- **k-Sum umumlashadi**: 2Sum'gacha recursion bilan O(n^(k−1)); buni ayting, lekin soʻralmasa implementatsiya qilmang.
+
+## Interview savollari
+
+<QA q="Container With Most Water'da nega qisqa chiziqni surish toʻgʻri?" level="mid">
+Maydon = kenglik × min(height[l], height[r]). Pointer'lar harakatlanganda kenglik faqat kamayadi. Agar height[l] qisqa chiziq boʻlsa, l ni saqlab r ni ichkariga suradigan har bir idishning kengligi kichikroq va balandligi baribir height[l] bilan cheklangan, shuning uchun hech biri joriy maydondan oshmaydi. Demak l ni tashlash xavfsiz; balandini surish hech qachon yordam bermaydi.
+</QA>
+
+<QA q="3Sum'ni O(n²) dan yaxshiroq qilish mumkinmi?" level="senior">
+Sezilarli darajada yoʻq. Ma'lum yaxshilanishlar n² dan faqat logarifmik koeffitsiyentlarni qisqartiradi, 3SUM gipotezasi esa — qiyinlik farazi sifatida keng ishlatiladi — O(n^(2−ε)) algoritm mavjud emas deb ta'kidlaydi. Saralash va two pointers O(n²) vaqt va O(1) qoʻshimcha xotira beradi — kutilgan javob shu.
+</QA>
+
+<QA q="Birinchisi oxirida yetarli joy boʻlsa, ikki saralangan array'ni joyida birlashtiring." level="mid">
+Orqadan toʻldiring: pointer'lar ikkala array'ning oxirgi haqiqiy elementlarida, yozish pointer'i eng oxirida; har qadamda ikkalasining kattasini qoʻying. Orqaga yozish birinchi array'ning oʻqilmagan elementini hech qachon ustidan yozmaydi. O(n + m), O(1) qoʻshimcha.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Saralangan array, yigʻindi juda kichik. Qaysi harakat asoslangan?", options: ["r--", "l++", "ikkalasi", "qayta boshlash"], answer: 1, explain: "nums[l] qolganlarning eng kattasi bilan ham kichik, shuning uchun nums[l] ni tashlash mumkin." },
+  { q: "JavaScript'da [10, 9, 1].sort() nima qaytaradi?", options: ["[1, 9, 10]", "[1, 10, 9]", "[10, 9, 1]", "TypeError"], answer: 1, explain: "Sukut boʻyicha sort string koʻrinishlarini taqqoslaydi." },
+  { q: "Alfanumerik boʻlmaganlarni hisobga olmagan Valid Palindrome: pointer'lar qayerdan boshlanadi?", options: ["ikkalasi 0 dan", "ikkala uchdan, alfanumerik boʻlmaganlarni oʻtkazib", "oʻrtadan", "hash map bilan"], answer: 1, explain: "Ikkala uchdan uchrashguncha yuring; hisobga olinmaydigan belgilarni oʻtkazib yuboring." }
+]} />
+
+**Klassik masalalar:** Valid Palindrome (Easy) · Two Sum II - Input Array Is Sorted (Medium) · 3Sum (Medium) · Container With Most Water (Medium) · Remove Duplicates from Sorted Array (Easy) · Trapping Rain Water (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/two-pointers" />

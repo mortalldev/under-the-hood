@@ -1,0 +1,108 @@
+## TL;DR
+
+Cache olish qimmat boʻlgan ma'lumot nusxalarini ishlatiladigan joyga yaqinroq saqlaydi va **yangilik hamda xotira**ni **latency va yuklama**ga almashtiradi. Toʻrt narsani hal qilishingiz shart: **qayerda** (brauzer, CDN, ilova, taqsimlangan cache, ma'lumotlar bazasi buffer'i), **qanday toʻldiriladi** (<Term id="cache-aside" />, read-through, write-through, write-behind), **qanday chiqariladi** (LRU, LFU, TTL) va yozishlardan keyin **qanday invalidate qilinadi**. Koʻp cache bug'lari — invalidation bug'lari; koʻp cache uzilishlari — **stampede**'lar va **hot key**'lar.
+
+## Vizual model
+
+<FlowDiagram height={52} nodes={[
+  { id: "client", label: "brauzer cache", sub: "Cache-Control, ETag", x: 10, y: 10, w: 18, kind: "client" },
+  { id: "cdn", label: "CDN edge", sub: "statik + cache'lanadigan API", x: 32, y: 10, w: 18, kind: "edge" },
+  { id: "app", label: "ilova serverlari", sub: "jarayon ichidagi LRU", x: 54, y: 10, w: 18 },
+  { id: "redis", label: "taqsimlangan cache", sub: "Redis / Memcached", x: 54, y: 32, w: 22, kind: "queue" },
+  { id: "db", label: "ma'lumotlar bazasi", sub: "buffer pool", x: 84, y: 32, w: 18, kind: "store" }
+]} edges={[
+  { from: "client", to: "cdn" }, { from: "cdn", to: "app" }, { from: "app", to: "redis", label: "1. get" }, { from: "redis", to: "db", dashed: true, label: "2. miss → yuklash" }
+]} caption="Har bir qatlam trafikni keyingisiga yetmasdan oldin yutadi. Foydalanuvchiga qanchalik yaqin boʻlsa, shunchalik tez — va invalidate qilish shunchalik qiyin." />
+
+## Mexanizm
+
+**Cache-aside** (eng keng tarqalgan): cache'dan oʻqing; miss boʻlsa, DB'dan oʻqib, cache'ni TTL bilan toʻldiring. Yozishda DB'ni yangilang, keyin cache yozuvini **oʻchiring** (yangilamang) — keyingi oʻqish uni qayta toʻldiradi. Oʻchirish ikki parallel yozuvchi cache'ni eskiroq qiymat bilan qoldiradigan race'lardan saqlaydi.
+
+**Write-through**: yozishlar cache va DB'ga sinxron boradi — cache doim issiq, yozishlar sekinroq. **Write-behind (write-back)**: yozishlar cache'ga boradi va DB'ga asinxron chiqariladi — tez yozishlar, ma'lumot yoʻqotish xavfi. **Read-through**: yetishmayotgan yozuvlarni cache'ning oʻzi yuklaydi (kutubxona yoki cache provayderi xususiyati).
+
+**Eviction**: xotira toʻlganda, nimadir chiqishi kerak. **LRU** eng uzoq ishlatilmagan elementni chiqaradi — yaqinlikka asoslangan murojaat uchun yaxshi standart. **LFU** tez-tez ishlatiladigan elementlarni yaqinda ishlatilmagan boʻlsa ham saqlaydi. **TTL** xotiradan qat'i nazar eskirishni cheklaydi. LRU boʻyicha qadamma-qadam yuring:
+
+<LruViz />
+
+**Stampede (dogpile)**: mashhur key'ning muddati tugaydi va minglab request'lar bir vaqtda miss qilib, hammasi DB'ga uriladi. Yumshatish usullari: **request coalescing** (har key'ga bitta yuklovchi, qolganlari kutadi), **stale-while-revalidate** (bitta request yangilayotganda eski qiymatni berish), **ehtimoliy erta expire** (TTL'dan biroz oldin oʻsib boruvchi ehtimollik bilan yangilash) va key'lar birga tugamasligi uchun **jitter'li TTL**'lar.
+
+## Kod
+
+```ts
+// Request coalescing (single flight) va jitter'li TTL bilan cache-aside
+const inflight = new Map<string, Promise<unknown>>();
+
+async function getCached<T>(key: string, load: () => Promise<T>, ttlSec = 300): Promise<T> {
+  const hit = await redis.get(key);
+  if (hit !== null) return JSON.parse(hit) as T;
+  const pending = inflight.get(key);
+  if (pending) return pending as Promise<T>;                 // parallel miss'larni birlashtirish
+  const p = (async () => {
+    try {
+      const value = await load();
+      const ttl = Math.round(ttlSec * (0.9 + Math.random() * 0.2));   // ±10% jitter
+      await redis.set(key, JSON.stringify(value), "EX", ttl);
+      return value;
+    } finally {
+      inflight.delete(key);
+    }
+  })();
+  inflight.set(key, p);
+  return p;
+}
+
+// Yozish yoʻli: haqiqat manbaini yangilash, keyin invalidate
+async function updateUser(id: string, patch: Partial<User>) {
+  await db.users.update(id, patch);
+  await redis.del(`user:${id}`);
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Cache qiling**: yuqori hit ratio salohiyatiga ega oʻqishga ogʻir ma'lumotni (mahsulot sahifalari, profillar, konfiguratsiya, hisoblangan agregatlar, sessiya qidiruvlari) va qimmat hisoblashlarni.
+
+**Cache qilmang**: har oʻqishda kuchli consistent boʻlishi shart boʻlgan ma'lumotni (oʻtkazmalar paytidagi balanslar, checkout'dagi zaxira), buning uchun maxsus loyihalamasangiz; juda kam qayta ishlatiladigan ma'lumotni; yoki yetishmayotgan indekslarni tuzatish oʻrniga.
+
+## Trade-off'lar
+
+| Strategiya | Oʻqish latency'si | Yozish latency'si | Consistency xavfi | Ma'lumot yoʻqotish xavfi |
+| --- | --- | --- | --- | --- |
+| Cache-aside | miss sekin | normal | TTL/invalidation'gacha eskirgan | yoʻq |
+| Read-through | miss sekin | normal | cache-aside bilan bir xil | yoʻq |
+| Write-through | tez | sekinroq (2 yozish) | past | yoʻq |
+| Write-behind | tez | tez | cache'langan oʻqishlar uchun past | ha, cache flush'dan oldin oʻlsa |
+
+## Senior nuance
+
+- **Hot key'lar**: trafikning ulkan ulushini oladigan bitta key bitta cache shard'ini ortiqcha yuklaydi. Key'ni suffix'lar bilan shard'lar boʻylab replikatsiya qiling (`key#1..n`), kichik jarayon ichidagi cache qoʻshing yoki CDN ishlating.
+- **Negative caching**: takroriy miss'lar (va enumeration hujumlari) DB'ga urilmasligi uchun "topilmadi"ni qisqa muddat cache qiling.
+- Deploy/failover'da **cache isitish** sovuq cache'ning DB'ga toʻliq trafik yuborishining oldini oladi.
+- **Servislar orasidagi consistency**: har bir servis har bir key'ni bilishi oʻrniga event'lar orqali invalidate qiling (outbox → message bus → cache invalidation).
+- **Muhim metrikalar**: hit ratio, hit va miss'lar uchun p99 latency, eviction tezligi, xotira fragmentatsiyasi va cache hodisalari paytidagi DB yuklamasi.
+
+## Interview savollari
+
+<QA q="Nega yozishda cache yozuvini yangilash oʻrniga oʻchirish kerak?" level="senior">
+Parallel yozuvchilar race qilishi mumkin: A yozuvchi DB'ni yangilaydi, keyin B yozuvchi DB'ni yangilaydi, lekin ularning cache yangilanishlari B keyin A tartibida keladi va A'ning eskiroq qiymati cheksiz cache'da qoladi. Oʻchirish keyingi oʻqishni joriy DB qiymatini yuklashga majbur qiladi. Kichik race qoladi (oʻquvchi oʻchirishdan sal oldin eski qiymatni yuklab, undan keyin yozadi); TTL'lar, versiyalangan qiymatlar yoki kechiktirilgan ikki marta oʻchirish uni toraytiradi.
+</QA>
+
+<QA q="Cache stampede nima va uning oldini qanday olasiz?" level="mid">
+Koʻp request'lar bir vaqtda bitta key'ni miss qiladi (odatda muddati tugagandan keyin darhol) va hammasi ma'lumotlar bazasiga boradi, uni ortiqcha yuklashi mumkin. Har key uchun request coalescing/lock, bitta request yangilayotganda eski ma'lumotni berish, ehtimoliy erta yangilash va koʻp key'lar bir vaqtda tugamasligi uchun TTL jitter bilan oldini oling.
+</QA>
+
+<QA q="100k QPS oʻqishli mahsulot katalogi uchun cache qatlamini loyihalang." level="senior">
+Statik va yarim statik sahifalarni qisqa TTL va stale-while-revalidate bilan CDN ortiga qoʻying; ID va versiya boʻyicha kalitlangan mahsulot obyektlari uchun cache-aside'li taqsimlangan cache (Redis cluster) va eng issiq elementlar uchun har nusxada kichik LRU ishlating; mahsulot yangilanishlarida oʻzgarish event'lari orqali invalidate qiling; single-flight yuklash va jitter'li TTL'lar bilan stampede'lardan himoyalaning; hot key'larni replikatsiya qiling; hit ratio'ni kuzating va DB yomonlashsa eski kontentni berishga oʻting.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Sigʻimi 2 boʻlgan LRU: put a, put b, get a, put c. Qaysi biri chiqariladi?", options: ["a", "b", "c", "hech biri"], answer: 1, explain: "get a a'ni yaqinda ishlatilgan qildi, shuning uchun b — eng uzoq ishlatilmagan." },
+  { q: "Write-behind caching nimani xavf ostiga qoʻyadi?", options: ["sekin yozishlar", "cache flush'dan oldin nosoz boʻlsa ma'lumot yoʻqotish", "faqat stampede'lar", "hech narsa"], answer: 1, explain: "DB asinxron yangilanadi." },
+  { q: "Deploy vaqtida yaratilgan minglab key'larning hammasi bir vaqtda tugaydi. Tuzatish?", options: ["hammasiga uzunroq TTL", "TTL'larga jitter", "cache'ni oʻchirish", "write-through"], answer: 1, explain: "Tasodifiylashtirilgan muddat yangilash yuklamasini tarqatadi." }
+]} />
+
+## Resurslar
+
+<Resources topic="system-design/caching" />

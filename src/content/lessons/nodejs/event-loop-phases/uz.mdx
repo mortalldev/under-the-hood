@@ -1,0 +1,112 @@
+## TL;DR
+
+Node event loop'i (<Term id="libuv" /> implementatsiya qiladi) **phase**'lar boʻylab aylanadi, har birining oʻz queue'si bor: **timers** (tugagan `setTimeout`/`setInterval`), **pending callbacks**, **poll** (I/O callback'lari; I/O'ni kutib bloklanishi mumkin), **check** (`setImmediate`), **close callbacks**. Har bir callback orasida Node avval <Term id="next-tick" /> queue'ni, keyin promise <Term id="microtask">microtask</Term>'larini boʻshatadi. Brauzerdan farqli ravishda rendering qadami yoʻq va `setImmediate` sizga deterministik "shu I/O phase'dan keyin darhol ishga tushir" ilgagini beradi.
+
+## Vizual model
+
+```text
+   ┌───────────────────────────┐
+┌─▶│           timers          │  vaqti kelgan setTimeout / setInterval callback'lari
+│  └─────────────┬─────────────┘
+│  ┌─────────────┴─────────────┐
+│  │     pending callbacks     │  oldingi loop'dan kechiktirilgan ba'zi tizim callback'lari
+│  └─────────────┬─────────────┘
+│  ┌─────────────┴─────────────┐
+│  │           poll            │  tayyor I/O callback'larni ishga tushirish; boshqa hech narsa rejalashtirilmagan boʻlsa, shu yerda kutish
+│  └─────────────┬─────────────┘
+│  ┌─────────────┴─────────────┐
+│  │           check           │  setImmediate callback'lari
+│  └─────────────┬─────────────┘
+│  ┌─────────────┴─────────────┐
+└──┤      close callbacks      │  masalan socket.on('close')
+   └───────────────────────────┘
+HAR BIR callback'dan keyin: process.nextTick queue → promise microtask queue (ikkalasi boʻshaguncha takrorlanadi)
+```
+
+## Mexanizm
+
+Misollar boʻyicha qadamma-qadam yuring, keyin kodni tahrirlang — simulyator `setImmediate`, `process.nextTick`, `fs.readFile(…, cb)`, timer'lar, promise'lar va `async`/`await`ni tushunadi. Ishga tushirishdan oldin tartibni taxmin qiling.
+
+<EventLoopViz runtime="node" />
+
+Simulyatsiya koʻrsatadigan asosiy qoidalar:
+- **Avval asosiy modul**: butun skript ishlaydi, keyin nextTick'lar, keyin microtask'lar — loop hali boshlanmasdan oldin.
+- **Asosiy moduldan `setTimeout(fn, 0)` va `setImmediate(fn)` deterministik emas**: `0` 1 ms ga aylanadi va loop boshlanganda 1 ms oʻtgan-oʻtmagani jarayon tezligiga bogʻliq. Simulyator oʻtgan deb faraz qiladi va buni belgilaydi.
+- **I/O callback ichida `setImmediate` doim `setTimeout(…, 0)`dan oldin ishlaydi**: poll'dan keyin check keladi, keyingi timers phase'dan oldin.
+- **Node 11 dan beri** nextTick va microtask'lar butun phase'dan keyin emas, *har bir* timer/immediate callback'dan keyin ishlaydi — brauzer xatti-harakatiga yaqinroq.
+- **`process.nextTick` promise'lardan oldin keladi**, microtask boʻshatilishi paytida qoʻshilgan nextTick esa promise queue boʻshaguncha kutadi.
+
+## Kod
+
+```js
+const fs = require("node:fs");
+
+fs.readFile(__filename, () => {
+  setTimeout(() => console.log("timeout"), 0);
+  setImmediate(() => console.log("immediate"));   // bu yerda doim birinchi: check phase poll'dan keyin keladi
+  process.nextTick(() => console.log("nextTick")); // ikkalasidan oldin: shu callback'dan keyin darhol ishlaydi
+});
+// → nextTick, immediate, timeout
+
+// Loop'ni och qoldirish: recursive nextTick I/O'ga hech qachon imkon bermaydi
+function spin() { process.nextTick(spin); }   // ✗ poll phase'ga hech qachon yetilmaydi
+
+// CPU-ogʻir ish paytida boʻlaklarda navbat berish
+function processChunk(items, i = 0) {
+  const end = Math.min(i + 1000, items.length);
+  for (; i < end; i++) heavy(items[i]);
+  if (i < items.length) setImmediate(() => processChunk(items, i));   // boʻlaklar orasida I/O callback'lariga imkon beradi
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**`process.nextTick`** — biror narsani joriy amaldan keyin, lekin har qanday I/O'dan oldin ishga tushirish uchun (masalan, konstruktor qaytgandan keyin listener'lar ulanishi uchun event chiqarish). Tejamkorlik bilan ishlating; u loop'ni och qoldirishi mumkin.
+
+**`queueMicrotask` / promise'lar** — "tez orada, joriy sinxron koddan keyin" uchun standart tanlov.
+
+**`setImmediate`** — ish boʻlaklari orasida event loop'ga navbat berish yoki joriy I/O phase'dan keyin ishga tushirish uchun.
+
+**`setTimeout(…, 0)`** — aynan timers phase kerak boʻlganda; navbat berish uchun `setImmediate`ni afzal koʻring.
+
+## Trade-off'lar
+
+| API | Queue | Qachon ishlaydi | Ochlik xavfi |
+| --- | --- | --- | --- |
+| `process.nextTick` | nextTick queue | joriy callback'dan keyin darhol, promise'lardan oldin | yuqori (I/O'ni bloklaydi) |
+| Promise / `queueMicrotask` | V8 microtask queue | nextTick'lardan keyin | rekursiv boʻlsa yuqori |
+| `setImmediate` | check phase | keyingi check phase | past (orada I/O ishlaydi) |
+| `setTimeout(fn, 0)` | timers phase | keyingi timers phase, ≥ 1 ms | past |
+
+## Senior nuance
+
+- **Event loop lag** — Node servisining asosiy salomatlik metrikasi: `perf_hooks.monitorEventLoopDelay()` bilan oʻlchang; doimiy lag CPU ishi request'larni qayta ishlashni bloklayotganini bildiradi.
+- **Poll phase bloklanadi**: boshqa qiladigan ish boʻlmaganda I/O'ni eng yaqin timer'dan hisoblangan timeout bilan kutadi — shuning uchun bekor turgan Node jarayoni ~0% CPU ishlatadi.
+- **Timer'lar aniq emas**: 10 ms timer "10 ms dan oldin emas" degani, ustiga joriy phase band boʻlgan vaqt.
+- **Brauzer va Node**: brauzerlarda bitta task queue tushunchasi va rendering qadamlari bor; Node'da phase'lar va qoʻshimcha nextTick queue. Interview savollari koʻpincha ularni aralashtiradi — doim qaysi runtime ekanini soʻrang.
+
+## Interview savollari
+
+<QA q="Asosiy modulda setTimeout(0), setImmediate, nextTick va Promise.then tartibi?" level="mid">
+Avval sinxron kod; keyin process.nextTick; keyin promise microtask'lari; keyin setTimeout(0) va setImmediate asosiy moduldan kafolatlanmagan tartibda (loop'ning birinchi timers phase'idan oldin 1 ms oʻtgan-oʻtmaganiga bogʻliq). I/O callback ichida setImmediate setTimeout(0)dan oldin ishlashi kafolatlangan.
+</QA>
+
+<QA q="Microtask'lar boʻyicha Node 11 da nima oʻzgardi?" level="senior">
+Node 11 dan oldin microtask va nextTick'lar faqat phase'lar orasida boʻshatilardi, shuning uchun avval barcha tugagan timer'lar, keyin ularning barcha microtask'lari ishlardi. Node 11 dan beri ular har bir alohida timer yoki immediate callback'dan keyin boʻshatiladi — bu microtask'lar har bir task'dan keyin ishlaydigan brauzer semantikasiga mos keladi.
+</QA>
+
+<QA q="Nega process.nextTick I/O'ni och qoldirishi mumkin?" level="senior">
+nextTick queue loop keyingi phase'ga oʻtishidan oldin har bir callback'dan keyin toʻliq boʻshatiladi. Callback'lar nextTick qoʻshishda davom etsa (masalan, rekursiya), queue hech qachon boʻshamaydi, shuning uchun I/O callback'lari ishlaydigan poll phase'ga hech qachon yetilmaydi. setImmediate'da bu muammo yoʻq, chunki yangi rejalashtirilgan immediate'lar keyingi loop iteratsiyasini kutadi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "fs.readFile callback'i ichida: setTimeout(A, 0); setImmediate(B). Tartib?", options: ["A keyin B", "B keyin A", "deterministik emas", "faqat B ishlaydi"], answer: 1, explain: "Check phase poll'dan keyin, keyingi timers phase'dan oldin keladi." },
+  { q: "Asosiy kodda Promise.then(P); process.nextTick(N). Tartib?", options: ["P N", "N P", "tasodifiy", "faqat P"], answer: 1, explain: "nextTick queue promise microtask queue'dan oldin boʻshatiladi." },
+  { q: "Main thread'da 1e6 elementni qayta ishlash paytida serverni sezgir saqlashning eng yaxshi usuli?", options: ["bitta katta for loop", "boʻlaklar orasida setImmediate bilan qayta ishlash", "recursive process.nextTick", "elementlar orasida await Promise.resolve()"], answer: 1, explain: "setImmediate boʻlaklar orasida I/O callback'lariga imkon beradi; qolganlari poll phase'ni och qoldiradi." }
+]} />
+
+## Resurslar
+
+<Resources topic="nodejs/event-loop-phases" />

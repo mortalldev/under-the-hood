@@ -1,0 +1,180 @@
+## TL;DR
+
+React 19 makes **async updates** a built-in concept: an <Term id="react-action" />, meaning an async function run inside a transition. React tracks its **pending** state, **errors** and **<Term id="optimistic-update" />s** for you, which replaces a lot of hand-written `useState(isLoading)` code. The key APIs:
+- `<form action={fn}>`
+- `useActionState` (state + pending for an action)
+- `useOptimistic` (temporary UI while the action runs)
+- `useFormStatus` (pending state from inside a form's children)
+- `use()` (read a promise or context during render, suspending if needed)
+
+Also: `ref` is now a normal prop (no `forwardRef`), `<Context>` works as a provider, and React 19.2 added <Term id="use-effect-event" /> and <Term id="activity" />.
+
+## Visual model
+
+```text
+user submits form
+   │
+   ▼
+startTransition(async () => …)          ← React marks the update as an Action
+   ├─ isPending = true                   (useActionState / useTransition / useFormStatus)
+   ├─ setOptimistic(newItem)             UI shows the expected result immediately
+   ├─ await server / fetch               ……
+   ├─ success → real state replaces optimistic; uncontrolled form fields reset
+   └─ error   → optimistic value disappears (it only lives during the transition); error goes to state or the nearest error boundary
+```
+
+## Mechanism
+
+**Actions are transitions.** Any async function passed to `startTransition`, a form's `action` prop, or `useActionState` runs as an Action. While it's pending, React keeps the current UI interactive. State updates queued inside it commit together at the end (React batches them), so you never see a half-updated screen.
+
+**`useActionState(action, initialState)`** returns `[state, dispatch, isPending]`. React calls your action with `(previousState, payload)`. For a form, the payload is the `FormData`. Whatever the action returns becomes the new `state`, which is ideal for validation errors and results. Dispatches are **queued sequentially**: each call gets the previous call's result as `previousState`.
+
+**`useOptimistic(state, reducer)`** returns `[optimisticState, addOptimistic]`. Calls to `addOptimistic` inside an Action layer temporary values on top of `state`. When the Action finishes, React drops the optimistic layer and shows the real `state`. So on failure the optimistic item simply disappears; you don't write rollback code.
+
+**`useFormStatus()`** (from `react-dom`) reads the pending state of the **parent** `<form>`. It must be called in a component rendered inside that form. This is how a reusable `<SubmitButton>` knows it should be disabled.
+
+**`use(resource)`** reads a promise or a context during render. With a promise it suspends until the promise resolves, so it needs a `<Suspense>` boundary and a **stable** promise (created in a Server Component, a cache, or a parent), not one created during render. Unlike hooks, `use` may be called conditionally.
+
+**`useEffectEvent`** (19.2) splits the "event" part out of an Effect: the function always sees the latest props and state, but isn't a dependency, so changing `theme` no longer reconnects a chat room.
+
+## Code
+
+```tsx
+"use client";
+import { useActionState, useOptimistic, useRef } from "react";
+import { useFormStatus } from "react-dom";
+
+type Todo = { id: string; text: string; pending?: boolean };
+type State = { todos: Todo[]; error: string | null };
+
+async function saveTodo(text: string): Promise<Todo> {
+  const res = await fetch("/api/todos", { method: "POST", body: JSON.stringify({ text }) });
+  if (!res.ok) throw new Error("Could not save");
+  return res.json();
+}
+
+function SubmitButton() {
+  const { pending } = useFormStatus();                 // pending of the PARENT <form>
+  return <button disabled={pending}>{pending ? "Saving…" : "Add"}</button>;
+}
+
+export function Todos({ initial }: { initial: Todo[] }) {
+  const [state, formAction, isPending] = useActionState<State, FormData>(
+    async (prev, formData) => {
+      const text = String(formData.get("text") ?? "").trim();
+      if (!text) return { ...prev, error: "Text is required" };       // validation result → state
+      addOptimistic({ id: crypto.randomUUID(), text, pending: true }); // instant feedback
+      try {
+        const saved = await saveTodo(text);
+        return { todos: [...prev.todos, saved], error: null };
+      } catch {
+        return { ...prev, error: "Saving failed — try again" };       // optimistic item vanishes on its own
+      }
+    },
+    { todos: initial, error: null },
+  );
+  const [todos, addOptimistic] = useOptimistic(state.todos, (list: Todo[], t: Todo) => [...list, t]);
+
+  return (
+    <form action={formAction}>                         {/* uncontrolled input resets after success */}
+      <input name="text" aria-invalid={!!state.error} />
+      <SubmitButton />
+      {state.error && <p role="alert">{state.error}</p>}
+      <ul aria-busy={isPending}>
+        {todos.map((t) => <li key={t.id} style={{ opacity: t.pending ? 0.5 : 1 }}>{t.text}</li>)}
+      </ul>
+    </form>
+  );
+}
+
+// ref is just a prop in React 19 — no forwardRef
+function TextField({ ref, ...props }: React.ComponentProps<"input">) {
+  return <input ref={ref} {...props} />;
+}
+export function Search() {
+  const input = useRef<HTMLInputElement>(null);
+  return <TextField ref={input} placeholder="Search" onFocus={() => input.current?.select()} />;
+}
+```
+
+```tsx
+// use(): read a promise created OUTSIDE render (here passed from a Server Component)
+import { Suspense, use } from "react";
+
+function Comments({ commentsPromise }: { commentsPromise: Promise<string[]> }) {
+  const comments = use(commentsPromise);               // suspends until resolved
+  return <ul>{comments.map((c) => <li key={c}>{c}</li>)}</ul>;
+}
+export function Post({ commentsPromise }: { commentsPromise: Promise<string[]> }) {
+  return (
+    <Suspense fallback={<p>Loading comments…</p>}>
+      <Comments commentsPromise={commentsPromise} />
+    </Suspense>
+  );
+}
+
+// useEffectEvent (React 19.2): latest values without re-running the Effect
+import { useEffect, useEffectEvent } from "react";
+declare function connect(room: string): { on(e: "connected", cb: () => void): void; close(): void };
+declare function notify(msg: string, theme: string): void;
+
+export function ChatRoom({ roomId, theme }: { roomId: string; theme: string }) {
+  const onConnected = useEffectEvent(() => notify(`Joined ${roomId}`, theme));
+  useEffect(() => {
+    const conn = connect(roomId);
+    conn.on("connected", () => onConnected());
+    return () => conn.close();
+  }, [roomId]);                                        // theme changes do NOT reconnect
+  return null;
+}
+```
+
+## When to use / when not to
+
+**Use Actions** for mutations: forms, likes, saves, deletes. Especially with Next.js Server Actions, where the same `action` prop calls server code and works before hydration (progressive enhancement). **Use `useOptimistic`** when the server almost always agrees and latency is noticeable.
+
+**Don't** use `use()` with a promise created during render (it's a new promise every render and suspends forever). **Don't** use optimistic UI for operations that often fail or have big consequences (payments). Show real progress there. **Don't** wrap every callback in `useEffectEvent`; it's only for event-like logic fired from Effects.
+
+## Trade-offs
+
+| Approach | Pros | Cons |
+| --- | --- | --- |
+| `useActionState` | pending + result + sequential queue built-in | state shape is the action's return value; one action per hook |
+| Manual `useState` + `fetch` | full control | race conditions, forgotten loading/error states |
+| Optimistic UI | feels instant | user may see a value that disappears |
+| Form actions (uncontrolled) | progressive enhancement, auto reset | less control than controlled inputs |
+| `use(promise)` + Suspense | declarative loading, streaming-friendly | needs stable promises and boundaries |
+
+## Senior nuance
+
+- **Sequential dispatch**: `useActionState` processes dispatches one after another, which keeps state consistent but means a slow request delays the next. For independent operations, use separate actions or `useTransition`.
+- **Errors**: a thrown error inside an Action goes to the nearest error boundary. Return error values for expected failures (validation, conflicts) and throw only for unexpected ones.
+- **Server Actions are public endpoints**: validate input and check authorization inside every action, even if the button is hidden in the UI.
+- **React Compiler** (v1.0) plus Actions remove much of the old `useMemo`/`useCallback`/`isLoading` boilerplate. Know what still needs manual design: data fetching boundaries and cache invalidation.
+
+## Interview questions
+
+<QA q="What is an Action in React 19 and what does it give you over useState + fetch?" level="mid">
+An Action is an async function run inside a transition (form action, useActionState dispatch, or startTransition). React tracks its pending state, batches the state updates made inside it so they commit together, integrates optimistic updates via useOptimistic, resets uncontrolled forms on success, and routes thrown errors to error boundaries. Manual code must handle all of that, plus races, itself.
+</QA>
+
+<QA q="How does useOptimistic roll back on failure?" level="senior">
+The optimistic value is a temporary layer over the real state that exists only while the Action is pending. When the Action settles, React re-renders from the real state. If the action didn't add the item to the real state (because it failed), the optimistic item disappears with no explicit rollback. To show an error, return it as state or let it reach an error boundary.
+</QA>
+
+<QA q="Why must the promise passed to use() be stable?" level="senior">
+use() suspends until the promise resolves, and React re-renders the component afterwards. If the component creates a new promise during render, every re-render produces a new pending promise, so it suspends again and never shows content. Create promises in a Server Component, a parent, a cache, or a data library, and pass them down.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "useActionState returns…", options: ["[state, setState]", "[state, dispatch, isPending]", "{ data, error }", "a promise"], answer: 1, explain: "React 19 signature: [state, formAction/dispatch, isPending]." },
+  { q: "Where must useFormStatus be called?", options: ["in the component that renders the <form>", "in a component rendered inside the <form>", "in a Server Component", "anywhere"], answer: 1, explain: "It reads the status of the parent form." },
+  { q: "In React 19, passing ref to a function component requires…", options: ["forwardRef", "nothing — ref is a regular prop", "useImperativeHandle", "a class component"], answer: 1, explain: "React 19 made ref a normal prop for function components." },
+  { q: "useEffectEvent's function should be listed in the Effect's dependencies?", options: ["yes", "no", "only in strict mode", "only for async functions"], answer: 1, explain: "Effect Events aren't dependencies; they always see the latest values." }
+]} />
+
+## Resources
+
+<Resources topic="react/react-19-actions" />

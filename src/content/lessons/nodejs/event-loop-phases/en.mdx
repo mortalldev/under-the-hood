@@ -1,0 +1,112 @@
+## TL;DR
+
+Node's event loop (implemented by <Term id="libuv" />) cycles through **phases**, each with its own queue: **timers** (expired `setTimeout`/`setInterval`), **pending callbacks**, **poll** (I/O callbacks; may block waiting for I/O), **check** (`setImmediate`), **close callbacks**. Between every callback, Node drains the <Term id="next-tick" /> queue first, then promise <Term id="microtask">microtasks</Term>. Unlike the browser there is no rendering step, and `setImmediate` gives you a deterministic "run right after this I/O phase" hook.
+
+## Visual model
+
+```text
+   ┌───────────────────────────┐
+┌─▶│           timers          │  setTimeout / setInterval callbacks whose time has come
+│  └─────────────┬─────────────┘
+│  ┌─────────────┴─────────────┐
+│  │     pending callbacks     │  some system-level callbacks deferred from the previous loop
+│  └─────────────┬─────────────┘
+│  ┌─────────────┴─────────────┐
+│  │           poll            │  run ready I/O callbacks; if nothing else is scheduled, wait here
+│  └─────────────┬─────────────┘
+│  ┌─────────────┴─────────────┐
+│  │           check           │  setImmediate callbacks
+│  └─────────────┬─────────────┘
+│  ┌─────────────┴─────────────┐
+└──┤      close callbacks      │  e.g. socket.on('close')
+   └───────────────────────────┘
+after EVERY callback: process.nextTick queue → promise microtask queue (repeat until both empty)
+```
+
+## Mechanism
+
+Step through the presets, then edit the code — the simulator understands `setImmediate`, `process.nextTick`, `fs.readFile(…, cb)`, timers, promises and `async`/`await`. Predict the order before you run it.
+
+<EventLoopViz runtime="node" />
+
+Key rules the simulation demonstrates:
+- **Main module first**: the whole script runs, then nextTicks, then microtasks — before the loop even starts.
+- **`setTimeout(fn, 0)` vs `setImmediate(fn)` from the main module is not deterministic**: `0` is coerced to 1 ms, and whether 1 ms has passed when the loop starts depends on process performance. The simulator assumes it has, and flags it.
+- **Inside an I/O callback, `setImmediate` always runs before `setTimeout(…, 0)`**: after poll comes check, before the next timers phase.
+- **Since Node 11**, nextTicks and microtasks run after *each* timer/immediate callback, not after the whole phase — matching browser behaviour more closely.
+- **`process.nextTick` beats promises**, and a nextTick queued during the microtask drain waits until the promise queue is empty.
+
+## Code
+
+```js
+const fs = require("node:fs");
+
+fs.readFile(__filename, () => {
+  setTimeout(() => console.log("timeout"), 0);
+  setImmediate(() => console.log("immediate"));   // always first here: check phase follows poll
+  process.nextTick(() => console.log("nextTick")); // before both: runs right after this callback
+});
+// → nextTick, immediate, timeout
+
+// Starving the loop: recursive nextTick never lets I/O run
+function spin() { process.nextTick(spin); }   // ✗ the poll phase is never reached
+
+// Yielding during CPU-heavy work in chunks
+function processChunk(items, i = 0) {
+  const end = Math.min(i + 1000, items.length);
+  for (; i < end; i++) heavy(items[i]);
+  if (i < items.length) setImmediate(() => processChunk(items, i));   // lets I/O callbacks run between chunks
+}
+```
+
+## When to use / when not to
+
+**`process.nextTick`** — to run something after the current operation but before any I/O (e.g. emitting an event after a constructor returns so listeners can attach). Use sparingly; it can starve the loop.
+
+**`queueMicrotask` / promises** — the standard choice for "soon, after current sync code".
+
+**`setImmediate`** — to yield to the event loop between chunks of work, or to run after the current I/O phase.
+
+**`setTimeout(…, 0)`** — when you specifically need the timers phase; prefer `setImmediate` for yielding.
+
+## Trade-offs
+
+| API | Queue | Runs | Starvation risk |
+| --- | --- | --- | --- |
+| `process.nextTick` | nextTick queue | right after the current callback, before promises | high (blocks I/O) |
+| Promise / `queueMicrotask` | V8 microtask queue | after nextTicks | high if recursive |
+| `setImmediate` | check phase | next check phase | low (I/O runs in between) |
+| `setTimeout(fn, 0)` | timers phase | next timers phase, ≥ 1 ms | low |
+
+## Senior nuance
+
+- **Event loop lag** is the key health metric for a Node service: measure with `perf_hooks.monitorEventLoopDelay()`; sustained lag means CPU work is blocking request handling.
+- **The poll phase blocks** waiting for I/O when there is nothing else to do, with a timeout computed from the nearest timer — that is why an idle Node process uses ~0% CPU.
+- **Timers are not precise**: a 10 ms timer means "no earlier than 10 ms", plus whatever the current phase is busy with.
+- **Browser vs Node**: browsers have one task queue concept plus rendering steps; Node has phases and the extra nextTick queue. Interview questions often mix them — always ask which runtime.
+
+## Interview questions
+
+<QA q="Order of setTimeout(0), setImmediate, nextTick and Promise.then in the main module?" level="mid">
+Synchronous code first; then process.nextTick; then promise microtasks; then setTimeout(0) and setImmediate in an order that is not guaranteed from the main module (it depends on whether 1 ms elapsed before the loop's first timers phase). Inside an I/O callback, setImmediate is guaranteed to run before setTimeout(0).
+</QA>
+
+<QA q="What changed in Node 11 regarding microtasks?" level="senior">
+Before Node 11, microtasks and nextTicks were drained only between phases, so all expired timers ran first and then all their microtasks. Since Node 11 they are drained after each individual timer or immediate callback, which matches browser semantics where microtasks run after every task.
+</QA>
+
+<QA q="Why can process.nextTick starve I/O?" level="senior">
+The nextTick queue is drained completely after each callback before the loop can proceed to the next phase. If callbacks keep adding nextTicks (e.g. recursion), the queue never empties, so the poll phase — where I/O callbacks run — is never reached. setImmediate doesn't have this problem because newly scheduled immediates wait for the next loop iteration.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Inside fs.readFile's callback: setTimeout(A, 0); setImmediate(B). Order?", options: ["A then B", "B then A", "not deterministic", "only B runs"], answer: 1, explain: "Check phase follows poll before the next timers phase." },
+  { q: "Promise.then(P); process.nextTick(N) in main code. Order?", options: ["P N", "N P", "random", "P only"], answer: 1, explain: "The nextTick queue is drained before the promise microtask queue." },
+  { q: "Best way to keep a server responsive while processing 1e6 items on the main thread?", options: ["one big for loop", "process in chunks with setImmediate between them", "recursive process.nextTick", "await Promise.resolve() between items"], answer: 1, explain: "setImmediate lets I/O callbacks run between chunks; the others starve the poll phase." }
+]} />
+
+## Resources
+
+<Resources topic="nodejs/event-loop-phases" />

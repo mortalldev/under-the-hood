@@ -1,0 +1,102 @@
+## TL;DR
+
+Three problems account for most slow or broken Next.js apps in production: **hydration mismatches** (server HTML ≠ first client render), **bundle bloat** (too much JavaScript shipped and hydrated), and **request waterfalls** (sequential awaits that could run in parallel or earlier). Each has a mechanism, a way to detect it, and a standard fix.
+
+## Visual model
+
+```text
+WATERFALL (sequential)                       PARALLEL / HOISTED
+user  ████████                               user  ████████
+posts         ████████                       posts ████████
+stats                 ████████               stats ████████
+      ─────────────────────────▶ 3× latency        ─────────▶ 1× latency (+ stream each with Suspense)
+```
+
+## Mechanism
+
+**Hydration mismatch**: the client's first render must produce the same markup the server sent. Sources: `Date.now()`/`Math.random()` during render, `typeof window` branches, locale/time-zone formatting differences, invalid HTML nesting the browser auto-corrects, and browser extensions mutating the DOM. React logs the mismatch and re-renders the affected subtree on the client (slower, may flicker, may lose input).
+
+**Bundle bloat**: everything imported by a `'use client'` module (transitively) is shipped and hydrated. Common causes: marking a high-level component as client, importing a whole icon/date/utility library, heavy charting libraries loaded on pages that don't need them, and duplicated dependencies.
+
+**Waterfalls**: each `await` before starting the next independent fetch adds a full round trip. In Server Components nesting makes it worse: a child that fetches only after its parent's fetch finished. On the client, effects that fetch after render after a previous fetch completed create the same chain.
+
+## Code
+
+```tsx
+// ✗ Waterfall
+const user = await getUser(id);
+const posts = await getPosts(id);          // doesn't depend on user
+const stats = await getStats(id);
+
+// ✓ Start together, await together
+const [user, posts, stats] = await Promise.all([getUser(id), getPosts(id), getStats(id)]);
+
+// ✓ Even better for UX: start early, stream each part independently
+export default function Page({ params }: PageProps<"/u/[id]">) {
+  const postsPromise = params.then(({ id }) => getPosts(id));   // kick off without blocking the shell
+  return (
+    <>
+      <Suspense fallback={<HeaderSkeleton />}><UserHeader params={params} /></Suspense>
+      <Suspense fallback={<PostsSkeleton />}><Posts promise={postsPromise} /></Suspense>
+    </>
+  );
+}
+
+// Bundle: keep the client boundary at the leaf, load heavy widgets on demand
+"use client";
+import dynamic from "next/dynamic";
+const Chart = dynamic(() => import("./HeavyChart"), { loading: () => <ChartSkeleton /> });
+```
+
+## When to use / when not to
+
+**Measure before fixing**:
+- Hydration: read the browser console error (it shows the differing text/attribute) and the Next.js error overlay in development.
+- Bundle: run the bundle analyzer (`next experimental-analyze` with Turbopack, or `@next/bundle-analyzer`) and check `optimizePackageImports` for libraries with many re-exports.
+- Waterfalls: look at the server timing / tracing (OpenTelemetry instrumentation) and the browser Network panel's waterfall view.
+- User impact: Core Web Vitals from real users (LCP, INP, CLS), not just Lighthouse in the lab.
+
+## Trade-offs
+
+| Fix | Helps | Cost |
+| --- | --- | --- |
+| `Promise.all` / start fetches early | latency | must handle partial failures |
+| Suspense per region | perceived speed, streaming | more loading states to design |
+| `'use cache'` on shared data | server time | staleness management |
+| Push `'use client'` to leaves | JS size, hydration time | more prop plumbing |
+| `next/dynamic` for heavy widgets | initial JS | loading state, later load |
+| `optimizePackageImports` | bundle size for barrel-export libraries | config per package |
+
+## Senior nuance
+
+- **`Promise.all` fails fast**: one rejection rejects the whole group; use `Promise.allSettled` or per-region error boundaries when parts are independent.
+- **Deduplicate requests** within a render with React `cache()` (for non-fetch data) so a layout and a page asking for the same user don't double-fetch.
+- **Third-party scripts** (analytics, chat widgets) often dominate main-thread time — load with `next/script` strategies (`afterInteractive`, `lazyOnload`) or a worker.
+- **Images and fonts**: unsized images cause CLS; use `next/image` with dimensions and `next/font` to self-host fonts without layout shift.
+- **Memory leaks on long-running servers** (module-level caches, event listeners added per request) show up as rising memory and slowing responses — profile with heap snapshots.
+
+## Interview questions
+
+<QA q="How do you debug a hydration mismatch in production?" level="mid">
+Reproduce in development where React and Next.js print the differing content; check for non-deterministic render values (time, random, locale), window/localStorage reads during render, invalid HTML nesting and conditional rendering on client-only state. Fix by making the server output deterministic and updating after mount, moving browser-only parts behind dynamic import with ssr: false, or using suppressHydrationWarning for a single intentional difference.
+</QA>
+
+<QA q="A page's JS bundle is 900 KB. What do you do?" level="senior">
+Run the bundle analyzer to see the biggest modules and which client boundary pulls them in. Move 'use client' down to interactive leaves so large render-only libraries stay on the server; replace or tree-shake heavy dependencies (named imports, optimizePackageImports, lighter alternatives); lazy-load below-the-fold or interaction-only widgets with next/dynamic; dedupe duplicate versions; and set a performance budget in CI so it doesn't regress.
+</QA>
+
+<QA q="How do you eliminate waterfalls in nested Server Components?" level="senior">
+Start independent requests as early as possible (in the page or layout) and pass promises down to the components that need them, awaiting inside Suspense boundaries; use Promise.all for data needed together; dedupe shared reads with React cache(); and cache shared data with 'use cache' so repeated requests don't hit the origin.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "await a(); await b(); with independent a and b takes…", options: ["max(a, b)", "a + b", "min(a, b)", "0"], answer: 1, explain: "Sequential awaits add latencies; Promise.all makes it max(a, b)." },
+  { q: "Which change most reduces client JS?", options: ["memo everywhere", "move 'use client' from the page to the interactive button", "add more Suspense", "use useCallback"], answer: 1, explain: "Only modules under a client boundary are shipped." },
+  { q: "Server renders 'Monday' (UTC) and the client renders 'Tuesday' (local TZ). This is…", options: ["fine", "a hydration mismatch", "a waterfall", "a bundle problem"], answer: 1, explain: "Time-zone-dependent rendering differs between server and client." }
+]} />
+
+## Resources
+
+<Resources topic="nextjs/production-problems" />

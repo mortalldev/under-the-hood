@@ -1,0 +1,105 @@
+## TL;DR
+
+Three tools for making types more precise than inference gives by default. A <Term id="branded-type" /> adds a phantom tag so structurally identical values (`UserId`, `OrderId`, both strings) stop being interchangeable. <Term id="satisfies" /> checks a value against a type **without widening** the value's inferred type. **`const` type parameters** (TS 5.0) make generic functions infer literal/readonly types (`["a", "b"]` instead of `string[]`) without callers writing `as const`.
+
+## Visual model
+
+```text
+type UserId  = string & { readonly __brand: "UserId" }
+type OrderId = string & { readonly __brand: "OrderId" }
+loadOrder(userId)   ✗  "UserId" is not assignable to "OrderId"
+userId.toUpperCase() ✓  still a string at runtime and in types
+
+const a: Config = { mode: "dark" }          a.mode: "dark" | "light"   (annotation widens to the declared type)
+const b = { mode: "dark" } satisfies Config  b.mode: "dark"             (checked, but keeps the literal)
+```
+
+## Mechanism
+
+**Brands** exploit intersections: `string & { __brand: "UserId" }` is still a string (all string operations work), but it carries a property that no plain string has, so a plain string — or a different brand — is not assignable. The brand exists only in types; at runtime it is just the string. Values get branded at one validated boundary (a parser/constructor function), the only place a cast is allowed.
+
+**`satisfies`** performs an assignability check of the expression against the type, reports errors like an annotation would (including excess property checks), and then the variable keeps the expression's own inferred type. You get both validation and precise literals.
+
+**`const` type parameters** change inference at call sites: `function f<const T>(x: T)` infers `f(["a", "b"])` as `readonly ["a", "b"]`. Previously every caller had to write `as const`.
+
+## Code
+
+```ts
+declare const brand: unique symbol;
+type Brand<T, B extends string> = T & { readonly [brand]: B };
+
+type Email = Brand<string, "Email">;
+function parseEmail(input: string): Email {             // the ONLY place that creates Emails
+  if (!/^[^@\s]+@[^@\s]+$/.test(input)) throw new Error("invalid email");
+  return input as Email;
+}
+function sendWelcome(to: Email) { /* … */ }
+sendWelcome(parseEmail(form.email));   // ✓
+sendWelcome(form.email);               // ✗ plain string
+
+// satisfies: validate a lookup table but keep its exact keys
+type Route = { path: string; auth: boolean };
+const routes = {
+  home: { path: "/", auth: false },
+  settings: { path: "/settings", auth: true },
+} satisfies Record<string, Route>;
+type RouteName = keyof typeof routes;   // "home" | "settings" — not string
+
+// const type parameter
+function defineColumns<const T extends readonly string[]>(cols: T): T { return cols; }
+const cols = defineColumns(["id", "name"]);   // readonly ["id", "name"]
+type Col = (typeof cols)[number];             // "id" | "name"
+```
+
+<TypePuzzle id="branded-ids" />
+
+## When to use / when not to
+
+**Brands** for identifiers of different entities, validated strings (emails, URLs, sanitized HTML), units (`Meters` vs `Feet`), and money in minor units. Not for every string — the friction must pay for itself.
+
+**`satisfies`** for configuration objects, lookup tables, theme tokens, route maps — anywhere you want "this must conform" plus "remember exactly what I wrote".
+
+**`const` type parameters** in library-style helpers that build types from the arguments (column lists, enums from arrays, router definitions).
+
+## Trade-offs
+
+| Tool | Runtime cost | Catches | Friction |
+| --- | --- | --- | --- |
+| Plain `string` | none | nothing | none |
+| Branded type | none (types only) | mixing IDs/units | needs constructor/validator functions |
+| Class wrapper (`new UserId(s)`) | allocation | mixing + runtime `instanceof` | serialization, equality |
+| `satisfies` | none | wrong shape without widening | needs TS 4.9+ |
+| `as const` / `const T` | none | widening of literals | readonly everywhere |
+
+## Senior nuance
+
+- **Brands at serialization boundaries**: JSON parsing produces plain strings; run data through the parser/validator to re-brand. A schema library can output branded types directly.
+- **`unique symbol` brands** avoid the fake `__brand` property showing up in autocomplete and cannot collide with real data.
+- **`satisfies` + `as const`** combine: `({ … }) as const satisfies T` gives readonly literals that are also validated.
+- **Don't brand with `as` everywhere** — if casts are scattered, the brand guarantees nothing. Centralise creation.
+
+## Interview questions
+
+<QA q="How do you get nominal typing in TypeScript?" level="mid">
+Intersect the base type with a phantom property only that brand has, e.g. `string & { readonly [brand]: "UserId" }` using a unique symbol. Values become branded only through a validating constructor function. Different brands are mutually unassignable while still behaving as the base type at runtime.
+</QA>
+
+<QA q="What is the difference between a type annotation and satisfies?" level="mid">
+An annotation sets the variable's type to the declared type, widening literals (and losing exact keys of a Record). satisfies checks the value against the type with the same errors, but the variable keeps the expression's inferred, narrower type.
+</QA>
+
+<QA q="What problem do const type parameters solve?" level="senior">
+Generic helpers that need literal types from their arguments previously required every caller to write `as const`; forgetting it silently widened types (string[] instead of a tuple of literals). With `function f<const T>(x: T)`, inference at the call site treats the argument as if `as const` were applied.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "const x = { kind: 'a' } satisfies { kind: string }; typeof x.kind is…", options: ["string", "'a'", "never", "unknown"], answer: 1, explain: "satisfies does not widen the inferred literal." },
+  { q: "Branded types exist at runtime as…", options: ["wrapper objects", "the underlying primitive", "symbols", "classes"], answer: 1, explain: "Brands are type-only; nothing is added at runtime." },
+  { q: "Where should `as Brand` casts live?", options: ["everywhere a value is used", "in one validating constructor/parser", "in tests only", "never"], answer: 1, explain: "Centralised creation keeps the guarantee meaningful." }
+]} />
+
+## Resources
+
+<Resources topic="typescript/branded-satisfies-const" />

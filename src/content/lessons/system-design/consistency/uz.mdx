@@ -1,0 +1,99 @@
+## TL;DR
+
+"Consistency" — yozishlardan keyin oʻquvchilar nimani koʻrishi haqidagi kafolatlar spektri. Kuchli uchida <Term id="linearizability" />: tizim goʻyo bitta nusxa bordek va har bir amal bitta lahzada sodir boʻlgandek ishlaydi. Zaif uchida <Term id="eventual-consistency" />: yozishlar toʻxtasa replica'lar birlashadi. **CAP** aytadiki, tarmoq **partition**'i paytida consistency (linearizability) va availability orasida tanlash shart; **PACELC** qoʻshadi: partition'siz ham **latency va consistency** orasida almashasiz. <Term id="quorum">Quorum</Term>'lar (R + W > N) — replikatsiya qilingan store'lardagi klassik tutqich.
+
+## Vizual model
+
+```text
+kuchli ◀───────────────────────────────────────────────────────────────▶ zaif
+linearizable   sequential   causal   read-your-writes / monotonic reads   eventual
+(bitta nusxa)  (bitta tartib)  (sabab oqibatdan oldin)  (sessiya kafolatlari) (oxir-oqibat birlashadi)
+
+Quorum, N = 3 replica:
+W = 2, R = 2  →  R + W = 4 > 3   har bir oʻqish toʻplami oxirgi yozish toʻplami bilan kesishadi
+W = 1, R = 1  →  tez, lekin oʻqish oxirgi yozishni oʻtkazib yuborishi mumkin
+```
+
+## Mexanizm
+
+**Nega partition'lar tanlovga majburlaydi**: ikki partition'dagi replica'lar aloqa qila olmaydi. Bir client bir tomonga yozsa va boshqasi ikkinchi tomondan oʻqisa, tizim yo amallardan birini rad etishi (**CP**: consistent, ozchilik tomonida mavjud emas), yo ikkalasini qabul qilib, keyinroq muvofiqlashtirishi (**AP**: mavjud, eskirgan ma'lumot yoki ziddiyatli yozishlar qaytarishi mumkin) shart. Partition boʻlmasa, ikkalasiga ham ega boʻla olasiz — CAP oddiy ish paytida uchtadan ikkitasini tanlash haqida emas, nosozlikdagi xatti-harakat haqida.
+
+**PACELC**: Partition boʻlsa → A yoki C ni tanlang; aks holda (Else) → Latency yoki Consistency'ni tanlang. Regionlararo sinxron replication consistency beradi, lekin har bir yozish aylanish narxini toʻlaydi; asinxron past latency, lekin eskirgan oʻqishlar beradi.
+
+**Quorum'lar**: N replica bilan yozish W ta replica qabul qilgandan keyin tasdiqlanadi; oʻqish R ta replica'dan soʻrab, eng yangi versiyani oladi. R + W > N boʻlsa, oʻqish va yozish toʻplamlari kesishadi, shuning uchun har bir oʻqishdagi kamida bitta replica oxirgi tasdiqlangan yozishga ega (parallel yozishlar yoʻq va versiyalar toʻgʻri tartiblangan deb faraz qilinsa). Sloppy quorum va hinted handoff nosozliklar paytida bu kafolatni mavjudlikka almashtiradi.
+
+**Linearizability konsensus talab qiladi**: leader saylovi, taqsimlangan lock'lar va node'lar boʻylab unique cheklovlar kelishuv protokollarini (Raft, Paxos) yoki har key'ga bitta leader'ni talab qiladi; ular koʻpchilik yetib boriladigan boʻlishini talab qiladi — bu CP.
+
+## Kod
+
+```ts
+// Optimistik concurrency: lock'larsiz yoʻqolgan yangilanishlarni aniqlash (versiyada compare-and-set)
+async function updateBalance(id: string, delta: number) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { balance, version } = await db.accounts.get(id);
+    const ok = await db.accounts.updateWhere(
+      { id, version },                                // faqat shu orada hech kim oʻzgartirmagan boʻlsa
+      { balance: balance + delta, version: version + 1 },
+    );
+    if (ok) return;
+  }
+  throw new Error("too much contention");
+}
+
+// Idempotency key: bir xil request'ning qayta urinishlari ikki marta qoʻllanmaydi
+async function charge(req: { idempotencyKey: string; amount: number }) {
+  const prev = await db.payments.findByKey(req.idempotencyKey);
+  if (prev) return prev;                              // birinchi urinish bilan bir xil natija
+  return db.payments.create({ key: req.idempotencyKey, amount: req.amount });  // key'da unique indeks
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Kuchli consistency**: pul harakatlari, zaxirani band qilish, noyoblik (foydalanuvchi nomlari), ruxsatlar, leader saylovi — ikki ziddiyatli haqiqat real zarar keltiradigan har narsa uchun.
+
+**Eventual consistency**: feed'lar, like soni, koʻrishlar hisoblagichi, tavsiyalar, qidiruv indekslari, analitika, cache'lar uchun — qisqa kechikish koʻrinmaydigan yoki maqbul, mavjudlik/latency esa muhimroq boʻlganda.
+
+Koʻpincha aralashtirasiz: kuchli consistent yadro (buyurtmalar) + event'lar orqali eventual consistent proyeksiyalar (qidiruv, email'lar, analitika).
+
+## Trade-off'lar
+
+| Model | Kafolatlar | Narx |
+| --- | --- | --- |
+| Linearizable | eng soʻnggi qiymat, yagona global tartib | muvofiqlashtirish, latency, ozchilik partition'ida mavjud emas |
+| Causal | hamma uchun oqibat sababdan keyin | metadata (vector clock'lar), murakkablik |
+| Read-your-writes / monotonic | har foydalanuvchi uchun mantiqiylik | routing/sessiyani kuzatish |
+| Eventual | birlashish | eskirgan oʻqishlar, hal qilinadigan ziddiyatlar |
+
+## Senior nuance
+
+- **Ma'lumotlar bazalari uchun "CP" yoki "AP" yorliqlari haddan tashqari soddalashtirilgan**: koʻp tizimlar har bir amal uchun sozlanadi (quorum darajalari, read concern'lar) va aniq tarzda yomonlashadi. Yorliq oʻrniga kerakli xatti-harakatni tasvirlang.
+- AP tizimlarida **conflict resolution**: last-write-wins yozishlarni jimgina tashlaydi (va soatlarga bogʻliq); CRDT'lar deterministik birlashtiradi (hisoblagichlar, set'lar); ilova darajasidagi birlashtirish foydalanuvchidan soʻraydi.
+- **Soatlar yolgʻon gapiradi**: mashinalar boʻylab devor soati vaqt belgilari siljiydi; noaniqligi chegaralangan soatlar yoki mantiqiy soatlarsiz (Lamport, vector clock'lar, hybrid logical clock'lar) timestamp boʻyicha tartiblash xavfli.
+- **Tarmoq darajasida exactly-once — illyuziya**: exactly-once *ta'sirlar* olish uchun idempotent amallar + deduplication quring.
+
+## Interview savollari
+
+<QA q="CAP teoremasini toʻgʻri tushuntiring." level="mid">
+Tarmoq partition'lariga uchrashi mumkin boʻlgan taqsimlangan tizimda partition sodir boʻlganda, uni kesib oʻtadigan amallar uchun consistency (har bir oʻqish oxirgi yozishni koʻradi — linearizability) va availability (nosoz boʻlmagan node'ga har bir request javob oladi) orasida tanlash shart. Real tarmoqlarda partition'lar ixtiyoriy emas, shuning uchun amaliy tanlov — partition paytidagi CP yoki AP xatti-harakat; partition'siz ikkalasini ham ta'minlash mumkin.
+</QA>
+
+<QA q="N = 5 replica bilan qaysi R va W kuchli consistent oʻqishlar beradi?" level="mid">
+R + W > N boʻlgan istalgani, masalan W = 3, R = 3 (muvozanatli), W = 5, R = 1 (tez oʻqishlar, sekin va moʻrt yozishlar) yoki W = 1, R = 5. Shuningdek W > N/2 ikki parallel yozishning kesishmaydigan toʻplamlarda muvaffaqiyatli boʻlishidan saqlaydi. Tanlov latency va mavjudlikni oʻqish va yozishlar orasida siljitadi.
+</QA>
+
+<QA q="Client toʻlov request'ini qayta yuborganda ikki marta yechib olishning oldini qanday olasiz?" level="senior">
+Amalni idempotent qiling: client har bir mantiqiy toʻlov uchun noyob idempotency key yuboradi; server key'ni natija bilan unique cheklov ostida saqlaydi va bir xil key'li qayta urinish qayta yechib olish oʻrniga saqlangan natijani qaytaradi. Balans yangilanishi uchun optimistik concurrency yoki tranzaksiyalar bilan birlashtiring va key'ni quyi oqim protsessorlariga uzating.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "N = 3, W = 1, R = 1. Oʻqishlar…", options: ["doim eng soʻnggi", "eskirgan boʻlishi mumkin", "imkonsiz", "linearizable"], answer: 1, explain: "R + W = 2 ≤ 3, shuning uchun oʻqish va yozish toʻplamlari kesishmasligi mumkin." },
+  { q: "PACELC'dagi 'ELC' nimani bildiradi?", options: ["Else: Latency vs Consistency", "Eventual Linearizable Consistency", "Error Leader Commit", "hech narsa"], answer: 0, explain: "Partition'siz ham latency'ni consistency'ga almashasiz." },
+  { q: "Ijtimoiy feed'dagi like soni odatda…", options: ["linearizable", "eventual consistent", "sequential", "hech qachon cache'lanmaydi"], answer: 1, explain: "Kichik kechikishlar maqbul; mavjudlik va latency muhimroq." }
+]} />
+
+## Resurslar
+
+<Resources topic="system-design/consistency" />

@@ -1,0 +1,98 @@
+## TL;DR
+
+"Node is single-threaded" is only true for **your JavaScript**. Underneath, <Term id="libuv" /> uses the operating system's asynchronous mechanisms (epoll on Linux, kqueue on macOS, IOCP on Windows) for **network I/O**, and a fixed <Term id="thread-pool" /> — **4 threads by default** (`UV_THREADPOOL_SIZE`) — for work the OS cannot do asynchronously: most `fs` operations, `dns.lookup`, async `crypto` (pbkdf2, scrypt, randomBytes…) and async `zlib`. If those tasks outnumber the threads, they **queue**, and unrelated operations sharing the pool wait too.
+
+## Visual model
+
+```text
+JS main thread ──▶ fs.readFile / crypto.pbkdf2 / dns.lookup / zlib.gzip ──▶ libuv work queue ──▶ [T1][T2][T3][T4]
+               ──▶ net.Socket / http / TLS sockets ──▶ OS event notification (epoll/kqueue/IOCP) ── no pool threads
+completion ──▶ callback queued for the poll phase ──▶ runs on the main thread
+```
+
+## Mechanism
+
+Six identical CPU-heavy tasks on a pool of 4: the first four run in parallel, the last two wait in libuv's FIFO queue and finish one "round" later. Try pool size 8, or one slow task blocking a pool of 2:
+
+<ThreadPoolViz />
+
+**Why not everything on the OS?** Many platforms don't offer usable asynchronous file-system APIs, and `getaddrinfo` (used by `dns.lookup`) is a blocking system call. libuv wraps these blocking calls in worker threads and reports completion back to the event loop.
+
+**Network I/O is different**: sockets are non-blocking; the OS tells libuv when data is ready, so thousands of connections need no extra threads — the reason Node handles many concurrent connections cheaply.
+
+**Starvation**: because the pool is shared, a burst of slow `fs` reads or DNS lookups can delay crypto operations and vice versa. A classic incident: slow DNS (via `dns.lookup` behind `http.get`) occupying all 4 threads, making file reads "randomly" slow.
+
+## Code
+
+```js
+// Measure pool queueing: 6 × pbkdf2 with the default pool size of 4
+const crypto = require("node:crypto");
+const start = Date.now();
+for (let i = 1; i <= 6; i++) {
+  crypto.pbkdf2("pw", "salt", 1e6, 64, "sha512", () => console.log(i, Date.now() - start, "ms"));
+}
+// Typical shape: four similar times, then two about twice as long
+
+// Increase the pool (must be set before the pool is first used — env var is the safe way)
+//   UV_THREADPOOL_SIZE=8 node server.js
+
+// Avoid the pool for DNS when you don't need OS resolver semantics:
+const dns = require("node:dns");
+dns.resolve4("example.com", (err, addrs) => {});   // c-ares, network-based, not the thread pool
+
+// Sync variants block the MAIN thread entirely — avoid them in request handlers
+// crypto.pbkdf2Sync(...), fs.readFileSync(...), zlib.gzipSync(...)
+```
+
+## When to use / when not to
+
+**Raise `UV_THREADPOOL_SIZE`** when profiling shows pool queueing for fs/crypto/zlib-heavy services (image processing, password hashing, compression). More threads help only up to your CPU cores for CPU-bound work, and add memory.
+
+**Use worker threads** for your own CPU-heavy JavaScript (parsing, image manipulation in JS) — the libuv pool only runs libuv/Node internal tasks.
+
+**Move heavy work out of the request path** (queues + background workers) when latency matters more than throughput.
+
+## Trade-offs
+
+| Operation | Mechanism | Uses pool? |
+| --- | --- | --- |
+| TCP/HTTP/TLS sockets | OS async I/O (epoll/kqueue/IOCP) | no |
+| `fs.*` (async) | worker threads | yes (except a few watch APIs) |
+| `dns.lookup` | `getaddrinfo` in a worker | yes |
+| `dns.resolve*` | c-ares over the network | no |
+| `crypto.pbkdf2/scrypt/randomBytes` (async) | worker threads | yes |
+| `zlib` async | worker threads | yes |
+| `*Sync` variants | main thread | no — blocks everything |
+
+## Senior nuance
+
+- **Pool size is process-wide**, decided when the pool is first used. Setting `process.env.UV_THREADPOOL_SIZE` inside your code may be too late if any module already triggered pool work — set it in the environment.
+- **CPU-bound pool work competes with the main thread for cores**: on a 2-vCPU container, 16 pool threads won't make bcrypt faster.
+- **Clusters multiply pools**: each process has its own pool, so 4 cluster workers × 4 threads = 16 threads.
+- **Observability**: diagnose with `--cpu-prof`, async hooks/diagnostics_channel traces, or by timing pool-bound calls; event-loop lag alone won't reveal pool saturation because the main thread is idle while waiting.
+
+## Interview questions
+
+<QA q="Is Node.js single-threaded?" level="mid">
+JavaScript execution runs on a single main thread (per isolate/worker), but Node itself uses multiple threads: libuv's worker pool (default 4) for blocking work like file system, dns.lookup, async crypto and zlib; V8 helper threads for GC and compilation; and optionally worker_threads you create. Network I/O uses OS async notification, not threads.
+</QA>
+
+<QA q="Why might file reads become slow when the service makes many outgoing HTTP requests?" level="senior">
+Outgoing HTTP requests resolve hostnames with dns.lookup by default, which runs getaddrinfo on the shared libuv thread pool. If DNS is slow or there are many lookups, all pool threads are occupied and fs operations queue behind them. Fixes: cache DNS results, use dns.resolve (c-ares) or an IP, increase UV_THREADPOOL_SIZE, or reduce concurrency.
+</QA>
+
+<QA q="Thread pool vs worker_threads?" level="mid">
+The libuv thread pool is internal: it executes specific native operations (fs, dns.lookup, crypto, zlib) on behalf of the main thread. worker_threads are separate JavaScript threads you create, each with its own V8 isolate and event loop, used to run your own CPU-bound JS without blocking the main thread.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which does NOT use the libuv thread pool?", options: ["fs.readFile", "crypto.pbkdf2", "an HTTP socket read", "dns.lookup"], answer: 2, explain: "Sockets use OS async notifications." },
+  { q: "Default UV_THREADPOOL_SIZE is…", options: ["1", "4", "number of CPU cores", "128"], answer: 1, explain: "Four threads unless configured." },
+  { q: "8 concurrent pbkdf2 calls of ~1 s each with pool size 4 finish in about…", options: ["1 s", "2 s", "8 s", "0.5 s"], answer: 1, explain: "Two rounds of four (assuming at least 4 free cores)." }
+]} />
+
+## Resources
+
+<Resources topic="nodejs/libuv-thread-pool" />

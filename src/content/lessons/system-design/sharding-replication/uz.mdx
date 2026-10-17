@@ -1,0 +1,108 @@
+## TL;DR
+
+<Term id="replication" /> bir xil ma'lumotning **nusxalarini** bir nechta node'da saqlaydi (mavjudlik, chidamlilik, oʻqishni masshtablash). <Term id="sharding" /> ma'lumotni partition key boʻyicha node'larga **boʻladi** (yozish va saqlashni masshtablash). Real tizimlar ikkalasini qiladi: har bir shard replikatsiya qilinadi. Qiyin qismlar — **partition key**'ni tanlash (tekis yuklama, bitta shard'da qoladigan query'lar), **replication lag**'ni hal qilish va hamma narsani koʻchirmasdan **rebalancing** — <Term id="consistent-hashing" /> aynan shu uchun.
+
+## Vizual model
+
+```text
+                  shard A (a–h foydalanuvchilar)  shard B (i–p)            shard C (q–z)
+leader            [A-L]                          [B-L]                    [C-L]
+follower'lar      [A-F1] [A-F2]                  [B-F1] [B-F2]            [C-F1] [C-F2]
+yozishlar ─▶ key shard'ining leader'iga; oʻqishlar ─▶ leader (yangi) yoki follower'lar (masshtablanadi, eskirgan boʻlishi mumkin)
+```
+
+## Mexanizm
+
+### Replication
+
+- **Single-leader**: barcha yozishlar leader'ga boradi, u log'ini follower'larga stream qiladi. **Sinxron** replication follower'larni kutadi (failover'da ma'lumot yoʻqotilmaydi, latency yuqoriroq); **asinxron** kutmaydi (tez, lekin failover oxirgi yozishlarni yoʻqotishi mumkin va follower'lar eskirgan oʻqishlarni beradi). Koʻp tizimlar semi-sync ishlatadi: bitta follower'ni kutish.
+- **Multi-leader**: bir nechta leader yozishlarni qabul qiladi (multi-region) — **conflict resolution** kerak (last-write-wins ma'lumot yoʻqotadi; CRDT yoki ilova darajasidagi birlashtirish uni saqlaydi).
+- **Leaderless** (Dynamo uslubida): client'lar bir nechta replica'ga <Term id="quorum" /> qoidalari bilan (R + W > N) yozadi va ulardan oʻqiydi, birlashish uchun read repair va anti-entropy'dan foydalanadi.
+
+### Sharding
+
+- **Range partitioning** (key oraliqlari boʻyicha): samarali oraliq skanerlari; issiq oraliqlar xavfi (barcha yangi timestamp'lar oxirgi shard'ga tushadi).
+- **Hash partitioning**: tekis taqsimlash; oraliq query'lari shard'lar boʻylab tarqaladi.
+- **Directory asosida**: lookup servisi key'larni shard'larga aks ettiradi — moslashuvchan, lekin bu yana bitta muhim komponent.
+
+### Consistent hashing bilan rebalancing
+
+`hash(key) % N` bilan N ni oʻzgartirish deyarli har bir key'ni qayta aks ettiradi. Consistent hashing node va key'larni halqaga joylashtiradi; key soat yoʻnalishi boʻyicha birinchi node'ga tegishli. Node qoʻshish faqat uning yoyidagi key'larni egallaydi. Sinab koʻring — va modulo soni bilan solishtiring:
+
+<ConsistentHashingViz />
+
+Real tizimlar yoy oʻlchamlarini tenglashtirish va nosoz node yuklamasini boshqa barchasiga tarqatish uchun har bir serverga halqada koʻp **virtual node** beradi.
+
+## Kod
+
+```ts
+// Request'ni shard'iga yoʻnaltirish (halqada virtual node'li hash partitioning)
+class Ring {
+  private points: { pos: number; node: string }[] = [];
+  constructor(nodes: string[], vnodes = 100) {
+    for (const n of nodes) for (let v = 0; v < vnodes; v++) this.points.push({ pos: hash32(`${n}#${v}`), node: n });
+    this.points.sort((a, b) => a.pos - b.pos);
+  }
+  nodeFor(key: string): string {
+    const h = hash32(key);
+    let lo = 0, hi = this.points.length;          // pos >= h boʻlgan birinchi nuqta (binary search)
+    while (lo < hi) { const m = (lo + hi) >> 1; if (this.points[m].pos < h) lo = m + 1; else hi = m; }
+    return this.points[lo % this.points.length].node;
+  }
+}
+
+// Asinxron replica'lar bilan read-your-own-writes: foydalanuvchi yozgandan keyin qisqa vaqt uning oʻqishlarini leader'ga yoʻnaltirish
+function chooseReplica(userId: string, lastWriteAt: number | undefined) {
+  return lastWriteAt && Date.now() - lastWriteAt < 5_000 ? leader : randomFollower();
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Deyarli doim **replikatsiya qiling** (chidamlilik, failover, oʻqishni masshtablash). Faqat bitta node ma'lumotni yoki yozish tezligini koʻtara olmaganda **shard qiling** — sharding tranzaksiyalar, join'lar, unique cheklovlar va operatsiyalarni murakkablashtiradi. Avval vertikal masshtablash, read replica'lar, caching va arxivlashni tugating.
+
+**Partition key tanlash**: yuqori kardinallik, tekis murojaat va ustun query bilan moslik (masalan, B2B SaaS uchun `tenant_id`, ijtimoiy ma'lumot uchun `user_id`). Hotspot yaratadigan key'lardan qoching (timestamp'lar, mashhur foydalanuvchi) — yoki ular uchun salt/suffix qoʻshing.
+
+## Trade-off'lar
+
+| Tanlov | Yutuq | Narx |
+| --- | --- | --- |
+| Sinxron replication | failover'da yoʻqotish yoʻq | yozish latency'si, mavjudlik follower'larga bogʻliq |
+| Asinxron replication | tez yozishlar | failover'da mumkin boʻlgan yoʻqotish, eskirgan oʻqishlar |
+| Range sharding | oraliq skanerlari | hotspot'lar |
+| Hash sharding | tekis yuklama | oraliqlar uchun scatter-gather |
+| Consistent hashing | minimal ma'lumot koʻchirish | virtual node'larsiz notekis yoylar |
+| Shard'lararo tranzaksiyalar | toʻgʻrilik | 2PC/saga'lar, latency, murakkablik |
+
+## Senior nuance
+
+- **Replication lag anomaliyalari**: read-your-own-writes, monotonic reads (replica'lar orasida vaqtda orqaga qaytmaslik), consistent prefix reads (sababiy bogʻliq yozishlar tartibda). Mahsulotingizga qaysi biri kerakligini biling.
+- **Failover xavfli**: split brain (ikki leader), yoʻqolgan asinxron yozishlar, eskirgan leader manzilli client'lar. Fencing token'lar va konsensusga asoslangan leader saylovidan foydalaning.
+- **Onlayn resharding**: ikki marta yozish yoki log asosidagi backfill, tekshirish, keyin oʻqishlarni almashtirish; tenant'larni koʻchirish mumkin boʻlishi uchun ID'larni rejalashtiring.
+- Shard qilingan ma'lumotdagi **global secondary indekslar** yo lokal (barcha shard'lardan soʻrash), yo global (oʻzi ham partition qilingan, asinxron yangilanadi).
+
+## Interview savollari
+
+<QA q="Sharding va replication?" level="mid">
+Replication mavjudlik, chidamlilik va oʻqish throughput'i uchun bir xil ma'lumotni bir nechta node'ga nusxalaydi. Sharding saqlash va yozish throughput'ini masshtablash uchun har xil ma'lumotni har xil node'larga boʻladi. Ular ortogonal va birlashtiriladi: har bir shard replikatsiya qilinadi.
+</QA>
+
+<QA q="Nega hash mod N oʻrniga consistent hashing?" level="mid">
+mod N bilan node'lar sonini oʻzgartirish deyarli har bir key'ning maqsadini oʻzgartiradi va ulkan ma'lumot koʻchishi hamda cache miss boʻronini majburlaydi. Consistent hashing bilan faqat oʻzgargan node egallagan (yoki boʻshatgan) yoydagi key'lar koʻchadi — taxminan 1/N qismi — virtual node'lar esa taqsimotni tekis saqlaydi.
+</QA>
+
+<QA q="Foydalanuvchi profilini yangilaydi va darhol eski versiyani koʻradi. Tushuntiring va tuzating." level="senior">
+Uning yozishi leader'ga bordi, lekin keyingi oʻqishga uni hali qoʻllamagan asinxron follower xizmat qildi (replication lag). Read-your-own-writes bilan tuzating: yozishdan keyin qisqa vaqt oʻsha foydalanuvchining oʻqishlarini leader'ga yoʻnaltiring yoki replica'dan faqat uning replication pozitsiyasi yozish pozitsiyasidan kam boʻlmaganda oʻqing (sessiya/LSN token'lari) yoki foydalanuvchining oʻz profilini doim leader'dan oʻqing.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Consistent hashing bilan 4 ta node'ga 1 ta qoʻshish taxminan nechtasini koʻchiradi?", options: ["barcha key'lar", "key'larning ~1/5 qismi", "key'larning ~4/5 qismi", "hech biri"], answer: 1, explain: "Faqat yangi node ulushi koʻchadi." },
+  { q: "Buyurtmalarni created_at oraligʻi boʻyicha partition qilish nimaga olib keladi?", options: ["tekis yuklama", "issiq oxirgi shard", "sekin oraliq skanerlari", "muammo yoʻq"], answer: 1, explain: "Barcha yangi yozishlar eng yangi oraliqqa tushadi." },
+  { q: "Asinxron replication + leader failover…", options: ["yaqinda tasdiqlangan yozishlarni yoʻqotishi mumkin", "hech narsa yoʻqotmaydi", "yozish throughput'ini ikki baravar oshiradi", "lag'ni tuzatadi"], answer: 0, explain: "Leader oʻlsa, hali replikatsiya qilinmagan yozishlar yoʻqoladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="system-design/sharding-replication" />

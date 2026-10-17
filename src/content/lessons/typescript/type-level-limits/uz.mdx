@@ -1,0 +1,91 @@
+## TL;DR
+
+TypeScript tip tizimi deyarli hamma narsani hisoblay oladigan darajada ifodali — lekin har bir hisoblangan tur **compile vaqti**, **xato xabarlari aniqligi** va **maintainability**ga tushadi. Tekshiruvchining qat'iy chegaralari ham bor (instantiation chuqurligi, union hajmi, tail-recursion byudjeti). Senior muhandis qachon toʻxtashni biladi: turlar notoʻgʻri kodni yozishni qiyin, toʻgʻri kodni oʻqishni oson qilishi kerak, teoremalarni isbotlash emas.
+
+## Vizual model
+
+```text
+aniq turlarning qiymati ─────────────▲───────────── narx (compile vaqti, xatolar, onboarding)
+                                    optimal nuqta:
+oddiy annotatsiyalar → union'lar va generic'lar → mapped/conditional yordamchilar → type darajasidagi rekursiv parser'lar
+     arzon                                                                              qimmat, moʻrt
+```
+
+## Mexanizm
+
+**Instantiation**: generic turning har bir ishlatilishi tekshiruvchi hisoblashi va cache qilishi kerak boʻlgan instantiation yaratadi. Rekursiv turlar (`Paths<T>`, string parser'lar) har qadamga bitta instantiation yaratadi. Tekshiruvchi ichma-ichlik chuqurligini cheklaydi; tail-recursive conditional type'lar (rekursiv chaqiruv butun branch boʻlgan) ancha yuqori byudjet oladi — shuning uchun accumulator uslubidagi rekursiya afzal.
+
+**Union hajmi**: union'lar ustidagi amallar koʻpincha kvadratik (union'ni union'ga tayinlash a'zolarni solishtiradi). Template literal dekart koʻpaytmalari koʻpaytirib portlaydi; TypeScript ichki chegaradan (taxminan 100 000 a'zo) katta union'larni rad etadi.
+
+**Xato xabarlari**: hisoblangan tur ichidagi nomuvofiqlik uzun "Type X is not assignable to type Y" zanjiri sifatida chiqadi. Kutubxona foydalanuvchilari chiroyli ta'rifni emas, aynan shuni koʻradi.
+
+**Editor latency'si**: har bir tugma bosilishi faylni qayta tekshiradi; ogʻir turlar completion'larni kechiktiradi — dasturchilar buni CI vaqtidan koʻra koʻproq his qiladi.
+
+## Kod
+
+```ts
+// ✗ Tail boʻlmagan rekursiya: uzun string'larda chuqurlik chegarasiga uriladi
+type Reverse<S extends string> = S extends `${infer H}${infer T}` ? `${Reverse<T>}${H}` : "";
+
+// ✓ Accumulator'li tail-recursive: ancha yuqori chegara
+type Reverse2<S extends string, Acc extends string = ""> =
+  S extends `${infer H}${infer T}` ? Reverse2<T, `${H}${Acc}`> : Acc;
+
+// Taxmin qilish oʻrniga oʻlchang
+//   tsc --extendedDiagnostics          → tekshiruv vaqti, instantiation sonlari
+//   tsc --generateTrace ./trace         → trace viewer'da oching, issiq turlarni toping
+
+// Niyatli chiqish yoʻli: ommaviy turni sodda saqlang, ichki qismlarni testlar bilan tekshiring
+export function getIn(obj: unknown, path: string): unknown { /* runtime implementatsiya */ return undefined; }
+// …plus siz OCHADIGAN aniq overload'lar uchun bir nechta `expectTypeOf`/`Expect<Equal<…>>` testlari
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Turlarga chuqur kiring**: koʻp iste'molchili umumiy kutubxonalarda (router'lar, forma kutubxonalari, ORM'lar, design-system komponentlari) — narx bir marta toʻlanadi, foydani har bir foydalanuvchi oladi.
+
+**Sayoz qoling**: ilova kodida, kamdan-kam oʻzgaradigan modullarda va "aniq" tur u almashtiradigan runtime tekshiruvdan oʻqish qiyinroq boʻladigan har qanday joyda.
+
+**Ishonch chegaralarida runtime validatsiyani afzal koʻring** (schema kutubxonalari); turlar runtime'da keladigan ma'lumotni validatsiya qila olmaydi.
+
+## Trade-off'lar
+
+| Signal | Ehtimol juda uzoqqa ketilgan |
+| --- | --- |
+| Hover tooltip oʻqib boʻlmaydi | `Simplify` qoʻshing, oraliq turlarni nomlang yoki soddalashtiring |
+| "Type instantiation is excessively deep and possibly infinite" | qayta loyihalang: tail rekursiya, kichikroq input'lar yoki runtime tekshiruvlar |
+| Jamoadoshlar faylga tegishdan qochadi | maintainability narxi foydadan oshib ketgan |
+| Shu modulda editor completion'lari kechikadi | `--generateTrace` bilan profil qiling |
+
+## Senior nuance
+
+- **Turlar — majburiy hujjat**: oʻquvchi uchun optimallashtiring: nom bering, ommaviy signature'larni sodda saqlang, ayyorlikni testlar bilan ichki qismlarga yashiring.
+- **Turlaringizni test qiling**: `Expect<Equal<A, B>>` assertion'lari (yoki `expect-type` uslubidagi kutubxonalar) type utility'laridagi regressiyalarni unit testlar runtime bug'larni ushlagandek ushlaydi.
+- **Versiyaga sezgirlik**: type darajasidagi hiylalar ba'zan TypeScript relizlari orasida oʻzgaradigan tekshiruvchi xatti-harakatiga bogʻliq; ularga tayansangiz versiyani qotiring va test qiling.
+- **`any` yuqumli, `unknown` halol**: aniqlikdan voz kechishga toʻgʻri kelganda `unknown` chaqiruvchilarni toraytirishga majbur qiladi, `any` esa pastdagi tekshiruvni jimgina oʻchiradi.
+
+## Interview savollari
+
+<QA q="Murakkab tur qachon oʻziga arziydi?" level="senior">
+U koʻp odamlar aks holda yozadigan bug'lar sinfining oldini olganda (notoʻgʻri route parametrlari, mos kelmaydigan event payload'lari), keng ishlatiladigan umumiy kodda yashaganda va natijadagi xatolar hali ham tushunarli boʻlganda. Agar u faqat muallifga bir nechta annotatsiyani tejasa yoki chaqiruv joylarini oʻqishni qiyinlashtirsa — arzimaydi.
+</QA>
+
+<QA q="'Type instantiation is excessively deep' nimani bildiradi va uni qanday tuzatasiz?" level="senior">
+Tekshiruvchi rekursiv generic turni yoyishda rekursiya/instantiation chuqurligi chegarasiga urildi. Tuzatishlar: rekursiyani accumulator'lar bilan tail-recursive qilish (yuqoriroq byudjet), input hajmini cheklash (masalan, chuqurlik parametri), hisoblashni boʻlish yoki aniqlikni soddaroq ommaviy tur bilan runtime'ga koʻchirish.
+</QA>
+
+<QA q="Build'ni qaysi turlar sekinlashtirayotganini qanday topasiz?" level="mid">
+Tekshiruv vaqti va instantiation sonlarini koʻrish uchun `tsc --extendedDiagnostics`ni ishga tushiring, keyin `tsc --generateTrace dir` va eng uzoq tekshiriladigan fayl va turlarni topish uchun trace'ni koʻring. Keyin oʻsha turlarni soddalashtiring, issiq nuqtalarda aniq annotatsiyalar qoʻying yoki loyihalarni reference'lar bilan boʻling.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Qaysi rekursiya uslubi yuqoriroq chuqurlik byudjetini oladi?", options: ["har qanday rekursiya", "tail-recursive conditional type'lar", "mapped type rekursiyasi", "hech biri"], answer: 1, explain: "Rekursiv chaqiruv butun branch natijasi boʻlganda TypeScript ichma-ich qilish oʻrniga iteratsiya qila oladi." },
+  { q: "Ishonch chegarasida (tarmoqdan JSON) toʻgʻri vosita…", options: ["ayyor tur", "turni ham chiqaradigan runtime validatsiya", "as T", "any"], answer: 1, explain: "Turlar runtime ma'lumotni tekshira olmaydi." },
+  { q: "Tur tooltip'i 40 qatorli intersection koʻrsatadi. Birinchi tuzatish?", options: ["e'tibor bermaslik", "Simplify / nomlangan oraliq turlar", "any ishlatish", "turni oʻchirish"], answer: 1, explain: "Qayta loyihalashdan oldin oʻquvchi koʻrinishini yaxshilang." }
+]} />
+
+## Resurslar
+
+<Resources topic="typescript/type-level-limits" />

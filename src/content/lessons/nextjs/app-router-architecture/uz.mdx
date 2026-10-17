@@ -1,0 +1,110 @@
+## TL;DR
+
+<Term id="app-router" /> papkalarni **route segment**'larga, ularning ichidagi maxsus fayllarni esa **qat'iy rolli React komponentlari**ga aks ettiradi: `layout` (navigatsiyalar davomida saqlanadi), `page` (bargdagi UI), `loading` (Suspense fallback), `error` (error boundary), `not-found`, `template` (remount boʻladigan layout). Har bir segment fayllari ichma-ich komponent daraxtiga yigʻiladi, shuning uchun navigatsiya faqat oʻzgargan segment'larni re-render qiladi, yuqoridagi layout'lar esa state'ini saqlaydi.
+
+## Vizual model
+
+<FlowDiagram height={62} nodes={[
+  { id: "root", label: "app/layout.tsx", sub: "<html>, <body>, provider'lar", x: 50, y: 6, w: 30 },
+  { id: "dash", label: "app/dashboard/layout.tsx", sub: "sidebar — saqlanadi", x: 50, y: 20, w: 34 },
+  { id: "err", label: "error.tsx", sub: "error boundary", x: 16, y: 34, w: 22, kind: "note" },
+  { id: "load", label: "loading.tsx", sub: "<Suspense fallback>", x: 50, y: 34, w: 24, kind: "note" },
+  { id: "nf", label: "not-found.tsx", sub: "notFound()", x: 84, y: 34, w: 22, kind: "note" },
+  { id: "page", label: "app/dashboard/[id]/page.tsx", sub: "barg — navigatsiyada oʻzgaradi", x: 50, y: 52, w: 38, kind: "client" }
+]} edges={[
+  { from: "root", to: "dash" }, { from: "dash", to: "load" }, { from: "dash", to: "err", dashed: true }, { from: "dash", to: "nf", dashed: true }, { from: "load", to: "page" }
+]} caption="Har bir segment bolalarini shunday oʻraydi: layout → template → error boundary → Suspense(loading) → not-found boundary → page." />
+
+## Mexanizm
+
+Har bir segment uchun **kompozitsiya tartibi**: `layout` `template`ni oʻraydi, u error boundary'ni (`error.tsx`), u Suspense boundary'ni (`loading.tsx`), u not-found boundary'ni, u esa `page`ni (yoki keyingi segment layout'ini) oʻraydi. `error.tsx` oʻsha segment layout'ining *ichida* turgani uchun, page'dagi xato uning layout'ini buzmaydi; layout'dagi xatolarni ushlash uchun `error.tsx`ni ota segment'ga qoʻying.
+
+**Navigatsiya**: `<Link>` client-side transition'ni ishga tushiradi. Router oʻzgaradigan segment'lar uchun RSC payload'ni oladi va umumiy layout'larni mount holatida saqlaydi (ularning state'i, scroll va focus saqlanadi). Cache Components bilan yaqinda tashrif buyurilgan route'lar React `<Activity>` bilan yashirin saqlanadi, shuning uchun orqaga qaytganda ularning state'i saqlanadi.
+
+**Dinamik segment'lar**: `[id]` bitta segment'ni ushlaydi, `[...slug]` catch-all, `[[...slug]]` ixtiyoriy catch-all. Params **promise** sifatida keladi (`await params`) — qiymatlar `generateStaticParams` orqali ma'lum boʻlmasa, ularni oʻqish runtime ma'lumot hisoblanadi.
+
+**Ilgʻor routing**:
+- **Route group'lar** `(marketing)` URL'ga ta'sir qilmasdan fayllarni tartibga soladi yoki subtree'larga har xil root layout beradi.
+- **Parallel route'lar** `@modal`, `@feed` bitta layout'da bir vaqtda bir nechta sahifani, har birini oʻz loading/error holatlari bilan render qiladi; `default.tsx` hard navigatsiyadan keyin slot'ga moslik boʻlmaganda fallback beradi.
+- **Intercepting route'lar** `(.)photo/[id]` soft navigatsiyada route'ni joriy layout'da (masalan, modal'da) koʻrsatadi, toʻgʻridan-toʻgʻri tashrif esa toʻliq sahifani render qiladi.
+
+## Kod
+
+```tsx
+// app/dashboard/layout.tsx — /dashboard/* navigatsiyalari davomida saqlanadi
+export default function DashboardLayout({ children }: LayoutProps<"/dashboard">) {
+  return (
+    <div className="grid grid-cols-[240px_1fr]">
+      <Sidebar />          {/* bu yerdagi client state bola sahifalar orasidagi navigatsiyadan omon qoladi */}
+      <main>{children}</main>
+    </div>
+  );
+}
+
+// app/dashboard/[id]/page.tsx
+import { notFound } from "next/navigation";
+export default async function Page({ params }: PageProps<"/dashboard/[id]">) {
+  const { id } = await params;
+  const report = await getReport(id);
+  if (!report) notFound();             // eng yaqin not-found.tsx'ni render qiladi
+  return <ReportView report={report} />;
+}
+
+// app/dashboard/error.tsx — Client Component boʻlishi shart
+"use client";
+export default function Error({ error, reset }: { error: Error; reset: () => void }) {
+  return <button onClick={() => reset()}>Try again ({error.message})</button>;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Layout'lar** navigatsiyadan omon qolishi kerak boʻlgan umumiy qobiq va state uchun (sidebar'lar, tab'lar, player'lar). **Template'lar** har navigatsiyada yangi nusxa *xohlaganingizda* (kirish animatsiyalari, sahifa boʻyicha effect'lar, formalarni tiklash).
+
+**`loading.tsx`** butun segment fallback'i uchun; qismlar mustaqil render boʻla olsa, sahifa ichidagi maydaroq `<Suspense>` chegaralarini afzal koʻring.
+
+**Parallel + intercepting route'lar** ulashiladigan URL'li modal'lar uchun (foto koʻruvchilar, tezkor tahrirlash) — oddiy shartli UI uchun emas, u yerda client komponent soddaroq.
+
+## Trade-off'lar
+
+| Fayl | Navigatsiyada remount | Server Component boʻla oladimi | Vazifasi |
+| --- | --- | --- | --- |
+| `layout` | yoʻq | ha | umumiy UI + state |
+| `template` | ha | ha | har navigatsiyada yangi nusxa |
+| `page` | segment oʻzgarganda | ha | route UI |
+| `loading` | — | ha | segment uchun Suspense fallback |
+| `error` | — | **yoʻq** (client) | retry'li error boundary |
+| `not-found` | — | ha | `notFound()` UI |
+
+## Senior nuance
+
+- **Layout'lar `searchParams` olmaydi** va ular ichidagi har navigatsiyada re-render boʻlmaydi — u yerda request'ga xos ma'lumotni oʻqish keng tarqalgan xato; buni page'larda yoki `useSearchParams` bilan client komponentlarda qiling.
+- Joriy Next.js'da **`params` va `searchParams` — promise'lar**; ularni daraxtda yuqorida await qilish pastdagi hamma narsani runtime'ga bogʻliq qiladi — shell'ning koʻproq qismini statik saqlash uchun promise'ni pastga uzatib, Suspense chegarasi ichida await qiling.
+- **Root layout `<html>` va `<body>`ni render qilishi shart**; route group'lar orqali bir nechta root layout ular orasida navigatsiyada toʻliq sahifa yuklanishiga olib keladi.
+- **Komponent darajasidagi error boundary'lar**: `next/error`dan `catchError` daraxtning istalgan joyida `redirect()`/`notFound()` bilan hamkorlik qiladigan va `retry()` taklif qiladigan chegaralar yaratadi.
+
+## Interview savollari
+
+<QA q="Nega layout'lar navigatsiya paytida state'ni saqlaydi?" level="mid">
+Router faqat oʻzgaradigan segment'larni re-render qiladi. Umumiy layout — daraxtdagi bir xil pozitsiyadagi bir xil komponent, shuning uchun React uning nusxasini (state, effect'lar, DOM) saqlaydi va faqat children prop'ni yangi segment kontenti bilan almashtiradi.
+</QA>
+
+<QA q="Layout'da tashlangan xatoni oʻsha papkadagi error.tsx ushlamaydi. Nega?" level="senior">
+error.tsx yaratgan error boundary oʻsha segment layout'ining ichida render qilinadi, shuning uchun u faqat segment bolalaridan (page va ichma-ich segment'lar) kelgan xatolarni ushlaydi. Layout'ning oʻzidan kelgan xatolarni hal qilish uchun error.tsx'ni ota segment'ga qoʻying (yoki root layout uchun global-error ishlating).
+</QA>
+
+<QA q="Ulashiladigan URL'li Instagram uslubidagi foto modal'ni qanday qurasiz?" level="senior">
+Feed layout'ida parallel route slot (masalan @modal) va uning ichida intercepting route (.)photo/[id] ishlating, shunda feed'dan soft navigatsiya fotoni modal slot'da render qiladi, feed esa mount holatida qoladi. /photo/[id] ga toʻgʻridan-toʻgʻri tashrif yoki refresh intercept qilinmaydi va toʻliq foto sahifasini render qiladi. Mos kelmaydigan holatlar hech narsa render qilmasligi uchun slot'ga default.tsx bering.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Qaysi maxsus fayl Client Component boʻlishi shart?", options: ["layout.tsx", "loading.tsx", "error.tsx", "page.tsx"], answer: 2, explain: "Error boundary'larga client tomonidagi state va reset funksiyasi kerak." },
+  { q: "Har safar bola sahifa oʻzgarganda kirish animatsiyasi kerak. Nima ishlatasiz?", options: ["layout", "template", "loading", "route group"], answer: 1, explain: "Template'lar har navigatsiyada remount boʻladi." },
+  { q: "(marketing)/about/page.tsx qayerda xizmat qiladi?", options: ["/marketing/about", "/about", "/(marketing)/about", "hech qayerda"], answer: 1, explain: "Route group'lar URL'da koʻrinmaydi." }
+]} />
+
+## Resurslar
+
+<Resources topic="nextjs/app-router-architecture" />

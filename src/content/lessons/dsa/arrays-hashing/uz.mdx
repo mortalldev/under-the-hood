@@ -1,0 +1,111 @@
+## TL;DR
+
+Hash map xotirani vaqtga almashtiradi: "X ni koʻrganmanmi?" va "X nechta?" savollarini O(n) skanerdan kutilgan O(1) qidiruvga aylantiradi. O(n²) koʻrinadigan koʻp array masalalari — juftliklar, dublikatlar, guruhlashlar — *oʻtib ketgan elementlar haqida nimani eslab qolishim kerak?* deb soʻraganingizdan keyin O(n) ga tushadi.
+
+## Vizual model
+
+**Bucket**'lar array'ini tasavvur qiling. Key butun songa hash qilinadi, bucket'lar soniga boʻlingandagi qoldiq olinadi va oʻsha bucket'da saqlanadi. Qidiruv xuddi shu bucket'ni qayta hisoblab, faqat undagi bir nechta yozuvni tekshiradi.
+
+<FlowDiagram height={42} nodes={[
+  { id: "k", label: "key \"apple\"", x: 12, y: 21, w: 18, kind: "client" },
+  { id: "h", label: "hash(key)", sub: "→ 2 806 211 137", x: 38, y: 21, w: 20 },
+  { id: "m", label: "mod buckets", sub: "→ bucket 1", x: 62, y: 21, w: 18 },
+  { id: "b0", label: "bucket 0", sub: "∅", x: 88, y: 7, w: 18, kind: "store" },
+  { id: "b1", label: "bucket 1", sub: "apple → 3", x: 88, y: 21, w: 18, kind: "store" },
+  { id: "b2", label: "bucket 2", sub: "kiwi → 1, fig → 9", x: 88, y: 35, w: 18, kind: "store" }
+]} edges={[
+  { from: "k", to: "h" }, { from: "h", to: "m" }, { from: "m", to: "b1" }
+]} caption="2-bucket'da collision bor: ikki key bitta bucket'ga tushgan va birga saqlanadi (chaining)." />
+
+## Mexanizm
+
+1. **Hash.** Hash funksiya key'ni qat'iy oʻlchamli butun songa aylantiradi. Teng key'lar teng hash berishi shart; yaxshi funksiyalar har xil key'larni tekis taqsimlaydi.
+2. **Indeks.** `hash mod capacity` bucket'ni tanlaydi.
+3. **<Term id="collision">Collision</Term>'larni hal qilish.** Yoki *chaining* (har bir bucket kichik roʻyxat saqlaydi), yoki *open addressing* (keyingi slotlarni sinab koʻrish).
+4. **Resize.** <Term id="load-factor" /> chegaradan oshganda ~2× bucket ajratiladi va hamma narsa qayta hash qilinadi. Dynamic array kabi, bu vaqti-vaqti bilan O(n), <Term id="amortized" /> esa O(1).
+
+Bilishga arziydigan JavaScript xususiyatlari: `Map` **qoʻshilish tartibini** saqlaydi, istalgan key'ni qabul qiladi (obyektlarni identity boʻyicha) va `size` O(1). Oddiy obyektlar key'larni string'ga aylantiradi (`obj[1]` va `obj["1"]` — bitta key) va `Object.prototype`'dan meros oladi — ishonchsiz key'li lugʻatlar uchun `Map` afzal.
+
+## Kod
+
+Complement hiylasi (Two Sum) va chastota sanash "Arrays & Hashing" masalalarining katta qismini qamraydi:
+
+```ts
+function twoSum(nums: number[], target: number): [number, number] | null {
+  const seen = new Map<number, number>();      // qiymat → indeks
+  for (let i = 0; i < nums.length; i++) {
+    const j = seen.get(target - nums[i]);      // bizga kerak boʻlgan juft
+    if (j !== undefined) return [j, i];
+    seen.set(nums[i], i);                      // tekshiruvdan KEYIN saqlaymiz: oʻzi bilan juftlashmaydi
+  }
+  return null;
+}
+
+function groupAnagrams(words: string[]): string[][] {
+  const groups = new Map<string, string[]>();
+  for (const w of words) {
+    const counts = new Array(26).fill(0);
+    for (const ch of w) counts[ch.charCodeAt(0) - 97]++;
+    const key = counts.join("#");              // O(L log L) saralash oʻrniga O(L) key
+    const g = groups.get(key);
+    if (g) g.push(w); else groups.set(key, [w]);
+  }
+  return [...groups.values()];
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- "Juftlik / complement topish", "dublikat bormi", "birinchi takrorlanmas", "uchrashlarni sanash", "qandaydir imzo boʻyicha guruhlash".
+- Ichki loop'i faqat *qidiradigan* ichma-ich loop yozyapsiz — qidiruvni lookup'ga almashtiring.
+- Allaqachon skanerlangan prefix haqida nimanidir eslab qolish kerak.
+
+**Qachon kerak emas**
+- Input saralangan va juftliklar kerak → two pointers O(1) qoʻshimcha xotira bilan.
+- Key'lar ma'lum oraliqdagi kichik butun sonlar → oddiy sanash array'i hash map'dan tezroq va soddaroq.
+- Tartib statistikasi kerak (k-eng kichik, oraliq soʻrovlari) → heap, saralangan array yoki balanslangan daraxt.
+
+## Trade-off'lar
+
+| Yondashuv | Vaqt | Qoʻshimcha xotira | Izoh |
+| --- | --- | --- | --- |
+| Ichma-ich loop'lar | O(n²) | O(1) | n ≤ ~5 000 uchun yetarli |
+| Saralash + skan | O(n log n) | O(1)–O(n) | asl tartibni buzadi |
+| Hash map | kutilgan O(n) | O(n) | dushmanona collision'larda eng yomon O(n²) |
+| Sanash array'i | O(n + k) | O(k) | faqat kichik key oraliqlari uchun |
+
+## Senior nuance
+
+- **Qoʻshish va tekshirish tartibi muhim.** Two Sum'da qoʻshishdan oldin tekshirish elementni oʻzi bilan juftlashtirishning oldini oladi; "k ichida dublikat bormi"da eski yozuvlarni oʻchirasiz ham — bu yashirin sliding window.
+- **Murakkab imzolar uchun key'lar** (anagram sanoqlari, koordinatalar) kanonik string yoki birlashtirilgan butun son boʻlishi kerak; `Map` key'i sifatida `[1,2]` array'lari identity boʻyicha taqqoslanadi va jimgina hech qachon mos kelmaydi.
+- **Hash flooding**: hujumchilar key'larni boshqarsa va hash oldindan aytib boʻladigan boʻlsa, ular barcha key'larni bitta bucket'ga majburlab, qidiruvni O(n) ga aylantira oladi — ma'lum DoS vektori. Shuning uchun koʻp runtime'lar string hash'larini tasodifiy seed bilan boshlaydi.
+- **Xotira**: `Map` yozuvi bir nechta mashina soʻziga tushadi; 10⁷ ta raqamli yozuv yuzlab MB boʻlishi mumkin. Sanash uchun typed array 10 baravar kichikroq boʻlishi mumkin.
+
+## Interview savollari
+
+<QA q="Hash map collision va resize'ni qanday hal qilishini tushuntirib bering." level="mid">
+Key'lar bucket indeksiga hash qilinadi. Collision'lar chaining (bucket boʻyicha roʻyxat) yoki open addressing (sinab koʻrish) bilan hal qilinadi. Load factor (yozuvlar / bucket'lar) cheklangan ekan, qidiruv kutilgan O(1) boʻlib qoladi; u chegaradan oshganda jadval koʻproq bucket ajratadi va har bir yozuvni qayta hash qiladi — oʻsha insert uchun O(n), umumiy amortized O(1), xuddi ikki baravar oʻsuvchi array kabi.
+</QA>
+
+<QA q="Saralanmagan array'da eng uzun ketma-ket sonlar zanjirini O(n) da toping." level="mid">
+Hammasini Set'ga soling. Har bir x uchun faqat x − 1 set'da YOʻQ boʻlsa (x — zanjir boshi) sanashni boshlang; keyin x + 1, x + 2 … mavjud ekan yuring. Har bir son koʻpi bilan bitta yurishda koʻriladi, shuning uchun ichma-ich loop boʻlsa ham jami ish O(n).
+</QA>
+
+<QA q="JavaScript'da lugʻat sifatida nega Map oddiy obyektdan afzal boʻlishi mumkin?" level="senior">
+Map har qanday key turini string'ga aylantirmasdan qabul qiladi, qoʻshilish tartibini aniq saqlaydi, size'ni O(1) da beradi, tez-tez qoʻshish/oʻchirish uchun optimallashtirilgan va prototype'i yoʻq — shuning uchun foydalanuvchi input'idan kelgan "__proto__" yoki "constructor" kabi key'lar meros property'lar bilan toʻqnashmaydi va prototype pollution keltirib chiqarmaydi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Two Sum'da nega nums[i] complement tekshirilgandan keyin saqlanadi?", options: ["Tezroq", "Bitta elementni ikki marta ishlatmaslik uchun", "Map'ni saralangan saqlash uchun", "Manfiy sonlarni hal qilish uchun"], answer: 1, explain: "Agar x + x = target boʻlsa, avval qoʻshish x ni oʻzi bilan moslashtirib qoʻyadi." },
+  { q: "String'dagi kichik harflarni sanash uchun eng yaxshi tuzilma?", options: ["Map<string, number>", "Array(26)", "Set<string>", "Saralangan array"], answer: 1, explain: "26 ta key'li qat'iy oraliq kichik array'ga sigʻadi: hash'siz, uzluksiz xotira." },
+  { q: "[x, y] array'larini Map key'i sifatida ishlatish…", options: ["Ishlaydi: array'lar qiymat boʻyicha taqqoslanadi", "Yangi [x, y] literal bilan hech qachon mos kelmaydi", "O(log n)", "Xato tashlaydi"], answer: 1, explain: "Obyektlar identity boʻyicha taqqoslanadi. `${x},${y}` kabi string yoki birlashtirilgan son ishlating." }
+]} />
+
+**Klassik masalalar:** Two Sum (Easy) · Contains Duplicate (Easy) · Valid Anagram (Easy) · Group Anagrams (Medium) · Top K Frequent Elements (Medium) · Product of Array Except Self (Medium) · Longest Consecutive Sequence (Medium).
+
+## Resurslar
+
+<Resources topic="dsa/arrays-hashing" />

@@ -1,0 +1,112 @@
+## TL;DR
+
+JavaScript runs one thing at a time on a single <Term id="call-stack" />. The <Term id="event-loop" /> repeatedly takes **one <Term id="task" />**, runs it to completion, then drains **all** <Term id="microtask">microtasks</Term> (promise reactions, `queueMicrotask`, `await` continuations), then gives the browser a chance to render, and only then takes the next task. Almost every "what is the output order?" question is answered by those three sentences.
+
+## Visual model
+
+```text
+┌──────────── one turn of the event loop ─────────────┐
+│ 1. take the oldest TASK (script, timer, click, msg) │
+│ 2. run it until the call stack is empty             │
+│ 3. drain the MICROTASK queue completely             │   ← new microtasks queued here run too
+│ 4. maybe RENDER (rAF → style → layout → paint)      │
+└─────────────────────────────────────────────────────┘
+```
+
+Timers are not run by the engine: `setTimeout` hands a timer to the host (Web APIs). When it expires, its callback becomes a task waiting in the task queue.
+
+## Mechanism
+
+Predict first, then run. Type the output order in the box, press **Check**, and step through to see exactly where your model diverged. You can also edit the code — the simulator understands `console.log`, `setTimeout`, `Promise.resolve().then`, `new Promise`, `queueMicrotask`, `async`/`await` and function calls.
+
+<EventLoopViz runtime="browser" />
+
+Key observations as you step:
+- The whole script is the first task. Nothing asynchronous runs until it finishes — even a `setTimeout(…, 0)`.
+- A `.then` on an already-resolved promise queues its callback **immediately**; a `.then` on a pending promise only stores a reaction until `resolve()` is called.
+- `await x` suspends the async function and queues its continuation as a microtask; the caller continues synchronously.
+- Chained `.then`s interleave (`a1 b1 a2 b2`): each `.then` creates a new promise that resolves only after the previous callback returns.
+
+## Code
+
+```js
+console.log("1");                                   // sync
+setTimeout(() => console.log("2"), 0);              // task
+Promise.resolve().then(() => console.log("3"));     // microtask
+queueMicrotask(() => console.log("4"));             // microtask
+(async () => {
+  console.log("5");                                 // sync: body runs until the first await
+  await null;
+  console.log("6");                                 // microtask (continuation)
+})();
+console.log("7");                                   // sync
+// → 1 5 7 3 4 6 2
+```
+
+Yielding to the browser in a long loop:
+
+```js
+async function processInChunks(items, work) {
+  for (let i = 0; i < items.length; i++) {
+    work(items[i]);
+    if (i % 500 === 0) await new Promise((r) => setTimeout(r, 0)); // new TASK → lets rendering happen
+  }
+}
+// await Promise.resolve() would NOT help: microtasks run before rendering.
+```
+
+## When to use / when not to
+
+**Use this model when** reasoning about output order, UI jank, "why doesn't my spinner show?", race conditions between promises and timers, and starving the page.
+
+**Common wrong models**
+- "setTimeout 0 runs immediately" — no, it runs in a later task, after all microtasks.
+- "Promises are asynchronous so they run in parallel" — no, they run on the same thread; only I/O happens elsewhere.
+- "await pauses the program" — it pauses only that async function.
+
+## Trade-offs
+
+| Scheduling API | Queue | Runs | Typical use |
+| --- | --- | --- | --- |
+| `queueMicrotask`, `.then`, `await` | microtask | before the next task and before render | state consistency after sync code |
+| `setTimeout(fn, 0)` | task | after render opportunity, clamped ≥ 4 ms when nested deeply | yield to the browser |
+| `requestAnimationFrame` | rendering step | right before the next paint | visual updates |
+| `MessageChannel.postMessage` | task | soon, without timer clamping | fast yielding in schedulers |
+
+## Senior nuance
+
+- **Microtask starvation**: a microtask that keeps queueing microtasks never lets the loop reach rendering or the next task — the page freezes even though nothing is "blocking" in the usual sense.
+- **Nested timer clamping**: per the HTML spec, timers nested more than 5 levels deep are clamped to at least 4 ms; browsers also throttle timers in background tabs heavily.
+- **`await` costs one microtask tick for native promises** after a spec change around 2018–2019 that V8 shipped early (see "Faster async functions and promises" in the resources); before that it took three. Thenables that are not native promises take extra ticks.
+- **Rendering is not guaranteed every turn**: browsers render about once per display frame (e.g. ~16.7 ms at 60 Hz) and may skip if nothing changed.
+- **Long tasks** (> 50 ms) hurt responsiveness metrics like INP; split work with `setTimeout`/`scheduler.yield()` where available, or move it to a Web Worker.
+
+<Callout kind="note" title="Model limits">
+The simulator treats synchronous code as instantaneous and models `await x` as awaiting an already-settled value. That matches what interview questions test; real timing also depends on timer resolution and rendering cadence.
+</Callout>
+
+## Interview questions
+
+<QA q="What is the difference between a task and a microtask?" level="mid">
+A task is a unit the host schedules (script, timer callback, event). The event loop runs exactly one task per turn. Microtasks (promise reactions, queueMicrotask, await continuations) are queued by JavaScript itself and the whole microtask queue is drained every time the call stack empties — after each task and before rendering — including microtasks added during draining.
+</QA>
+
+<QA q="Why does a while(true) loop freeze the page but a recursive setTimeout does not?" level="mid">
+The while loop never returns, so the current task never ends; no other task, microtask or render can happen. A recursive setTimeout schedules a new task each time and returns, letting the loop render and handle input between iterations. (A recursive microtask would freeze it too, because microtasks drain before rendering.)
+</QA>
+
+<QA q="Explain the output order of async/await mixed with then." level="senior">
+Calling an async function runs its body synchronously until the first await. `await v` queues the continuation as a microtask (one tick for native promises) and returns control to the caller. Promise.then callbacks registered meanwhile are queued in FIFO order. After the synchronous script ends, microtasks run in queue order, and any microtasks they enqueue are appended and also run before the next task. Timers only run after all of that.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Output of: setTimeout(A); Promise.resolve().then(B); console.log(C)", options: ["A B C", "C B A", "C A B", "B C A"], answer: 1, explain: "Sync first, then microtasks, then tasks." },
+  { q: "Which keeps the page responsive during a long loop?", options: ["await Promise.resolve() every 500 items", "await new Promise(r => setTimeout(r)) every 500 items", "queueMicrotask every 500 items", "none"], answer: 1, explain: "Only a new task gives the browser a render opportunity." },
+  { q: "A microtask queued inside a microtask runs…", options: ["in the next task", "after rendering", "in the same drain, before the next task", "never"], answer: 2, explain: "The microtask checkpoint drains until the queue is empty." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/event-loop" />

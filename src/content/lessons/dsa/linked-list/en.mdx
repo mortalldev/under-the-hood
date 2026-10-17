@@ -1,0 +1,120 @@
+## TL;DR
+
+Linked-list problems are pointer-surgery problems. Three tools cover nearly all of them: **in-place reversal** (prev/curr/next), <Term id="fast-slow-pointers" /> (middle, cycle, k-th from end) and a **dummy head** (so the first node is not a special case). The skill being tested is changing `next` pointers without losing the rest of the list.
+
+## Visual model
+
+```text
+before:  head → 1 → 2 → 3 → 4 → null
+after:   null ← 1 ← 2 ← 3 ← 4 ← head
+```
+
+Each node only knows its successor. Once you overwrite `curr.next`, the old successor is unreachable unless you saved it first.
+
+## Mechanism
+
+Reversal keeps an <Term id="invariant" />: everything left of `curr` is already reversed and starts at `prev`; everything from `curr` onward is untouched. One iteration moves one node across the boundary in four moves: save next, flip, advance prev, advance curr.
+
+<LinkedListViz />
+
+**Floyd's cycle detection**: move `slow` by 1 and `fast` by 2. If there is no cycle, `fast` hits null. If there is one, once both are inside it, the distance between them shrinks by 1 per step, so they must meet within one lap. To find the cycle **start**: after they meet, reset one pointer to the head and move both by 1 — they meet at the entry. (If the tail before the cycle has length a and they met b steps into the cycle of length c, then a ≡ c − b (mod c).)
+
+## Code
+
+```ts
+interface ListNode { val: number; next: ListNode | null }
+
+function reverse(head: ListNode | null): ListNode | null {
+  let prev: ListNode | null = null, curr = head;
+  while (curr) {
+    const next = curr.next;
+    curr.next = prev;
+    prev = curr;
+    curr = next;
+  }
+  return prev;
+}
+
+function middle(head: ListNode): ListNode {         // second middle for even length
+  let slow = head, fast: ListNode | null = head;
+  while (fast && fast.next) { slow = slow.next!; fast = fast.next.next; }
+  return slow;
+}
+
+function cycleStart(head: ListNode | null): ListNode | null {
+  let slow = head, fast = head;
+  while (fast && fast.next) {
+    slow = slow!.next; fast = fast.next.next;
+    if (slow === fast) {
+      let p = head;
+      while (p !== slow) { p = p!.next; slow = slow!.next; }
+      return p;
+    }
+  }
+  return null;
+}
+
+function removeNthFromEnd(head: ListNode | null, n: number): ListNode | null {
+  const dummy: ListNode = { val: 0, next: head };    // removing the head is no longer special
+  let fast: ListNode | null = dummy, slow: ListNode = dummy;
+  for (let i = 0; i <= n; i++) fast = fast!.next;   // gap of n + 1
+  while (fast) { fast = fast.next; slow = slow.next!; }
+  slow.next = slow.next!.next;
+  return dummy.next;
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- "In place", "O(1) extra space", "reverse", "reorder", "k-th from the end", "detect a cycle", "merge sorted lists".
+- Any problem where a node might be removed or inserted at the head → dummy node.
+- Repeated sequences of values (e.g. "happy number", "find the duplicate number") — Floyd works on any function f(x) iterated from a start.
+
+**When not to**
+- You need random access or binary search → arrays.
+- Copying values into an array first is allowed and simpler → often fine in production; in interviews it usually defeats the point, so ask.
+
+## Trade-offs
+
+| Operation | Singly linked list | Array |
+| --- | --- | --- |
+| Access by index | O(n) | O(1) |
+| Insert/delete at a known node | O(1) | O(n) (shifting) |
+| Insert at head | O(1) | O(n) |
+| Memory/cache behaviour | pointer per node, scattered | contiguous, cache-friendly |
+
+## Senior nuance
+
+- **Cache locality** is why linked lists are rarely the fastest choice in practice even when Big-O says they should be; nodes scattered across the heap cause cache misses on every hop.
+- **LRU caches** are the canonical real use: a hash map gives O(1) lookup of a node; a doubly linked list gives O(1) move-to-front and evict-from-tail.
+- **Recursion** on lists is O(n) stack space; a 10⁵-node list can overflow the stack. Prefer iteration.
+- In JavaScript, cycles in object graphs are fine for the GC (tracing collectors handle cycles) but break `JSON.stringify` and naive deep-equality.
+
+## Interview questions
+
+<QA q="Reverse a linked list in groups of k." level="senior">
+Use a dummy before the head and a `groupPrev` pointer. For each group, first check that k nodes exist (walk k steps); if not, stop. Reverse the k nodes with the standard prev/curr loop where prev starts as the node after the group, then reconnect: `groupPrev.next` becomes the new group head, and `groupPrev` moves to the old group head (now the group's tail). O(n) time, O(1) space.
+</QA>
+
+<QA q="Why does Floyd's algorithm find the cycle entry?" level="senior">
+Let a = steps from head to the entry, c = cycle length, and suppose they meet b steps past the entry. Slow walked a + b, fast walked 2(a + b), and fast's extra distance a + b is a multiple of c. So a ≡ −b (mod c): walking a more steps from the meeting point lands exactly at the entry — the same as walking a steps from the head.
+</QA>
+
+<QA q="Merge k sorted lists efficiently." level="mid">
+Use a min-heap of the current head of each list: pop the smallest, append it, push its successor. O(N log k) for N total nodes. Alternatively merge pairwise in rounds (divide and conquer), also O(N log k) with no heap.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "In the reversal loop, what breaks if you skip `const next = curr.next`?", options: ["Nothing", "You lose access to the rest of the list after flipping curr.next", "It becomes O(n²)", "prev becomes null"], answer: 1, explain: "Flipping overwrites the only reference to the remaining nodes." },
+  { q: "Why use a dummy head in 'remove N-th from end'?", options: ["Faster", "So deleting the real head needs no special case", "To detect cycles", "Required by TypeScript"], answer: 1, explain: "Every real node, including the head, now has a predecessor." },
+  { q: "Fast moves 2, slow moves 1. In a cycle, the gap between them each step…", options: ["grows by 1", "shrinks by 1", "stays constant", "doubles"], answer: 1, explain: "So they meet within one lap of the cycle." }
+]} />
+
+**Classic problems:** Reverse Linked List (Easy) · Merge Two Sorted Lists (Easy) · Linked List Cycle (Easy) · Middle of the Linked List (Easy) · Linked List Cycle II (Medium) · Remove Nth Node From End of List (Medium) · Reorder List (Medium) · LRU Cache (Medium) · Merge k Sorted Lists (Hard).
+
+## Resources
+
+<Resources topic="dsa/linked-list" />

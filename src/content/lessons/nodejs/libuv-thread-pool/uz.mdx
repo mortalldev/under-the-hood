@@ -1,0 +1,98 @@
+## TL;DR
+
+"Node bitta thread'li" degan gap faqat **sizning JavaScript'ingiz** uchun toʻgʻri. Ostida <Term id="libuv" /> **tarmoq I/O** uchun operatsion tizimning asinxron mexanizmlaridan (Linux'da epoll, macOS'da kqueue, Windows'da IOCP), OS asinxron bajara olmaydigan ish uchun esa qat'iy <Term id="thread-pool" />'dan — **sukut boʻyicha 4 ta thread** (`UV_THREADPOOL_SIZE`) — foydalanadi: koʻp `fs` amallari, `dns.lookup`, async `crypto` (pbkdf2, scrypt, randomBytes…) va async `zlib`. Bu task'lar thread'lardan koʻp boʻlsa, ular **navbatga turadi** va pool'ni boʻlishadigan bogʻliq boʻlmagan amallar ham kutadi.
+
+## Vizual model
+
+```text
+JS main thread ──▶ fs.readFile / crypto.pbkdf2 / dns.lookup / zlib.gzip ──▶ libuv work queue ──▶ [T1][T2][T3][T4]
+               ──▶ net.Socket / http / TLS socket'lar ──▶ OS event bildirishnomasi (epoll/kqueue/IOCP) ── pool thread'lari yoʻq
+tugash ──▶ callback poll phase uchun navbatga qoʻyiladi ──▶ main thread'da ishlaydi
+```
+
+## Mexanizm
+
+4 thread'li pool'da oltita bir xil CPU-ogʻir task: dastlabki toʻrttasi parallel ishlaydi, oxirgi ikkitasi libuv'ning FIFO queue'sida kutadi va bir "raund" keyin tugaydi. Pool hajmi 8 ni yoki 2 thread'li pool'ni bloklaydigan bitta sekin task'ni sinab koʻring:
+
+<ThreadPoolViz />
+
+**Nega hammasi OS'da emas?** Koʻp platformalar foydalanish mumkin boʻlgan asinxron fayl tizimi API'larini taklif qilmaydi, `getaddrinfo` esa (`dns.lookup` ishlatadi) bloklovchi tizim chaqiruvi. libuv bu bloklovchi chaqiruvlarni worker thread'larga oʻraydi va tugashni event loop'ga xabar qiladi.
+
+**Tarmoq I/O boshqacha**: socket'lar bloklanmaydigan; ma'lumot tayyor boʻlganda OS libuv'ga aytadi, shuning uchun minglab ulanishlar qoʻshimcha thread talab qilmaydi — Node koʻp parallel ulanishlarni arzon hal qilishining sababi.
+
+**Ochlik**: pool umumiy boʻlgani uchun sekin `fs` oʻqishlari yoki DNS qidiruvlari toʻlqini crypto amallarini kechiktirishi mumkin va aksincha. Klassik hodisa: sekin DNS (`http.get` ortidagi `dns.lookup` orqali) barcha 4 thread'ni band qilib, fayl oʻqishlarini "tasodifan" sekinlashtiradi.
+
+## Kod
+
+```js
+// Pool navbatini oʻlchash: sukut boʻyicha 4 hajmli pool bilan 6 × pbkdf2
+const crypto = require("node:crypto");
+const start = Date.now();
+for (let i = 1; i <= 6; i++) {
+  crypto.pbkdf2("pw", "salt", 1e6, 64, "sha512", () => console.log(i, Date.now() - start, "ms"));
+}
+// Odatiy shakl: toʻrtta oʻxshash vaqt, keyin ikkitasi taxminan ikki baravar uzoqroq
+
+// Pool'ni kattalashtirish (pool birinchi ishlatilishidan oldin oʻrnatilishi shart — env var xavfsiz usul)
+//   UV_THREADPOOL_SIZE=8 node server.js
+
+// OS resolver semantikasi kerak boʻlmaganda DNS uchun pool'dan qoching:
+const dns = require("node:dns");
+dns.resolve4("example.com", (err, addrs) => {});   // c-ares, tarmoqqa asoslangan, thread pool emas
+
+// Sync variantlar MAIN thread'ni butunlay bloklaydi — request handler'larda ulardan qoching
+// crypto.pbkdf2Sync(...), fs.readFileSync(...), zlib.gzipSync(...)
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**`UV_THREADPOOL_SIZE`ni oshiring**: profiling fs/crypto/zlib'ga ogʻir servislarda (rasmni qayta ishlash, parol hash'lash, siqish) pool navbatini koʻrsatganda. CPU-bound ish uchun koʻproq thread faqat CPU yadrolaringiz soniga qadar yordam beradi va xotira qoʻshadi.
+
+**Worker thread'lardan foydalaning**: oʻzingizning CPU-ogʻir JavaScript'ingiz uchun (parsing, JS'da rasm bilan ishlash) — libuv pool faqat libuv/Node ichki task'larini ishga tushiradi.
+
+**Ogʻir ishni request yoʻlidan chiqaring** (queue'lar + fon worker'lari), latency throughput'dan muhimroq boʻlganda.
+
+## Trade-off'lar
+
+| Amal | Mexanizm | Pool ishlatadimi? |
+| --- | --- | --- |
+| TCP/HTTP/TLS socket'lar | OS async I/O (epoll/kqueue/IOCP) | yoʻq |
+| `fs.*` (async) | worker thread'lar | ha (bir nechta watch API'dan tashqari) |
+| `dns.lookup` | worker'da `getaddrinfo` | ha |
+| `dns.resolve*` | tarmoq orqali c-ares | yoʻq |
+| `crypto.pbkdf2/scrypt/randomBytes` (async) | worker thread'lar | ha |
+| `zlib` async | worker thread'lar | ha |
+| `*Sync` variantlar | main thread | yoʻq — hamma narsani bloklaydi |
+
+## Senior nuance
+
+- **Pool hajmi butun jarayon uchun**, pool birinchi ishlatilganda belgilanadi. Kodingiz ichida `process.env.UV_THREADPOOL_SIZE`ni oʻrnatish, agar biror modul allaqachon pool ishini ishga tushirgan boʻlsa, kech boʻlishi mumkin — uni muhitda oʻrnating.
+- **CPU-bound pool ishi yadrolar uchun main thread bilan raqobatlashadi**: 2 vCPU'li konteynerda 16 ta pool thread bcrypt'ni tezlashtirmaydi.
+- **Cluster'lar pool'larni koʻpaytiradi**: har bir jarayonning oʻz pool'i bor, shuning uchun 4 ta cluster worker × 4 thread = 16 thread.
+- **Kuzatuvchanlik**: `--cpu-prof`, async hooks/diagnostics_channel trace'lari yoki pool'ga bogʻliq chaqiruvlarni vaqtini oʻlchash bilan tashxis qoʻying; faqat event-loop lag pool toʻyinganligini ochib bermaydi, chunki kutish paytida main thread boʻsh turadi.
+
+## Interview savollari
+
+<QA q="Node.js bitta thread'limi?" level="mid">
+JavaScript bajarilishi bitta main thread'da (har isolate/worker uchun) ishlaydi, lekin Node'ning oʻzi bir nechta thread ishlatadi: fayl tizimi, dns.lookup, async crypto va zlib kabi bloklovchi ish uchun libuv worker pool'i (sukut boʻyicha 4); GC va kompilyatsiya uchun V8 yordamchi thread'lari; va ixtiyoriy ravishda siz yaratgan worker_threads. Tarmoq I/O thread'lar emas, OS async bildirishnomasidan foydalanadi.
+</QA>
+
+<QA q="Nega servis koʻp chiquvchi HTTP request'lar qilganda fayl oʻqishlari sekinlashishi mumkin?" level="senior">
+Chiquvchi HTTP request'lar sukut boʻyicha host nomlarini dns.lookup bilan aniqlaydi, u esa umumiy libuv thread pool'ida getaddrinfo'ni ishga tushiradi. DNS sekin boʻlsa yoki qidiruvlar koʻp boʻlsa, barcha pool thread'lari band boʻladi va fs amallari ularning ortida navbatga turadi. Tuzatishlar: DNS natijalarini cache qilish, dns.resolve (c-ares) yoki IP ishlatish, UV_THREADPOOL_SIZE'ni oshirish yoki parallellikni kamaytirish.
+</QA>
+
+<QA q="Thread pool va worker_threads?" level="mid">
+libuv thread pool — ichki: u main thread nomidan aniq native amallarni (fs, dns.lookup, crypto, zlib) bajaradi. worker_threads — siz yaratadigan alohida JavaScript thread'lari, har biri oʻz V8 isolate'i va event loop'iga ega, oʻz CPU-bound JS'ingizni main thread'ni bloklamasdan ishga tushirish uchun ishlatiladi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Qaysi biri libuv thread pool'idan foydalanMAYDI?", options: ["fs.readFile", "crypto.pbkdf2", "HTTP socket oʻqish", "dns.lookup"], answer: 2, explain: "Socket'lar OS async bildirishnomalaridan foydalanadi." },
+  { q: "UV_THREADPOOL_SIZE sukut boʻyicha…", options: ["1", "4", "CPU yadrolari soni", "128"], answer: 1, explain: "Sozlanmasa, toʻrtta thread." },
+  { q: "Pool hajmi 4 bilan har biri ~1 s boʻlgan 8 ta parallel pbkdf2 chaqiruvi taxminan qancha vaqtda tugaydi?", options: ["1 s", "2 s", "8 s", "0.5 s"], answer: 1, explain: "Toʻrttadan ikki raund (kamida 4 ta boʻsh yadro bor deb faraz qilinsa)." }
+]} />
+
+## Resurslar
+
+<Resources topic="nodejs/libuv-thread-pool" />

@@ -1,0 +1,153 @@
+## TL;DR
+
+JavaScript har yili yangi nashr oladi. Xususiyat nashrga <Term id="tc39-stage" /> 4'ga yetganda tushadi — buning uchun ikkita ishlaydigan implementatsiya va testlar kerak. Haqiqatan ishlatishingiz kerak boʻlgan yangi qoʻshimchalar:
+- **massivni oʻzgartirmaydigan metodlar** (`toSorted`, `toReversed`, `toSpliced`, `with`, `findLast`)
+- **guruhlash** (`Object.groupBy`, `Map.groupBy`)
+- `Promise.withResolvers` va `Promise.try`
+- **Set algebrasi** (`union`, `intersection`, `difference`, …)
+- **dangasa <Term id="iterator-helpers">iterator helper'lar</Term>** (istalgan iterator'da `.map/.filter/.take`)
+- `RegExp.escape`, `Array.fromAsync`, `Error.isError`
+
+Keyingi navbatda: avtomatik tozalash uchun **`using`** (<Term id="explicit-resource-management" />) va `Date` oʻrnini bosuvchi **Temporal**. Ikkalasi ES2027 uchun tugallangan va ba'zi runtime'larda allaqachon bor.
+
+## Vizual model
+
+```text
+ES2023  toSorted / toReversed / toSpliced / with · findLast / findLastIndex · hashbang · WeakMap key sifatida symbol'lar
+ES2024  Object.groupBy / Map.groupBy · Promise.withResolvers · RegExp v flag · resizable ArrayBuffer
+        String isWellFormed / toWellFormed · ArrayBuffer transfer · Atomics.waitAsync
+ES2025  Set metodlari · Iterator helper'lar · Promise.try · RegExp.escape · import attributes + JSON modullar
+        Float16Array · RegExp modifier'lar · takroriy nomli capture group'lar
+ES2026  Array.fromAsync · Error.isError · Math.sumPrecise · Uint8Array base64/hex · Iterator.concat
+        Map/WeakMap getOrInsert (upsert) · JSON.parse source text access
+ES2027  using / await using (Explicit Resource Management) · Temporal · Atomics.pause
+(tugallangan)  iterator chunking / includes / join · Iterator.zip (joint iteration)
+
+Node 24 LTS'da ES2025 gacha hammasi, ES2026'ning koʻp qismi (sumPrecise, base64 va Iterator.concat'dan tashqari)
+va `using` bor. Node 26 Temporal, getOrInsert va Iterator.concat'ni qoʻshadi (MDN browser-compat-data boʻyicha).
+```
+
+## Mexanizm
+
+**Xususiyat qanday qilib JavaScript'ga aylanadi.** TC39 taklif'lari bosqichlardan oʻtadi: 0 → 1 (muammo qabul qilindi) → 2 (dizayn qoralamasi) → 2.7 (spec tayyor, testlar kutilmoqda) → 3 (implementatsiyalar) → 4 (tugallangan). Stage 4 xususiyati keyingi yillik ECMAScript nashriga qoʻshiladi. Engine'lar koʻpincha oldinroq, Stage 3'da chiqaradi. Shuning uchun nashr yilini emas, **runtime**'ni tekshiring: MDN moslik jadvallari yoki Node versiyangiz. TypeScript xususiyatni faqat mos `lib`'ga kirgach tiplaydi (masalan, TS 6'da `es2025`).
+
+**Massivni nusxa orqali oʻzgartirish.** `sort`, `reverse` va `splice` joyida oʻzgartiradi, bu umumiy massivlar va React state bilan bug'larga sabab boʻlgan. `to*` versiyalari yangi massiv qaytaradi, `arr.with(i, v)` esa bitta indeksni immutable almashtiradi.
+
+**Guruhlash.** `Object.groupBy(items, fn)` massivlardan iborat null-prototype obyekt qaytaradi. `Map.groupBy` `Map` qaytaradi — key'lar string boʻlmaganda bu yaxshiroq.
+
+**Set metodlari.** `a.union(b)`, `intersection`, `difference`, `symmetricDifference`, `isSubsetOf`, `isSupersetOf` va `isDisjointFrom` qoʻlda yozilgan loop'larni almashtiradi. Argument faqat "set'ga oʻxshash" (`size`, `has`, `keys`) boʻlishi kerak, shuning uchun `Map` ham ishlaydi.
+
+**Iterator helper'lar dangasa.** `iter.map(f).filter(g).take(5)` qiymatlarni birma-bir tortadi. Natijani iste'mol qilmaguningizcha hech narsa bajarilmaydi, cheksiz generator esa 5 ta qiymatdan keyin toʻxtaydi. Massiv metodlari esa har qadamda toʻliq oraliq massiv quradi. Istalgan iterable'ni oʻrash uchun `Iterator.from(x)` ishlating.
+
+**`using`.** `using conn = open()` kabi e'lon blokdan chiqilganda, hatto throw yoki return boʻlsa ham, `conn[Symbol.dispose]()`'ni chaqiradi. `await using` `[Symbol.asyncDispose]()`'ni await qiladi. Resurslar ichma-ich try/finally kabi teskari tartibda tozalanadi. `DisposableStack` bir nechta tozalashni yigʻadi.
+
+**Temporal** `Date`'ning dizayn muammolarini tuzatadi: u mutable, oylarni noldan sanaydi, faqat lokal va UTC vaqt zonalariga ega, parse qilish esa noaniq. Temporal'da har bir tushuncha uchun immutable turlar bor: `Instant` (aniq lahza), `ZonedDateTime` (lahza + zona), `PlainDate` / `PlainTime` (zonasiz kalendar qiymatlari) va `Duration`.
+
+## Kod
+
+```ts
+// ES2023: massivni oʻzgartirmaydigan metodlar
+const scores = [40, 10, 30];
+const ranked = scores.toSorted((a, b) => b - a);     // [40, 30, 10]; scores oʻzgarmadi
+const fixed = scores.with(1, 15);                     // [40, 15, 30]
+const lastBig = scores.findLast((s) => s > 20);       // 30
+
+// ES2024: guruhlash + withResolvers
+const people = [{ name: "Ali", team: "web" }, { name: "Vali", team: "infra" }, { name: "Gul", team: "web" }];
+const byTeam = Object.groupBy(people, (p) => p.team);          // { web: [Ali, Gul], infra: [Vali] }
+const { promise, resolve } = Promise.withResolvers<number>();
+setTimeout(() => resolve(42), 10);
+
+// ES2025: Set algebrasi
+const frontend = new Set(["react", "ts", "css"]);
+const backend = new Set(["ts", "node", "sql"]);
+frontend.intersection(backend);                       // Set {"ts"}
+frontend.union(backend).size;                         // 5
+frontend.isDisjointFrom(new Set(["go"]));             // true
+
+// ES2025: cheksiz generator ustida dangasa iterator helper'lar
+function* naturals() { let n = 1; for (;;) yield n++; }
+const firstSquares = naturals().map((n) => n * n).filter((n) => n % 2 === 1).take(3).toArray();   // [1, 9, 25]
+
+// ES2025: Promise.try sinxron yoki asinxron kodni bajaradi va doim promise qaytaradi (sinxron throw rejection'ga aylanadi)
+const parsed = Promise.try(() => JSON.parse('{"ok":true}'));
+
+// ES2025: foydalanuvchi input'idan xavfsiz dinamik regex
+const term = "1+1=2?";
+const re = new RegExp(RegExp.escape(term), "g");      // aynan "1+1=2?" matnini topadi
+
+// ES2026: Array.fromAsync async iterable'ni yigʻadi
+async function* pages() { yield [1, 2]; yield [3]; }
+const all = (await Array.fromAsync(pages())).flat();  // [1, 2, 3]
+
+// ES2027 (Node 24+, Chrome 134+, Firefox 141+): `using` bilan avtomatik tozalash
+function openTempFile(name: string) {
+  console.log("open", name);
+  return { name, [Symbol.dispose]() { console.log("close", name); } };
+}
+{
+  using a = openTempFile("a.txt");
+  using b = openTempFile("b.txt");
+  console.log("work with", a.name, b.name);
+}                                                     // chiqaradi: close b.txt, keyin close a.txt
+```
+
+```ts
+// Temporal (Chrome 144+, Firefox 139+, Node 26+; runtime'ingizni tekshiring yoki polyfill ishlating)
+const meeting = Temporal.ZonedDateTime.from("2026-11-02T10:00[Asia/Tashkent]");
+const inNewYork = meeting.withTimeZone("America/New_York");    // bir xil lahza, boshqa devor soati
+const nextWeek = meeting.add({ weeks: 1 });                    // immutable: yangi qiymat qaytaradi
+const due = Temporal.PlainDate.from("2026-12-31");
+const daysLeft = Temporal.Now.plainDateISO().until(due).days;
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+ES2023–ES2025 xususiyatlarini Node 22+ va joriy brauzerlarda bemalol **ishlating**. Ular aniqroq, immutable variantlari esa butun bug turlarining oldini oladi. Oraliq massivlar xotirani isrof qiladigan streaming yoki katta ma'lumot uchun **iterator helper'lardan foydalaning**.
+
+Veb'da ES2026+ va Temporal uchun **avval qoʻllab-quvvatlanishini tekshiring**. Polyfill (core-js yoki Temporal polyfill) qoʻshing yoki zaxira yoʻl qoldiring. Kutubxonalarda iste'molchilaringizning `target`/`lib`'iga moslashing.
+
+## Trade-off'lar
+
+| Xususiyat | Foyda | Ehtiyot boʻling |
+| --- | --- | --- |
+| `toSorted` va `sort` | oʻzgartirmaydi, umumiy state bilan xavfsiz | nusxa ajratadi |
+| iterator helper'lar va massiv metodlari | dangasa, cheksiz yoki ulkan ketma-ketliklarda ishlaydi | iterator'lar bir martalik; metodlar massivlarnikidan kam |
+| `Object.groupBy` va `Map.groupBy` | object JSON'ga qulay | object key'lari string'ga aylanadi |
+| `using` va try/finally | tozalashni unutib boʻlmaydi, teskari tartib avtomatik | Node 24+ yoki transpile kerak; obyektlar `Symbol.dispose`'ni implementatsiya qilishi shart |
+| Temporal va Date | toʻgʻri vaqt zonalari, immutable, aniq turlar | hali hamma brauzerda yoʻq; oʻrganish uchun kattaroq API |
+
+## Senior nuance
+
+- **Nashr yili ≠ mavjudlik.** Interviewer'lar "X'ni production'da ishlata olamanmi?" deb soʻrashni yoqtiradi. "Bu ES2025" deb emas, engine matritsasi (MDN browser-compat-data, Node release notes) va polyfill strategiyasi bilan javob bering.
+- **Polyfill va transpile**: sintaksisni (`using`) transpile qilish shart. Built-in'larni (`Set.prototype.union`) runtime'da polyfill qilish mumkin. Ularni chalkashtirish "dev'da ishlaydi, Safari'da qulaydi"ga olib keladi.
+- **React'da immutable yangilanishlar** bir qatorga aylanadi: `setItems((xs) => xs.with(i, v))` yoki `xs.toSpliced(i, 1)`.
+- **Iterator helper'lar va generator'lar** birgalikda kutubxonasiz streaming pipeline'lar beradi. Esda tuting: `.take()` asosiy iterator'ni yopadi, bu generator'ning `finally` blokini ishga tushiradi.
+- **`Date` qoladi** — interop uchun. Chegaralarda konvertatsiya qiling (`Temporal.Instant.fromEpochMilliseconds(date.getTime())`).
+
+## Interview savollari
+
+<QA q="arr.sort() va arr.toSorted() orasidagi farq nima?" level="mid">
+sort joyida saralaydi: massivni oʻzgartiradi va oʻsha massivni qaytaradi. toSorted (ES2023) yangi saralangan massiv qaytaradi va asl massivga tegmaydi. Ikkalasi bir xil comparator oladi va barqaror. React state, props va cache'lar kabi umumiy yoki immutable ma'lumot bilan toSorted ishlating.
+</QA>
+
+<QA q="Nega iterator helper'lar dangasa va bu qachon muhim?" level="senior">
+Iterator.prototype.map va filter manbadan faqat next() chaqirilganda tortadigan yangi iterator'lar qaytaradi. Oraliq massivlar yaratilmaydi va iste'molchi toʻxtashi bilan (masalan, take'dan keyin) ish toʻxtaydi. Bu ulkan yoki cheksiz ketma-ketliklar, streaming ma'lumot va erta chiqishlar uchun muhim. Narxi: iterator'lar bir martalik va tasodifiy murojaatga ega emas.
+</QA>
+
+<QA q="`using` qanday ishlaydi va nimani almashtiradi?" level="senior">
+using x = value uchun value'da [Symbol.dispose] metodi boʻlishi yoki u null/undefined boʻlishi kerak. Blok normal yoki exception orqali tugaganda runtime dispose metodlarini e'lon qilinishning teskari tartibida chaqiradi, await using esa [Symbol.asyncDispose]'ni await qiladi. U fayllar, lock'lar, DB ulanishlari va obunalar uchun ichma-ich try/finally bloklarni almashtiradi, tozalash paytida tashlangan xatolar esa SuppressedError'ga birlashtiriladi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Qaysi chaqiruv massivni oʻzgartirMAYDI?", options: ["arr.sort()", "arr.reverse()", "arr.toReversed()", "arr.splice(0, 1)"], answer: 2, explain: "to* metodlari nusxa qaytaradi." },
+  { q: "Cheksiz generator ustida naturals().map(f).take(3)…", options: ["abadiy osilib qoladi", "3 ta qiymat beradigan iterator qaytaradi", "RangeError tashlaydi", "massiv qaytaradi"], answer: 1, explain: "Iterator helper'lar dangasa; take 3 tadan keyin tortishni toʻxtatadi." },
+  { q: "Bitta blokdagi a, keyin b `using` e'lonlari qanday tartibda tozalanadi?", options: ["a, keyin b", "b, keyin a", "parallel", "faqat xatoda"], answer: 1, explain: "Ichma-ich try/finally kabi teskari tartibda." },
+  { q: "Xususiyat bu yil Stage 4'ga yetdi. Uni bugun barcha foydalanuvchilarga chiqara olasizmi?", options: ["ha, Stage 4 hamma joyda degani", "engine qoʻllab-quvvatlashini (MDN / Node) tekshirib, kerak boʻlsa polyfill qoʻshing", "yoʻq, 5 yil kuting", "faqat TypeScript bilan"], answer: 1, explain: "Stage 4 — spec'da bor degani, hamma joyda chiqarilgan degani emas." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/modern-javascript" />

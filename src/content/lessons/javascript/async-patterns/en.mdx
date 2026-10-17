@@ -1,0 +1,150 @@
+## TL;DR
+
+Real async code needs more than `await`. You need to **combine** promises (`all`, `allSettled`, `race`, `any`) and **cancel** work you no longer need (<Term id="abort-signal" />). You also need to **limit concurrency**, so 1000 URLs don't become 1000 simultaneous requests (<Term id="concurrency-limit" />), and to **bound time** with timeouts and **survive transient failures** with retries, exponential backoff and jitter. All of these are small functions built on the <Term id="event-loop" /> and promises you already know.
+
+## Visual model
+
+```text
+Promise.all        ──A──┐                 resolves when ALL fulfil; rejects on the FIRST rejection (fail-fast)
+                   ──B──┼──▶ [a, b, c]
+                   ──C──┘
+Promise.allSettled  every result as { status, value | reason } — never rejects
+Promise.race        the first to SETTLE (fulfil or reject) wins
+Promise.any         the first to FULFIL wins; rejects with AggregateError only if all reject
+
+Concurrency limit k = 2:   ▓▓▓▓░░░░░░        at most 2 in flight, the next starts as soon as one finishes
+                           ░▓▓▓▓▓░░░░
+                           ░░░░░▓▓▓▓░
+```
+
+## Mechanism
+
+**Promises start eagerly.** `const p = fetch(url)` starts the request immediately, and `await` only waits for it. To control *when* work starts (for limiting or retrying), pass **functions that create promises** ("task factories"), not promises.
+
+**Combinators.** `Promise.all` is fail-fast: the first rejection rejects the combined promise, but the other operations **keep running**, because promises can't be cancelled. Pair it with an AbortSignal to stop them. `allSettled` suits independent work where partial success is useful. `any` suits redundant sources: the first successful mirror wins.
+
+**Cancellation with AbortController.** A controller owns a `signal`. Calling `controller.abort(reason)` sets `signal.aborted`, fires the `abort` event, and makes cancellation-aware APIs (fetch, `stream.pipeline`, `events.once`, Node timers from `node:timers/promises`) reject with an `AbortError`. `AbortSignal.timeout(ms)` makes a signal that aborts by itself, and `AbortSignal.any([a, b])` combines a user cancel with a timeout. Your own functions should accept a `signal`, check `signal.throwIfAborted()` between steps, and pass it down.
+
+**Concurrency limiting.** Start `k` worker loops that share one cursor into the task list. Each worker claims the next index **synchronously** (`next++`), awaits that task, and loops. JavaScript runs one piece of code at a time between awaits, so two workers can never claim the same index, and no locks are needed. Step through it, including a rejecting task:
+
+<PromisePoolViz />
+
+**Retries.** Retry only **transient** failures (network errors, 429, 503), and only **idempotent** operations, or ones carrying an <Term id="idempotency" /> key. Wait `base × 2^attempt` with random **jitter**, so thousands of clients don't retry in sync, and cap both the delay and the number of attempts.
+
+## Code
+
+```ts
+// 1) Timeout + user cancellation for fetch
+async function getJson<T>(url: string, opts: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
+  const signals = [AbortSignal.timeout(opts.timeoutMs ?? 5_000)];
+  if (opts.signal) signals.push(opts.signal);
+  const res = await fetch(url, { signal: AbortSignal.any(signals) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  return (await res.json()) as T;
+}
+
+// 2) Concurrency-limited map that keeps input order (like Promise.allSettled)
+async function mapPool<T, R>(items: readonly T[], limit: number, fn: (item: T, i: number) => Promise<R>) {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;                                   // claimed synchronously → no duplicates
+      try { results[i] = { status: "fulfilled", value: await fn(items[i], i) }; }
+      catch (reason) { results[i] = { status: "rejected", reason }; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+// 3) Retry with exponential backoff + full jitter, abortable
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    signal?.throwIfAborted();
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(id); reject(signal.reason); }, { once: true });
+  });
+
+async function retry<T>(op: () => Promise<T>, { attempts = 4, baseMs = 200, maxMs = 5_000, signal }: { attempts?: number; baseMs?: number; maxMs?: number; signal?: AbortSignal } = {}): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await op();
+    } catch (err) {
+      if (attempt + 1 >= attempts || signal?.aborted) throw err;
+      const delay = Math.random() * Math.min(maxMs, baseMs * 2 ** attempt);   // "full jitter"
+      await sleep(delay, signal);
+    }
+  }
+}
+
+// 4) Promise.withResolvers (ES2024): resolve a promise from outside, e.g. a one-shot event
+function nextMessage(ws: WebSocket): Promise<string> {
+  const { promise, resolve, reject } = Promise.withResolvers<string>();
+  ws.addEventListener("message", (e) => resolve(String(e.data)), { once: true });
+  ws.addEventListener("error", () => reject(new Error("socket error")), { once: true });
+  return promise;
+}
+
+// Usage: crawl 100 pages, 5 at a time, each with a 3 s timeout and up to 3 retries
+const ctrl = new AbortController();
+const pages = await mapPool(urls, 5, (url) => retry(() => getJson(url, { signal: ctrl.signal, timeoutMs: 3_000 }), { attempts: 3, signal: ctrl.signal }));
+const failed = pages.filter((r) => r.status === "rejected").length;
+```
+
+## When to use / when not to
+
+| Situation | Tool |
+| --- | --- |
+| All results required, fail on any error | `Promise.all` (+ abort the rest on failure) |
+| Independent work, partial success OK | `Promise.allSettled` or `mapPool` |
+| First successful replica / mirror | `Promise.any` |
+| Deadline for an operation | `AbortSignal.timeout` (not `Promise.race` with a timer — race doesn't stop the work) |
+| Many requests to one API or DB | a concurrency limit |
+| Flaky network, 429/503 | retry + backoff + jitter (idempotent operations only) |
+
+**Don't** retry validation errors (400) or non-idempotent writes without a key. **Don't** use `await` inside a `for` loop when items are independent and the API can take parallel load. Use `mapPool` instead.
+
+## Trade-offs
+
+| Choice | Gains | Costs |
+| --- | --- | --- |
+| Higher concurrency | lower total time | more memory, more load on the server, rate-limit errors |
+| Fail-fast (`all`) | quick error, simple code | loses partial results; other work keeps running unless aborted |
+| More retries | resilience to blips | longer tail latency, retry storms |
+| Short timeouts | protects your latency | false failures under load |
+
+## Senior nuance
+
+- **`Promise.race` with a timer doesn't cancel anything**: the loser keeps running and holding sockets. Use signals so the underlying operation actually stops.
+- **Unhandled rejections**: in Node, an unhandled rejection crashes the process by default (`--unhandled-rejections=throw` since Node 15). When you start promises early and await them later, attach handlers in time, or combine them right away.
+- **Abort reasons**: `controller.abort(reason)` makes `signal.reason` the rejection value. Check `err.name === "AbortError"` (or `"TimeoutError"` for `AbortSignal.timeout`) to tell cancellation apart from real failures.
+- **Retry budgets**: across a fleet, cap retries as a percentage of traffic, so an outage downstream isn't multiplied by your retries.
+- **Backpressure vs concurrency**: a pool limits in-flight work. Streams (see Node streams) limit buffered data. Big pipelines need both.
+
+## Interview questions
+
+<QA q="What's the difference between Promise.all, allSettled, race and any?" level="mid">
+all fulfils with every value, in order, and rejects on the first rejection. allSettled always fulfils with an array of status/value/reason objects. race settles like the first promise to settle, whether it fulfils or rejects. any fulfils with the first fulfilment and rejects with an AggregateError only if every input rejects.
+</QA>
+
+<QA q="Implement a function that runs async tasks with at most k in flight." level="senior">
+Pass task factories, not promises. Start k worker loops sharing an index: each worker synchronously claims next++, awaits the task, stores the result at that index (or the error, for allSettled semantics), and loops until no tasks remain. Then await Promise.all of the workers. The single-threaded event loop guarantees claims never collide, and results keep input order.
+</QA>
+
+<QA q="How do you add a timeout to fetch, and why is Promise.race not enough?" level="mid">
+Pass a signal: `fetch(url, { signal: AbortSignal.timeout(3000) })`, or combine it with a user signal via AbortSignal.any. Promise.race with a timer only stops you from waiting. The request itself keeps running, wasting sockets and bandwidth, and its later failure can become an unhandled rejection.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "const ps = urls.map(u => fetch(u)); — when do the requests start?", options: ["when awaited", "immediately, all at once", "one by one", "never"], answer: 1, explain: "Promises are eager; map starts every fetch now." },
+  { q: "Promise.all rejects because task 2 failed. Tasks 3–9 are…", options: ["cancelled automatically", "still running", "retried", "paused"], answer: 1, explain: "Promises can't be cancelled; use an AbortSignal to stop them." },
+  { q: "Why add jitter to retry delays?", options: ["to make retries faster", "to avoid many clients retrying at the same moment", "it's required by HTTP", "to reduce memory"], answer: 1, explain: "Synchronised retries cause load spikes (thundering herd)." },
+  { q: "With a promise pool, can two workers claim the same task index?", options: ["yes, it needs a mutex", "no — next++ runs synchronously between awaits", "only with limit > 4", "only in Node"], answer: 1, explain: "JS runs one piece of code at a time; there is no preemption between the read and the increment." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/async-patterns" />

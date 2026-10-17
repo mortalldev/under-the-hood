@@ -1,0 +1,130 @@
+## TL;DR
+
+Deyarli har bir daraxt masalasi — bitta aylanib chiqish va **har bir chaqiruv nima qaytaradi** hamda **pastga nima uzatadi** degan qaror. DFS (pre/in/post-order) — recursion, ya'ni chuqurligi daraxt balandligiga teng yashirin stack; BFS — daraxtni daraja-daraja qayta ishlaydigan queue. <Term id="bst" /> bitta invariant (chap < node < oʻng) qoʻshadi va qidiruvni O(h) ga aylantiradi.
+
+## Vizual model
+
+```text
+          5            preorder  (node, chap, oʻng): 5 3 1 2 4 8 7 9
+        /   \          inorder   (chap, node, oʻng): 1 2 3 4 5 7 8 9   ← BST uchun saralangan
+       3     8         postorder (chap, oʻng, node): 2 1 4 3 7 9 8 5
+      / \   / \        level     (BFS):              5 3 8 1 4 7 9 2
+     1   4 7   9
+      \
+       2
+```
+
+## Mexanizm
+
+Recursion — *bu* stack. Inorder boʻyicha qadamma-qadam yuring va call stack'ni kuzating: uning balandligi joriy node chuqurligi, node esa aynan chap subtree'sining barcha frame'lari qaytgandan keyin tashrif buyuriladi.
+
+<TreeTraversalViz mode="inorder" />
+
+BFS call stack'ni queue bilan almashtiradi. d chuqurlikdagi hamma narsa d + 1 dagi har qanday narsadan oldin queue'dan olinadi — shuning uchun BFS minimal chuqurlikni yoki har bir darajaning eng oʻngdagi node'ini tabiiy ravishda topadi.
+
+<TreeTraversalViz mode="bfs" />
+
+## Kod
+
+```ts
+interface TreeNode { val: number; left: TreeNode | null; right: TreeNode | null }
+
+// "Ma'lumotni yuqoriga qaytarish" (postorder): bitta oʻtishda balandlik va diametr
+function diameter(root: TreeNode | null): number {
+  let best = 0;
+  const height = (n: TreeNode | null): number => {
+    if (!n) return 0;
+    const l = height(n.left), r = height(n.right);
+    best = Math.max(best, l + r);               // n orqali oʻtuvchi yoʻl
+    return 1 + Math.max(l, r);                  // ota-node'ga kerak boʻlgani
+  };
+  height(root);
+  return best;
+}
+
+// "Cheklovlarni pastga uzatish" (preorder): BST'ni tekshirish
+function isValidBST(n: TreeNode | null, lo = -Infinity, hi = Infinity): boolean {
+  if (!n) return true;
+  if (n.val <= lo || n.val >= hi) return false;
+  return isValidBST(n.left, lo, n.val) && isValidBST(n.right, n.val, hi);
+}
+
+// Binary tree'da (BST shart emas) lowest common ancestor
+function lca(n: TreeNode | null, p: TreeNode, q: TreeNode): TreeNode | null {
+  if (!n || n === p || n === q) return n;
+  const l = lca(n.left, p, q), r = lca(n.right, p, q);
+  return l && r ? n : l ?? r;                   // ikkala tomonda topildi ⇒ n ularni ajratadi
+}
+
+// Preorder + null belgilari bilan serialize / deserialize
+const serialize = (n: TreeNode | null): string =>
+  n ? `${n.val},${serialize(n.left)},${serialize(n.right)}` : "#";
+
+function deserialize(s: string): TreeNode | null {
+  const tokens = s.split(",");
+  let i = 0;
+  const build = (): TreeNode | null => {
+    const t = tokens[i++];
+    if (t === "#") return null;
+    return { val: Number(t), left: build(), right: build() };
+  };
+  return build();
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- Subtree haqida biror narsa (balandlik, yigʻindi, balanslanganmi?, maksimal yoʻl) → **postorder**, qiymatlarni yuqoriga qaytaring.
+- Root'dan keladigan cheklov yoki yoʻl (BST oraligʻi, root'dan bargacha yigʻindilar) → **preorder**, argumentlarni pastga uzating.
+- BST'da saralangan tartib, k-eng kichik → **inorder**.
+- "Daraja", "minimal chuqurlik", "oʻng tomondan koʻrinish", "zigzag" → **BFS**.
+- <Term id="lca" /> → "ikkala tomonda topildi" recursion'i yoki ota-pointer'lar + chuqurliklar.
+
+**Qachon kerak emas**
+- Juda chuqur / qiyshiq daraxtlar (bir chiziqda 10⁵ node) → recursion stack'ni toʻldirishi mumkin; explicit stack ishlating.
+- Statik daraxtda koʻp LCA soʻrovlari → har birini O(n) oʻrniga binary lifting (soʻrov boshiga O(log n)).
+
+## Trade-off'lar
+
+| Aylanib chiqish | Qoʻshimcha xotira | Nima uchun yaxshi |
+| --- | --- | --- |
+| Recursive DFS | O(h) stack | ixcham, subtree agregatlari |
+| Iterative DFS (explicit stack) | O(h) heap | chuqur daraxtlar, erta chiqish |
+| BFS | O(kenglik), O(n) gacha | darajalar, eng qisqa chuqurlik |
+| Morris traversal | O(1) | stack'siz inorder (pointer'larni vaqtincha qayta ulaydi) |
+
+## Senior nuance
+
+- **BST'ni faqat bolalar bilan solishtirib tekshirish notoʻgʻri**: `5 → chap 3 → oʻng 6` lokal tekshiruvlardan oʻtadi, lekin 6 > 5. (lo, hi) oraligʻini olib yuring.
+- **h — bu log n emas**, agar daraxt balanslanmagan boʻlsa. Saralangan input'dan qurilgan BST roʻyxatga aylanadi: har bir amal O(n). Oʻz-oʻzini balanslaydigan daraxtlar (red-black, AVL) yoki B-tree'lar h = O(log n) ni saqlaydi; ma'lumotlar bazalari B+ tree ishlatadi, chunki katta fan-out disk oʻqishlarini kamaytiradi.
+- **Serialization tuzilmani kodlashi shart**, faqat qiymatlarni emas: faqat inorder'ni teskari qilib boʻlmaydi; null belgili preorder'ni esa boʻladi.
+- **Return qiymatini loyihalash** — senior signal: kod yozishdan oldin "har bir chaqiruv ota-node'ga X qaytaradi va global eng yaxshi Y ni yangilaydi" deng.
+
+## Interview savollari
+
+<QA q="Binary Tree Maximum Path Sum — har bir chaqiruv nima qaytaradi?" level="senior">
+Har bir chaqiruv shu node'dan boshlanadigan eng yaxshi "pastga" yoʻlni qaytaradi: `node.val + max(0, left, right)` — faqat bitta tarmoq, chunki ota orqali oʻtuvchi yoʻl ikkiga ayrila olmaydi. Alohida u global eng yaxshini `node.val + max(0, left) + max(0, right)` bilan yangilaydi — shu node'da buriladigan eng yaxshi yoʻl. 0 bilan cheklash manfiy tarmoqlarni tashlab yuboradi.
+</QA>
+
+<QA q="BST'dagi k-eng kichik element — daraxt tez-tez oʻzgarsa-chi?" level="mid">
+Iterative inorder, k-tashrifda toʻxtang: O(h + k). Agar BST tez-tez oʻzgarsa va koʻp soʻralsa, har bir node'ni subtree hajmi bilan boyiting; shunda toʻgʻridan-toʻgʻri pastga tusha olasiz: soʻrov boshiga O(h), hajmlar insert/delete'da yangilanadi.
+</QA>
+
+<QA q="Nega iterative inorder 'barcha chaplarni push qilish'dan iborat?" level="mid">
+Node'ning inorder tashrifi faqat uning butun chap subtree'sidan keyin boʻladi. Shuning uchun joriy node'dan boshlab null'gacha push qilib chapga yuring; pop qiling, tashrif buyuring, keyin pop qilingan node'ning oʻng bolasidan takrorlang. Stack aynan chap subtree'lari jarayondagi ajdodlarni saqlaydi — recursion saqlaydigan frame'lar bilan bir xil.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "BST'ning qaysi aylanib chiqishi saralangan tartib beradi?", options: ["preorder", "inorder", "postorder", "level order"], answer: 1, explain: "chap < node < oʻng, shuning uchun chap, node, oʻng tashrifi oʻsuvchi." },
+  { q: "Daraxt balandligi qaysi pattern'dan foydalanadi?", options: ["pastga uzatish", "yuqoriga qaytarish (postorder)", "faqat BFS", "inorder"], answer: 1, explain: "Node balandligi bolalarining balandliklariga bogʻliq." },
+  { q: "n node'li toʻliq qiyshiq daraxtda recursive DFS xotirasi?", options: ["O(1)", "O(log n)", "O(n)", "O(n log n)"], answer: 2, explain: "Recursion chuqurligi balandlikka teng, yoʻl uchun esa u n." }
+]} />
+
+**Klassik masalalar:** Maximum Depth of Binary Tree (Easy) · Diameter of Binary Tree (Easy) · Binary Tree Level Order Traversal (Medium) · Validate Binary Search Tree (Medium) · Kth Smallest Element in a BST (Medium) · Lowest Common Ancestor of a Binary Tree (Medium) · Binary Tree Maximum Path Sum (Hard) · Serialize and Deserialize Binary Tree (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/trees" />

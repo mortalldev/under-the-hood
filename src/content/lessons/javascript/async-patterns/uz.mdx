@@ -1,0 +1,150 @@
+## TL;DR
+
+Real asinxron kodga `await`'dan koʻproq narsa kerak. Promise'larni **birlashtirish** (`all`, `allSettled`, `race`, `any`) va endi kerak boʻlmagan ishni **bekor qilish** (<Term id="abort-signal" />) kerak. Yana 1000 ta URL bir vaqtdagi 1000 ta request'ga aylanmasligi uchun **parallellikni cheklash** (<Term id="concurrency-limit" />), timeout bilan **vaqtni chegaralash** va retry, eksponensial backoff hamda jitter bilan **vaqtinchalik nosozliklardan omon qolish** kerak. Bularning hammasi siz biladigan <Term id="event-loop" /> va promise'lar ustiga qurilgan kichik funksiyalar.
+
+## Vizual model
+
+```text
+Promise.all        ──A──┐                 HAMMASI fulfil boʻlganda resolve; BIRINCHI rejection'da reject (fail-fast)
+                   ──B──┼──▶ [a, b, c]
+                   ──C──┘
+Promise.allSettled  har bir natija { status, value | reason } koʻrinishida — hech qachon reject qilmaydi
+Promise.race        birinchi SETTLE boʻlgani (fulfil yoki reject) yutadi
+Promise.any         birinchi FULFIL boʻlgani yutadi; faqat hammasi reject boʻlsa AggregateError bilan reject
+
+Parallellik limiti k = 2:  ▓▓▓▓░░░░░░        bir vaqtda koʻpi bilan 2 ta, biri tugashi bilan keyingisi boshlanadi
+                           ░▓▓▓▓▓░░░░
+                           ░░░░░▓▓▓▓░
+```
+
+## Mexanizm
+
+**Promise'lar darhol boshlanadi.** `const p = fetch(url)` request'ni darhol boshlaydi, `await` esa faqat uni kutadi. Ish *qachon* boshlanishini boshqarish uchun (cheklash yoki retry uchun) promise'larni emas, **promise yaratadigan funksiyalarni** ("task factory") uzating.
+
+**Kombinatorlar.** `Promise.all` fail-fast: birinchi rejection umumiy promise'ni reject qiladi, lekin boshqa amallar **ishlashda davom etadi**, chunki promise'larni bekor qilib boʻlmaydi. Ularni toʻxtatish uchun AbortSignal bilan juftlang. `allSettled` qisman muvaffaqiyat ham foydali boʻlgan mustaqil ishlar uchun. `any` ortiqcha manbalar uchun: birinchi muvaffaqiyatli mirror yutadi.
+
+**AbortController bilan bekor qilish.** Controller `signal`'ga egalik qiladi. `controller.abort(reason)` chaqirilganda `signal.aborted` oʻrnatiladi, `abort` event'i ishga tushadi va bekor qilishni tushunadigan API'lar (fetch, `stream.pipeline`, `events.once`, `node:timers/promises` timer'lari) `AbortError` bilan reject qiladi. `AbortSignal.timeout(ms)` oʻzi abort boʻladigan signal yaratadi, `AbortSignal.any([a, b])` esa foydalanuvchi bekor qilishini timeout bilan birlashtiradi. Oʻz funksiyalaringiz `signal` qabul qilishi, qadamlar orasida `signal.throwIfAborted()` ni tekshirishi va uni pastga uzatishi kerak.
+
+**Parallellikni cheklash.** Task roʻyxatiga bitta umumiy kursorni boʻlishadigan `k` ta worker loop ishga tushiring. Har bir worker keyingi indeksni **sinxron** oladi (`next++`), shu task'ni await qiladi va aylanadi. JavaScript await'lar orasida bir vaqtda faqat bitta kod boʻlagini bajaradi, shuning uchun ikki worker hech qachon bitta indeksni ololmaydi va lock kerak emas. Reject boʻladigan task bilan birga qadamma-qadam koʻring:
+
+<PromisePoolViz />
+
+**Retry'lar.** Faqat **vaqtinchalik** nosozliklarni (tarmoq xatolari, 429, 503) va faqat **idempotent** amallarni yoki <Term id="idempotency" /> key'iga ega amallarni qayta urining. Minglab client'lar bir vaqtda qayta urinmasligi uchun tasodifiy **jitter** bilan `base × 2^attempt` kuting, kechikishni ham, urinishlar sonini ham cheklang.
+
+## Kod
+
+```ts
+// 1) fetch uchun timeout + foydalanuvchi bekor qilishi
+async function getJson<T>(url: string, opts: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
+  const signals = [AbortSignal.timeout(opts.timeoutMs ?? 5_000)];
+  if (opts.signal) signals.push(opts.signal);
+  const res = await fetch(url, { signal: AbortSignal.any(signals) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  return (await res.json()) as T;
+}
+
+// 2) Input tartibini saqlaydigan, parallelligi cheklangan map (Promise.allSettled kabi)
+async function mapPool<T, R>(items: readonly T[], limit: number, fn: (item: T, i: number) => Promise<R>) {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;                                   // sinxron olindi → dublikat yoʻq
+      try { results[i] = { status: "fulfilled", value: await fn(items[i], i) }; }
+      catch (reason) { results[i] = { status: "rejected", reason }; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+// 3) Eksponensial backoff + toʻliq jitter bilan retry, abort qilish mumkin
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    signal?.throwIfAborted();
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(id); reject(signal.reason); }, { once: true });
+  });
+
+async function retry<T>(op: () => Promise<T>, { attempts = 4, baseMs = 200, maxMs = 5_000, signal }: { attempts?: number; baseMs?: number; maxMs?: number; signal?: AbortSignal } = {}): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await op();
+    } catch (err) {
+      if (attempt + 1 >= attempts || signal?.aborted) throw err;
+      const delay = Math.random() * Math.min(maxMs, baseMs * 2 ** attempt);   // "toʻliq jitter"
+      await sleep(delay, signal);
+    }
+  }
+}
+
+// 4) Promise.withResolvers (ES2024): promise'ni tashqaridan resolve qilish, masalan bir martalik event
+function nextMessage(ws: WebSocket): Promise<string> {
+  const { promise, resolve, reject } = Promise.withResolvers<string>();
+  ws.addEventListener("message", (e) => resolve(String(e.data)), { once: true });
+  ws.addEventListener("error", () => reject(new Error("socket error")), { once: true });
+  return promise;
+}
+
+// Foydalanish: 100 ta sahifani bir vaqtda 5 tadan, har biriga 3 s timeout va 3 tagacha retry bilan oʻqish
+const ctrl = new AbortController();
+const pages = await mapPool(urls, 5, (url) => retry(() => getJson(url, { signal: ctrl.signal, timeoutMs: 3_000 }), { attempts: 3, signal: ctrl.signal }));
+const failed = pages.filter((r) => r.status === "rejected").length;
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+| Vaziyat | Vosita |
+| --- | --- |
+| Barcha natijalar kerak, istalgan xatoda toʻxtash | `Promise.all` (+ nosozlikda qolganlarini abort qilish) |
+| Mustaqil ish, qisman muvaffaqiyat maqbul | `Promise.allSettled` yoki `mapPool` |
+| Birinchi muvaffaqiyatli replica / mirror | `Promise.any` |
+| Amal uchun muddat | `AbortSignal.timeout` (timer bilan `Promise.race` emas — race ishni toʻxtatmaydi) |
+| Bitta API yoki DB'ga koʻp request | parallellik limiti |
+| Beqaror tarmoq, 429/503 | retry + backoff + jitter (faqat idempotent amallar) |
+
+Validatsiya xatolarini (400) yoki key'siz idempotent boʻlmagan yozishlarni **qayta urinmang**. Elementlar mustaqil va API parallel yuklamani koʻtara olsa, `for` loop ichida `await` **ishlatmang**, oʻrniga `mapPool` ishlating.
+
+## Trade-off'lar
+
+| Tanlov | Yutuq | Narx |
+| --- | --- | --- |
+| Yuqoriroq parallellik | kamroq umumiy vaqt | koʻproq xotira, serverga koʻproq yuklama, rate limit xatolari |
+| Fail-fast (`all`) | tez xato, sodda kod | qisman natijalar yoʻqoladi; abort qilinmasa boshqa ish davom etadi |
+| Koʻproq retry | qisqa uzilishlarga chidamlilik | uzunroq tail latency, retry boʻronlari |
+| Qisqa timeout'lar | latency'ingizni himoya qiladi | yuklama ostida soxta nosozliklar |
+
+## Senior nuance
+
+- **Timer bilan `Promise.race` hech narsani bekor qilmaydi**: yutqazgan amal ishlashda va socket'larni ushlab turishda davom etadi. Asosiy amal haqiqatan toʻxtashi uchun signal'lardan foydalaning.
+- **Ishlanmagan rejection'lar**: Node'da ishlanmagan rejection sukut boʻyicha jarayonni qulatadi (Node 15'dan beri `--unhandled-rejections=throw`). Promise'larni erta boshlab, keyinroq await qilsangiz, handler'larni vaqtida ulang yoki ularni darhol birlashtiring.
+- **Abort sabablari**: `controller.abort(reason)` `signal.reason`'ni rejection qiymatiga aylantiradi. Bekor qilishni haqiqiy nosozlikdan ajratish uchun `err.name === "AbortError"` (yoki `AbortSignal.timeout` uchun `"TimeoutError"`) ni tekshiring.
+- **Retry budget'lari**: butun server parki boʻylab retry'larni trafikning foizi sifatida cheklang, shunda quyi oqimdagi uzilish retry'laringiz bilan koʻpaymaydi.
+- **Backpressure va parallellik**: pool jarayondagi ishni cheklaydi. Stream'lar (Node streams'ga qarang) buffer'langan ma'lumotni cheklaydi. Katta pipeline'larga ikkalasi kerak.
+
+## Interview savollari
+
+<QA q="Promise.all, allSettled, race va any orasidagi farq nima?" level="mid">
+all barcha qiymatlar bilan tartibda fulfil boʻladi va birinchi rejection'da reject qiladi. allSettled doim status/value/reason obyektlari massivi bilan fulfil boʻladi. race birinchi settle boʻlgan promise kabi yakunlanadi — u fulfil boʻladimi yoki reject, farqi yoʻq. any birinchi fulfil bilan fulfil boʻladi va faqat barcha input'lar reject boʻlsa AggregateError bilan reject qiladi.
+</QA>
+
+<QA q="Bir vaqtda koʻpi bilan k ta async task bajaradigan funksiya yozing." level="senior">
+Promise'larni emas, task factory'larni uzating. Umumiy indeksni boʻlishadigan k ta worker loop ishga tushiring: har bir worker next++ ni sinxron oladi, task'ni await qiladi, natijani (allSettled semantikasi uchun xatoni) oʻsha indeksga saqlaydi va task qolmaguncha aylanadi. Keyin worker'larning Promise.all'ini await qiling. Bitta thread'li event loop indekslar hech qachon toʻqnashmasligini kafolatlaydi, natijalar esa input tartibini saqlaydi.
+</QA>
+
+<QA q="fetch'ga timeout qanday qoʻshasiz va nega Promise.race yetarli emas?" level="mid">
+Signal uzating: `fetch(url, { signal: AbortSignal.timeout(3000) })`, yoki AbortSignal.any orqali foydalanuvchi signali bilan birlashtiring. Timer bilan Promise.race faqat kutishni toʻxtatadi. Request'ning oʻzi ishlashda davom etib, socket va trafikni isrof qiladi, keyingi nosozligi esa ishlanmagan rejection'ga aylanishi mumkin.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "const ps = urls.map(u => fetch(u)); — request'lar qachon boshlanadi?", options: ["await qilinganda", "darhol, hammasi birdaniga", "birma-bir", "hech qachon"], answer: 1, explain: "Promise'lar darhol boshlanadi; map har bir fetch'ni hozir boshlaydi." },
+  { q: "Promise.all 2-task muvaffaqiyatsiz boʻlgani uchun reject qildi. 3–9 task'lar…", options: ["avtomatik bekor qilinadi", "hali ishlayapti", "qayta urinadi", "toʻxtatiladi"], answer: 1, explain: "Promise'larni bekor qilib boʻlmaydi; ularni toʻxtatish uchun AbortSignal ishlating." },
+  { q: "Nega retry kechikishlariga jitter qoʻshiladi?", options: ["retry'larni tezlashtirish uchun", "koʻp client'lar bir lahzada qayta urinmasligi uchun", "HTTP talab qiladi", "xotirani kamaytirish uchun"], answer: 1, explain: "Sinxronlashgan retry'lar yuklama choʻqqilariga sabab boʻladi (thundering herd)." },
+  { q: "Promise pool'da ikki worker bitta task indeksini ola oladimi?", options: ["ha, mutex kerak", "yoʻq — next++ await'lar orasida sinxron bajariladi", "faqat limit > 4 boʻlsa", "faqat Node'da"], answer: 1, explain: "JS bir vaqtda faqat bitta kod boʻlagini bajaradi; oʻqish va oshirish orasida uzilish yoʻq." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/async-patterns" />

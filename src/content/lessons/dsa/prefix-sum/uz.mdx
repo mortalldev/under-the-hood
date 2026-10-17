@@ -1,0 +1,112 @@
+## TL;DR
+
+<Term id="prefix-sum" /> array jamlanib boruvchi yigʻindilarni saqlaydi, shuning uchun **istalgan oraliq yigʻindisi — bitta ayirish**: `sum(l..r) = prefix[r + 1] − prefix[l]`. Avval koʻrilgan prefix'lar hash map'i bilan birgalikda u "nechta subarray yigʻindisi k ga teng?" savoliga O(n) da javob beradi — sliding window buziladigan manfiy sonlar bilan ham.
+
+## Vizual model
+
+```text
+nums    =    [ 3,  1,  4,  1,  5 ]
+prefix  = [0,  3,  4,  8,  9, 14 ]     prefix[i] = nums[0] + … + nums[i-1]
+
+sum(nums[1..3]) = prefix[4] − prefix[1] = 9 − 3 = 6   (1 + 4 + 1)
+```
+
+Boshidagi qoʻshimcha 0 — "boʻsh prefix". U har bir `if (l === 0)` maxsus holatini yoʻq qiladi.
+
+## Mexanizm
+
+Asosiy ayniyat: `nums[j+1..i]` subarray yigʻindisi `prefix[i] − prefix[j]`. Demak "i da tugaydigan, yigʻindisi k boʻlgan subarray" — bu "`prefix[i] − k` ga teng oldingi prefix" degani. Barcha j larni orqaga qarab tekshirish (O(n²)) oʻrniga, prefix qiymatidan uning necha marta uchraganiga hash map saqlang. Qadamma-qadam yuring:
+
+<PrefixSumViz />
+
+Uchta tafsilotga e'tibor bering:
+- `seen` `{0: 1}` bilan boshlanadi — boʻsh prefix 0-indeksdan boshlanadigan subarray'ni sanashga imkon beradi.
+- Qidiruv joriy prefix'ni qoʻshishdan **oldin** bajariladi, shuning uchun subarray hech qachon boʻsh boʻlmaydi.
+- Manfiy sonlar bilan bir xil prefix qiymati bir necha marta uchrashi mumkin; shuning uchun map boolean emas, sonni saqlaydi.
+
+## Kod
+
+```ts
+// O(n) tayyorgarlikdan keyin oraliq yigʻindilari
+function buildPrefix(nums: number[]): number[] {
+  const p = new Array<number>(nums.length + 1).fill(0);
+  for (let i = 0; i < nums.length; i++) p[i + 1] = p[i] + nums[i];
+  return p;
+}
+const rangeSum = (p: number[], l: number, r: number) => p[r + 1] - p[l]; // l..r kiritilgan
+
+// Yigʻindisi k ga teng subarray'larni sanash (manfiylar bilan ham ishlaydi)
+function subarraySum(nums: number[], k: number): number {
+  const seen = new Map<number, number>([[0, 1]]);
+  let prefix = 0, count = 0;
+  for (const x of nums) {
+    prefix += x;
+    count += seen.get(prefix - k) ?? 0;
+    seen.set(prefix, (seen.get(prefix) ?? 0) + 1);
+  }
+  return count;
+}
+```
+
+Variantlar xuddi shu gʻoyani boshqa "key" bilan ishlatadi: **mod k** boʻyicha prefix (yigʻindisi k ga boʻlinadigan subarray), **+1/−1** prefix (0 va 1 lar soni teng), **XOR** prefix (subarray XOR'i k ga teng) va toʻrtburchak soʻrovlari uchun 2D prefix sum:
+
+```ts
+// 2D: P[r+1][c+1] = (0,0)..(r,c) toʻrtburchak yigʻindisi
+// sum(r1..r2, c1..c2) = P[r2+1][c2+1] − P[r1][c2+1] − P[r2+1][c1] + P[r1][c1]
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- Statik array ustida koʻp oraliq-yigʻindi soʻrovlari.
+- "Yigʻindisi (yoki XOR'i, yoki balansi) k ga teng / k ga boʻlinadigan subarray'larni sanash / topish".
+- Array'da manfiy sonlar bor, shuning uchun window yigʻindilari monoton emas.
+
+**Qachon kerak emas**
+- Soʻrovlar orasida qiymatlar oʻzgaradi → Fenwick tree yoki segment tree (O(log n) yangilash va soʻrov).
+- Barcha sonlar manfiy emas va yigʻindisi ≥ k boʻlgan *eng qisqa/eng uzun* window kerak → sliding window O(1) xotira bilan.
+- Oraliq minimumi/maksimumi kerak → prefix sum'ni teskari qilib boʻlmaydi; sparse table yoki segment tree ishlating.
+
+## Trade-off'lar
+
+| Usul | Qurish | Soʻrov | Yangilash | Xotira |
+| --- | --- | --- | --- | --- |
+| Har safar qayta hisoblash | — | O(n) | O(1) | O(1) |
+| Prefix array | O(n) | O(1) | O(n) | O(n) |
+| Fenwick tree | O(n) | O(log n) | O(log n) | O(n) |
+| Prefix + hash map (subarray sanash) | — | bitta oʻtish O(n) | — | O(n) |
+
+## Senior nuance
+
+- **Off-by-one intizomi**: boshida nol boʻlgan n + 1 uzunlikdagi `prefix` tanlash — chegara bug'lariga qarshi eng yaxshi himoya. Interview'da bu kelishuvni ovoz chiqarib ayting.
+- **Overflow**: fixed-width tillarda 10⁹ gacha boʻlgan 10⁵ ta qiymatning prefix sum'i 32-bit int'dan oshib ketadi; JavaScript'da `Number.MAX_SAFE_INTEGER` faqat ~9 × 10¹⁵ dan keyin oshadi, lekin koʻpaytmalar va kvadrat hadlar baribir aniqlikni yoʻqotishi mumkin — aniqlik muhim boʻlsa `BigInt` ishlating.
+- **Manfiylar bilan modulo**: JavaScript'da `-1 % 5 === -1`. Map key'i sifatida ishlatishdan oldin `((x % k) + k) % k` bilan normallashtiring.
+- **Difference array** — teskari hiyla: oraliqning har bir elementiga v ni koʻp marta qoʻshish uchun l ga v, r + 1 ga −v qoʻshing, oxirida bitta prefix sum oling — har bir oraliq yangilanishi O(1).
+
+## Interview savollari
+
+<QA q="Sonlar manfiy boʻlishi mumkin boʻlsa, 'yigʻindisi k ga teng subarray' uchun nega sliding window ishlamaydi?" level="mid">
+Sliding window monotonlikka tayanadi: window'ni kengaytirish yigʻindini oshiradi, qisqartirish kamaytiradi, shuning uchun qaysi pointer'ni surishni bilasiz. Manfiylar bilan element qoʻshish yigʻindini kamaytirishi mumkin, demak hech bir harakat xavfsiz emas va window toʻgʻri javoblarni oʻtkazib yuborishi mumkin. Prefix sum + hash map monotonlikka bogʻliq emas.
+</QA>
+
+<QA q="Yigʻindisi k ga boʻlinadigan subarray'larni sanang." level="mid">
+k boʻyicha qoldigʻi bir xil boʻlgan ikki prefix yigʻindisi k ga boʻlinadigan subarray'ni chegaralaydi. Normallashtirilgan qoldiqlar sonini `{0: 1}` bilan boshlab saqlang; har bir prefix uchun javobga `count[rem]` ni qoʻshing, keyin uni oshiring. O(n) vaqt, O(k) xotira.
+</QA>
+
+<QA q="Oraliq-yigʻindi soʻrovlari orasida yangilanishlarni qanday qoʻllab-quvvatlaysiz?" level="senior">
+Oddiy prefix array har bir yangilanish uchun O(n) talab qiladi. Fenwick tree kichik, cache'ga qulay array bilan nuqtaviy yangilash va prefix soʻrovi uchun O(log n) beradi; segment tree esa oraliq yangilanishlarini (lazy propagation bilan) va min/max kabi teskari qilib boʻlmaydigan agregatlarni ham qoʻllab-quvvatlaydi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "prefix boshida 0 bor. sum(nums[2..4]) (kiritilgan) nimaga teng?", options: ["prefix[4] − prefix[2]", "prefix[5] − prefix[2]", "prefix[5] − prefix[1]", "prefix[4] − prefix[1]"], answer: 1, explain: "sum(l..r) = prefix[r + 1] − prefix[l] = prefix[5] − prefix[2]." },
+  { q: "Nega seen {0: 1} bilan boshlanadi?", options: ["Nolga boʻlishdan qochish uchun", "0-indeksdan boshlanadigan subarray'lar sanalishi uchun", "Faqat k = 0 ni hal qilish uchun", "Kerak emas"], answer: 1, explain: "nums[0..i] subarray prefix[i] − (boʻsh prefix 0) ga mos keladi." },
+  { q: "0 va 1 lar soni teng boʻlgan eng uzun subarray — nimani hash qilasiz?", options: ["0/1 ning xom prefix sum'larini", "1 uchun +1, 0 uchun −1 prefix'ni, har bir qiymatning BIRINCHI indeksini saqlab", "Prefix XOR'ni", "Faqat 1 lar sonini"], answer: 1, explain: "Ikki pozitsiya orasidagi 0 balans teng sonni bildiradi; birinchi indeks uzunlikni maksimallashtiradi." }
+]} />
+
+**Klassik masalalar:** Range Sum Query - Immutable (Easy) · Subarray Sum Equals K (Medium) · Continuous Subarray Sum (Medium) · Contiguous Array (Medium) · Product of Array Except Self (Medium) · Subarray Sums Divisible by K (Medium).
+
+## Resurslar
+
+<Resources topic="dsa/prefix-sum" />

@@ -1,0 +1,99 @@
+## TL;DR
+
+<Term id="conditional-type" /> `T extends U ? X : Y` — tip tekshiruvchi baholaydigan `if`. <Term id="infer" /> bilan u **pattern matching**ga aylanadi: "agar T `Promise<qandaydir>`ga oʻxshasa, menga oʻsha qandaydirni ber". T yalangʻoch type parametri boʻlib, union olsa, conditional har bir a'zo ustida **taqsimlanadi** — `Exclude`, `Extract` va `NonNullable` ortidagi yagona qoida.
+
+## Vizual model
+
+```text
+type Unwrap<T> = T extends Promise<infer V> ? V : T;
+
+Unwrap<Promise<number>>          → number
+Unwrap<string>                    → string
+
+taqsimlanish (T yalangʻoch):
+Unwrap<Promise<1> | 2>  =  Unwrap<Promise<1>> | Unwrap<2>  =  1 | 2
+
+Exclude<"a" | "b" | "c", "a">  =  ("a" extends "a" ? never : "a") | ("b" …) | ("c" …)  =  "b" | "c"
+```
+
+## Mexanizm
+
+**`extends` assignability'ni bildiradi** — TypeScript'ning boshqa hamma joyida ishlatiladigan xuddi shu munosabat. Tekshiruv "T U ga tayinlanadimi?" deb soʻraydi.
+
+**`infer X`** `extends` qismida type oʻzgaruvchisini kiritadi. Tekshiruvchi T ni pattern bilan moslashtirishga urinadi va muvaffaqiyatli boʻlsa, X ni mos qismga bogʻlaydi. Funksiya parametrlari va return'laridan, tuple pozitsiyalaridan, template literal'lardan va generic argumentlardan infer qilish mumkin.
+
+**Taqsimlanish** tekshiriladigan tur union bilan instantsiyalangan *yalangʻoch* type parametri boʻlganda sodir boʻladi: conditional har bir a'zoga qoʻllaniladi va natijalar union qilinadi. `never` — boʻsh union, shuning uchun uning ustida taqsimlash `never` beradi — tez-tez uchraydigan kutilmagan holat. Ikkala tomonni tuple'ga oʻrash, `[T] extends [U]`, taqsimlanishni oʻchiradi.
+
+**Kechiktirilgan baholash**: T hali generic boʻlsa (ta'rif joyida noma'lum), conditional T ma'lum boʻlguncha hal qilinmasdan qoladi — shuning uchun xatolar ba'zan faqat chaqiruv joylarida paydo boʻladi.
+
+## Kod
+
+```ts
+type ElementOf<T> = T extends readonly (infer E)[] ? E : never;
+type Params<F> = F extends (...args: infer P) => unknown ? P : never;
+type Ret<F> = F extends (...args: never[]) => infer R ? R : never;
+
+type Awaited2<T> = T extends PromiseLike<infer V> ? Awaited2<V> : T;   // rekursiv ochish
+
+// Taqsimlanish amalda
+type NonNull<T> = T extends null | undefined ? never : T;
+type A = NonNull<string | null | undefined>;   // string
+
+// Taqsimlanishni oʻchirish
+type IsNever<T> = [T] extends [never] ? true : false;
+type B = IsNever<never>;                        // true (yalangʻoch versiya never berardi)
+
+// Constraint'li infer (TS 4.7+): faqat songa oʻxshash string'larni moslashtirish
+type ToNumber<S> = S extends `${infer N extends number}` ? N : never;
+type C = ToNumber<"42">;                        // 42
+```
+
+<TypePuzzle id="tuple-to-union" />
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Conditional type'lardan foydalaning**: turlarni boshqa turlardan chiqarish uchun — handler'ning return turi, array elementi, nom boʻyicha event payload'i — shunda oʻzgarishlar avtomatik tarqaladi. Kutubxona kodi (data-fetching hook'lari, router'lar, ORM'lar) foydalanuvchilarga aniq turlar berish uchun ularga tayanadi.
+
+**Ulardan qoching**: ilova kodida oddiy aniq tur ishlasa va mantiq overload'li runtime funksiyada yashashi mumkin boʻlsa. Chuqur ichma-ich conditional'larni oʻqish qiyin va ular tushunarsiz xatolar beradi.
+
+## Trade-off'lar
+
+| Vosita | Nima uchun yaxshi | Narx |
+| --- | --- | --- |
+| Overload'lar | bir nechta qat'iy input→output juftlari | uzun, generic bogʻliqliksiz |
+| Conditional type'lar | chiqarilgan turlar, pattern matching | oʻqilishi, xato xabarlari |
+| Generics + indexed access `T[K]` | property qidiruvlari | sodda, yetarli boʻlsa afzal |
+| Taqsimlanuvchi conditional'lar | union'ni filtrlash/aks ettirish | `never` va `boolean` (= true \| false) bilan kutilmagan |
+
+## Senior nuance
+
+- **`boolean` — union** (`true | false`), shuning uchun `boolean` ustidagi taqsimlanuvchi conditional ikki natijaning union'ini qaytaradi.
+- **`any` ikkala branch'ga taqsimlanadi**: `any extends X ? A : B` `A | B` beradi.
+- **Infer pozitsiyalari variance'i**: bir nechta contravariant pozitsiyadan (funksiya parametrlari) infer qilish *intersection* beradi; covariant pozitsiyalardan — *union*. `UnionToIntersection` aynan shundan foydalanadi.
+- **Recursion chegaralari**: rekursiv conditional type'larga ruxsat bor, lekin cheklangan (tail-recursive'lari yuqoriroq chegaraga ega). "Type instantiation is excessively deep"ga duch kelish — dizayn muammosi belgisi.
+
+## Interview savollari
+
+<QA q="Taqsimlanuvchi conditional type nima?" level="mid">
+Tekshirilayotgan tur yalangʻoch type parametri boʻlib, union bilan instantsiyalansa, conditional har bir a'zoga alohida qoʻllaniladi va natijalar union qilinadi. Exclude&lt;T, U&gt; = T extends U ? never : T a'zolarni shu tarzda olib tashlaydi. Tuple'ga oʻrash ([T] extends [U]) taqsimlanishning oldini oladi.
+</QA>
+
+<QA q="ReturnType'ni oʻzingiz yozing." level="mid">
+`type MyReturnType<F> = F extends (...args: never[]) => infer R ? R : never;` — infer return pozitsiyasini ushlaydi. args uchun never[] ishlatish har qanday funksiyani parametr turlaridan qat'i nazar tayinlanadigan qiladi (parametrlar contravariant, never esa hamma narsaga tayinlanadi).
+</QA>
+
+<QA q="Nega sodda implementatsiya bilan IsNever&lt;never&gt; never qaytaradi?" level="senior">
+`type IsNever<T> = T extends never ? true : false` T ustida taqsimlanadi; never — boʻsh union, shuning uchun aks ettiriladigan a'zolar yoʻq va natija never. Ikkala tomonni tuple'ga oʻrash taqsimlanishni oʻchiradi: `[T] extends [never] ? true : false` true qaytaradi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "type F<T> = T extends string ? 'S' : 'N'; F<string | number> nimaga teng?", options: ["'S'", "'N'", "'S' | 'N'", "never"], answer: 2, explain: "Taqsimlanish har bir a'zoni aks ettiradi: string → 'S', number → 'N'." },
+  { q: "Taqsimlanishning oldini olish uchun nima yoziladi?", options: ["T extends U", "[T] extends [U]", "T & U", "keyof T"], answer: 1, explain: "Yalangʻoch boʻlmagan check type taqsimlanmaydi." },
+  { q: "Bitta oʻzgaruvchini ikki funksiya-parametri pozitsiyasidan infer qilish nima beradi?", options: ["union", "intersection", "never", "unknown"], answer: 1, explain: "Contravariant inference nomzodlari kesishtiriladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="typescript/conditional-types" />

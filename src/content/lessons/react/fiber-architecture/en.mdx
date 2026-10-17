@@ -1,0 +1,98 @@
+## TL;DR
+
+A <Term id="fiber" /> is React's internal record for one component instance — and also a **unit of work**. Because the tree is stored as a linked structure of fibers (child, sibling, return pointers) instead of the JS call stack, React can **pause** rendering between units, **resume** later, **prioritise** urgent updates (lanes), or **throw away** an in-progress render. Two trees exist at once: `current` (on screen) and `workInProgress` (being built) — swapped atomically at commit (double buffering).
+
+## Visual model
+
+```text
+          App                 each fiber:
+           │ child              type, key, props, state (memoizedState → hook list)
+          Page                  child ─▶ first child
+         /    \                 sibling ─▶ next sibling
+   Toolbar ─sibling─▶ List      return ─▶ parent
+                                alternate ─▶ the same fiber in the other tree (current ⇄ workInProgress)
+                                lanes ─▶ which priorities have pending work here
+```
+
+## Mechanism
+
+**Before Fiber** (React ≤ 15, "stack reconciler"), reconciliation was a recursive descent — once started, it ran to completion, blocking the main thread for large trees.
+
+**The work loop**: React walks the fiber tree depth-first with an explicit pointer. For each fiber it calls `beginWork` (render the component, reconcile its children, return the first child) and, when a subtree is finished, `completeWork` (prepare DOM nodes/effects, then move to the sibling or back up). In **concurrent** rendering the loop checks between units whether it should yield to the browser (`shouldYield`), so a long render is sliced into small chunks.
+
+**Lanes** are a bitmask of priorities: a click/keypress update gets a high-priority lane, a `startTransition` update a transition lane, data arriving for Suspense a retry lane. React picks the highest-priority lanes with pending work and renders those first; a lower-priority in-progress render can be interrupted and restarted later.
+
+**Double buffering**: `workInProgress` is built from `current` via the `alternate` pointers (reusing objects). If the render completes, commit makes it the new `current` in one go — the user never sees a half-updated tree. If it is interrupted, the half-built tree is just discarded.
+
+**Commit is not interruptible**: mutation of the DOM, ref attachment, layout effects happen synchronously; passive effects (`useEffect`) are scheduled after paint.
+
+## Code
+
+```tsx
+// What the Fiber architecture enables at the API level:
+import { startTransition, useDeferredValue, useState } from "react";
+
+function Search({ items }: { items: string[] }) {
+  const [text, setText] = useState("");
+  const deferred = useDeferredValue(text);          // renders the list with a lagging value in a low-priority lane
+  return (
+    <>
+      <input value={text} onChange={(e) => setText(e.target.value)} />   {/* urgent lane: stays responsive */}
+      <SlowList filter={deferred} items={items} />
+    </>
+  );
+}
+
+// Equivalent with an explicit transition
+function onType(next: string, setQuery: (q: string) => void) {
+  startTransition(() => setQuery(next));           // may be interrupted by more typing
+}
+```
+
+## When to use / when not to
+
+**Understanding Fiber matters when**: explaining why renders must be pure (they can run several times or be thrown away), debugging "tearing" with external stores (use `useSyncExternalStore`), reasoning about transitions/Suspense, or reading React DevTools Profiler flamegraphs.
+
+**You do not program against fibers directly** — internals are not public API and change between versions (the lane model replaced the earlier "expiration time" model during the React 17–18 cycle).
+
+## Trade-offs
+
+| | Stack reconciler (old) | Fiber |
+| --- | --- | --- |
+| Interruptible rendering | no | yes (concurrent features) |
+| Priorities | none | lanes |
+| Memory | lower | two trees, more bookkeeping |
+| Render purity requirement | recommended | essential |
+
+## Senior nuance
+
+- **Tearing**: in concurrent rendering, one render may read an external mutable store at different times, showing inconsistent values across components. `useSyncExternalStore` forces consistent snapshots (and de-opts that update to synchronous when needed).
+- **Effects ordering**: layout effects run child-first, then parent; cleanups run before the next effects. Passive effects are flushed asynchronously after paint, but are flushed synchronously before the next discrete update if still pending.
+- **Bailouts in the work loop**: if a fiber has no pending work in the current lanes and its props/context didn't change, `beginWork` clones its children without rendering — that is what `memo` and unchanged elements exploit.
+- **"Fiber" ≠ "concurrent by default"**: Fiber made concurrency possible; concurrent rendering is used only for updates you mark (transitions, deferred values, Suspense) since React 18.
+
+## Interview questions
+
+<QA q="What problem did React Fiber solve?" level="mid">
+The old reconciler used recursion on the JS call stack, so rendering a large tree could not be paused, blocking input and animation. Fiber stores the tree as linked work units with explicit pointers, letting React render incrementally, yield to the browser, prioritise urgent updates, and discard stale work.
+</QA>
+
+<QA q="What is double buffering in React?" level="senior">
+React keeps the current tree (on screen) and a work-in-progress tree, linked via alternate pointers. Updates are rendered into the work-in-progress tree; on commit, it atomically becomes current. Interrupted renders leave current untouched, so users never see partial updates.
+</QA>
+
+<QA q="What are lanes?" level="senior">
+A bitmask-based priority model. Each update is assigned a lane by its source (discrete user input, continuous input, default, transition, idle, retries). React renders the highest-priority pending lanes first and can batch updates in the same lane; lower-priority renders can be interrupted when urgent lanes receive work.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which phase can React interrupt?", options: ["commit", "render", "both", "neither"], answer: 1, explain: "Render is pure and resumable; commit must be atomic." },
+  { q: "The 'alternate' pointer links a fiber to…", options: ["its parent", "its sibling", "its counterpart in the other tree", "its DOM node"], answer: 2, explain: "current ⇄ workInProgress." },
+  { q: "Why must render functions be pure under Fiber?", options: ["style guide", "they may run multiple times or be discarded", "for SSR only", "TypeScript requires it"], answer: 1, explain: "Interrupted or retried renders would repeat side effects." }
+]} />
+
+## Resources
+
+<Resources topic="react/fiber-architecture" />

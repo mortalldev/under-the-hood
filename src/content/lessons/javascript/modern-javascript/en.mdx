@@ -1,0 +1,153 @@
+## TL;DR
+
+JavaScript gets a new edition every year. A feature lands in an edition once it reaches <Term id="tc39-stage" /> 4, which requires two shipping implementations and tests. The recent additions you should actually use:
+- **non-mutating array methods** (`toSorted`, `toReversed`, `toSpliced`, `with`, `findLast`)
+- **grouping** (`Object.groupBy`, `Map.groupBy`)
+- `Promise.withResolvers` and `Promise.try`
+- **Set algebra** (`union`, `intersection`, `difference`, …)
+- **lazy <Term id="iterator-helpers">iterator helpers</Term>** (`.map/.filter/.take` on any iterator)
+- `RegExp.escape`, `Array.fromAsync`, `Error.isError`
+
+Coming next: **`using`** for automatic cleanup (<Term id="explicit-resource-management" />) and **Temporal**, the replacement for `Date`. Both are finished for ES2027 and already ship in some runtimes.
+
+## Visual model
+
+```text
+ES2023  toSorted / toReversed / toSpliced / with · findLast / findLastIndex · hashbang · symbols as WeakMap keys
+ES2024  Object.groupBy / Map.groupBy · Promise.withResolvers · RegExp v flag · resizable ArrayBuffer
+        String isWellFormed / toWellFormed · ArrayBuffer transfer · Atomics.waitAsync
+ES2025  Set methods · Iterator helpers · Promise.try · RegExp.escape · import attributes + JSON modules
+        Float16Array · RegExp modifiers · duplicate named capture groups
+ES2026  Array.fromAsync · Error.isError · Math.sumPrecise · Uint8Array base64/hex · Iterator.concat
+        Map/WeakMap getOrInsert (upsert) · JSON.parse source text access
+ES2027  using / await using (Explicit Resource Management) · Temporal · Atomics.pause
+(finished)  iterator chunking / includes / join · Iterator.zip (joint iteration)
+
+Node 24 LTS has everything through ES2025, most of ES2026 (not sumPrecise, base64 or Iterator.concat),
+and `using`. Node 26 adds Temporal, getOrInsert and Iterator.concat (per MDN browser-compat-data).
+```
+
+## Mechanism
+
+**How a feature becomes JavaScript.** TC39 proposals move through stages 0 → 1 (problem accepted) → 2 (draft design) → 2.7 (spec complete, waiting for tests) → 3 (implementations) → 4 (finished). A Stage 4 feature joins the next yearly ECMAScript edition. Engines often ship earlier, at Stage 3. So check the **runtime**, not the edition year: MDN compatibility tables or your Node version. TypeScript only types a feature once it's in the matching `lib` (for example `es2025` in TS 6).
+
+**Change array by copy.** `sort`, `reverse` and `splice` mutate in place, which caused bugs with shared arrays and with React state. The `to*` versions return a new array, and `arr.with(i, v)` replaces one index immutably.
+
+**Grouping.** `Object.groupBy(items, fn)` returns a null-prototype object of arrays. `Map.groupBy` returns a `Map`, which is better when the keys aren't strings.
+
+**Set methods.** `a.union(b)`, `intersection`, `difference`, `symmetricDifference`, `isSubsetOf`, `isSupersetOf` and `isDisjointFrom` replace hand-written loops. The argument only needs to be "set-like" (`size`, `has`, `keys`), so a `Map` works too.
+
+**Iterator helpers are lazy.** `iter.map(f).filter(g).take(5)` pulls values one at a time. Nothing runs until you consume the result, and an infinite generator stops after 5 values. Array methods, by contrast, build a full intermediate array at every step. Use `Iterator.from(x)` to wrap any iterable.
+
+**`using`.** A declaration like `using conn = open()` calls `conn[Symbol.dispose]()` when the block exits, even when it throws or returns. `await using` awaits `[Symbol.asyncDispose]()`. Resources are disposed in reverse order, like nested try/finally blocks. `DisposableStack` collects several cleanups.
+
+**Temporal** fixes `Date`'s design problems: it's mutable, counts months from zero, has only local and UTC time zones, and parsing is ambiguous. Temporal has immutable types for each concept: `Instant` (exact moment), `ZonedDateTime` (moment + zone), `PlainDate` / `PlainTime` (calendar values with no zone), and `Duration`.
+
+## Code
+
+```ts
+// ES2023: non-mutating array methods
+const scores = [40, 10, 30];
+const ranked = scores.toSorted((a, b) => b - a);     // [40, 30, 10]; scores unchanged
+const fixed = scores.with(1, 15);                     // [40, 15, 30]
+const lastBig = scores.findLast((s) => s > 20);       // 30
+
+// ES2024: grouping + withResolvers
+const people = [{ name: "Ali", team: "web" }, { name: "Vali", team: "infra" }, { name: "Gul", team: "web" }];
+const byTeam = Object.groupBy(people, (p) => p.team);          // { web: [Ali, Gul], infra: [Vali] }
+const { promise, resolve } = Promise.withResolvers<number>();
+setTimeout(() => resolve(42), 10);
+
+// ES2025: Set algebra
+const frontend = new Set(["react", "ts", "css"]);
+const backend = new Set(["ts", "node", "sql"]);
+frontend.intersection(backend);                       // Set {"ts"}
+frontend.union(backend).size;                         // 5
+frontend.isDisjointFrom(new Set(["go"]));             // true
+
+// ES2025: lazy iterator helpers on an infinite generator
+function* naturals() { let n = 1; for (;;) yield n++; }
+const firstSquares = naturals().map((n) => n * n).filter((n) => n % 2 === 1).take(3).toArray();   // [1, 9, 25]
+
+// ES2025: Promise.try runs sync-or-async code and always returns a promise (sync throws become rejections)
+const parsed = Promise.try(() => JSON.parse('{"ok":true}'));
+
+// ES2025: safe dynamic regex from user input
+const term = "1+1=2?";
+const re = new RegExp(RegExp.escape(term), "g");      // matches the literal text "1+1=2?"
+
+// ES2026: Array.fromAsync collects an async iterable
+async function* pages() { yield [1, 2]; yield [3]; }
+const all = (await Array.fromAsync(pages())).flat();  // [1, 2, 3]
+
+// ES2027 (Node 24+, Chrome 134+, Firefox 141+): automatic cleanup with `using`
+function openTempFile(name: string) {
+  console.log("open", name);
+  return { name, [Symbol.dispose]() { console.log("close", name); } };
+}
+{
+  using a = openTempFile("a.txt");
+  using b = openTempFile("b.txt");
+  console.log("work with", a.name, b.name);
+}                                                     // prints: close b.txt, then close a.txt
+```
+
+```ts
+// Temporal (Chrome 144+, Firefox 139+, Node 26+; check your runtime or use the polyfill)
+const meeting = Temporal.ZonedDateTime.from("2026-11-02T10:00[Asia/Tashkent]");
+const inNewYork = meeting.withTimeZone("America/New_York");    // same instant, different wall clock
+const nextWeek = meeting.add({ weeks: 1 });                    // immutable: returns a new value
+const due = Temporal.PlainDate.from("2026-12-31");
+const daysLeft = Temporal.Now.plainDateISO().until(due).days;
+```
+
+## When to use / when not to
+
+**Use** the ES2023–ES2025 features freely in Node 22+ and current browsers. They're clearer, and the immutable variants prevent whole classes of bugs. **Use iterator helpers** for streaming or large data where intermediate arrays would waste memory.
+
+**Check support first** for ES2026+ and Temporal on the web. Ship a polyfill (core-js, or the Temporal polyfill), or keep a fallback. In libraries, match the `target`/`lib` of your consumers.
+
+## Trade-offs
+
+| Feature | Benefit | Watch out |
+| --- | --- | --- |
+| `toSorted` vs `sort` | no mutation, safe with shared state | allocates a copy |
+| iterator helpers vs array methods | lazy, works on infinite or huge sequences | iterators are one-shot; fewer methods than arrays |
+| `Object.groupBy` vs `Map.groupBy` | object is JSON-friendly | object keys become strings |
+| `using` vs try/finally | cleanup can't be forgotten, reverse order is automatic | needs Node 24+ or transpiling; objects must implement `Symbol.dispose` |
+| Temporal vs Date | correct time zones, immutable, explicit types | not in every browser yet; larger API to learn |
+
+## Senior nuance
+
+- **Edition year ≠ availability.** Interviewers like to ask "can I use X in production?" Answer with the engine matrix (MDN browser-compat-data, Node release notes) and a polyfill strategy, not with "it's ES2025".
+- **Polyfills vs transpiling**: syntax (`using`) must be transpiled. Built-ins (`Set.prototype.union`) can be polyfilled at runtime. Mixing them up leads to "works in dev, crashes in Safari".
+- **Immutable updates in React** become one-liners: `setItems((xs) => xs.with(i, v))` or `xs.toSpliced(i, 1)`.
+- **Iterator helpers and generators** together give you streaming pipelines without libraries. Remember that `.take()` closes the underlying iterator, which runs the generator's `finally` block.
+- **`Date` remains** for interop. Convert at the boundaries (`Temporal.Instant.fromEpochMilliseconds(date.getTime())`).
+
+## Interview questions
+
+<QA q="What's the difference between arr.sort() and arr.toSorted()?" level="mid">
+sort sorts in place, mutating and returning the same array. toSorted (ES2023) returns a new sorted array and leaves the original untouched. Both take the same comparator and are stable. Use toSorted with shared or immutable data such as React state, props and caches.
+</QA>
+
+<QA q="Why are iterator helpers lazy and when does that matter?" level="senior">
+Iterator.prototype.map and filter return new iterators that pull from the source only when next() is called. No intermediate arrays are created and work stops as soon as the consumer stops (for example, after take). That matters for huge or infinite sequences, streaming data and early exits. The trade-off: iterators are single-use and have no random access.
+</QA>
+
+<QA q="How does `using` work and what does it replace?" level="senior">
+using x = value requires value to have a [Symbol.dispose] method, or to be null or undefined. When the enclosing block exits normally or through an exception, the runtime calls the dispose methods in reverse declaration order, and await using awaits [Symbol.asyncDispose]. It replaces nested try/finally blocks for files, locks, DB connections and subscriptions, and errors thrown during disposal are combined into a SuppressedError.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which call does NOT mutate the array?", options: ["arr.sort()", "arr.reverse()", "arr.toReversed()", "arr.splice(0, 1)"], answer: 2, explain: "to* methods return copies." },
+  { q: "naturals().map(f).take(3) on an infinite generator…", options: ["hangs forever", "returns an iterator yielding 3 values", "throws RangeError", "returns an array"], answer: 1, explain: "Iterator helpers are lazy; take stops pulling after 3." },
+  { q: "Two `using` declarations a then b in one block are disposed…", options: ["a then b", "b then a", "in parallel", "only on error"], answer: 1, explain: "Reverse order, like nested try/finally." },
+  { q: "A feature reached Stage 4 this year. Can you ship it to all users today?", options: ["yes, Stage 4 means everywhere", "check engine support (MDN / Node) and polyfill if needed", "no, wait 5 years", "only with TypeScript"], answer: 1, explain: "Stage 4 means specified, not universally shipped." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/modern-javascript" />

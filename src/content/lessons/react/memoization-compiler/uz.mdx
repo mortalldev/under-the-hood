@@ -1,0 +1,96 @@
+## TL;DR
+
+React'da <Term id="memoization" /> — input'lar oʻzgarmaganda ishni oʻtkazib yuborish: `memo` props shallow-equal boʻlganda **komponentni re-render qilishni** oʻtkazadi, `useMemo` **hisoblangan qiymatni**, `useCallback` **funksiya identity'sini** cache qiladi. Ular faqat (a) oʻtkazilgan ish qimmat boʻlganda yoki (b) barqaror identity pastdagi re-render yoki effect'ning oldini olganda yordam beradi. **React Compiler** (v1.0 dan beri stable) bu memoization'ni build vaqtida avtomatik qoʻshadi, shuning uchun kompilyatsiya qilingan kodda qoʻlda `useMemo`/`useCallback` asosan keraksiz.
+
+## Vizual model
+
+```text
+Ota render boʻladi
+  ├─ <Chart data={rows} onSelect={handleSelect} />     memo(Chart)
+  │      rows: bir xil array reference'mi?    handleSelect: bir xil funksiya reference'mi?
+  │      ikkalasi ha → Chart render'ini oʻtkazish   biri yoʻq → Chart render boʻladi (memo hech narsa qilmadi, narx toʻlandi)
+  └─ useMemo(() => expensive(rows), [rows])   faqat rows oʻzgarganda qayta hisoblash (Object.is)
+```
+
+## Mexanizm
+
+**`memo(Component)`** komponentni oʻraydi; uni render qilishdan oldin React eski va yangi props'ni har bir key boʻyicha `Object.is` bilan solishtiradi. Hammasi teng → oldingi natijani qayta ishlatish (va ichida oʻzining kutilayotgan yangilanishi yoki context oʻzgarishi boʻlmasa, subtree'ni oʻtkazish).
+
+**`useMemo(fn, deps)`** hook node'ida `[value, deps]`ni saqlaydi; re-render'da har bir dep `Object.is`-teng boʻlsa, `fn`ni chaqirmasdan cache'langan qiymatni qaytaradi.
+
+**`useCallback(fn, deps)`** — bu `useMemo(() => fn, deps)` — u funksiyani tezlashtirmaydi; `memo` bolalar yoki effect bogʻliqliklari "oʻzgarmagan"ni koʻrishi uchun **bir xil reference**'ni saqlaydi.
+
+**Compiler** har bir komponent va hook'ni tahlil qiladi, qaysi qiymatlar qaysi props/state'ga bogʻliqligini aniqlaydi va JSX hamda qiymatlarni mayda granularlikda cache qiladi (koʻpincha qoʻlda qilganingizdan maydaroq). U kodingiz Rules of React'ga (sof render, props/state mutatsiyasi yoʻq, hook qoidalari) amal qiladi deb faraz qiladi; ularni buzadigan kod oʻtkazib yuboriladi va uning ESLint integratsiyasi sababini xabar qiladi.
+
+## Kod
+
+```tsx
+// Qoʻlda memoization haqiqatan oʻzini oqlaydigan joy (compiler'siz)
+const Chart = memo(function Chart({ data, onSelect }: { data: Row[]; onSelect: (id: string) => void }) {
+  /* qimmat SVG rendering */
+  return null;
+});
+
+function Dashboard({ rows, filter }: { rows: Row[]; filter: string }) {
+  const visible = useMemo(() => rows.filter((r) => r.name.includes(filter)), [rows, filter]); // barqaror ref + qayta hisoblashdan saqlaydi
+  const onSelect = useCallback((id: string) => console.log(id), []);                         // memo(Chart) uchun barqaror ref
+  return <Chart data={visible} onSelect={onSelect} />;
+}
+
+// ✗ Foydasiz: memo bola har render'da yangi object literal oladi
+<Chart data={rows} options={{ animate: true }} />    // options !== oldingi options → baribir re-render
+
+// ✗ Foydasiz: arzon narsani memoize qilish
+const fullName = useMemo(() => `${first} ${last}`, [first, last]);   // hook narxi > ish narxi
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Arziydi** (compiler'siz): render qilish oʻlchanadigan darajada sekin va teng props bilan tez-tez re-render boʻladigan komponent; memo qilingan bolalarga uzatiladigan qiymatlar; effect bogʻliqligi sifatida ishlatiladigan qiymatlar; Profiler bilan oʻlchangan qimmat sof hisoblashlar (minglab qatorlarni filtrlash/saralash).
+
+**Arzimaydi**: arzon hisoblashlar, baribir doim yangi props oladigan komponentlar yoki hamma joyda "har ehtimolga qarshi" — har bir memo xotira va taqqoslashlarga tushadi va kodni oʻqishni qiyinlashtiradi.
+
+**React Compiler yoqilgan boʻlsa**: oddiy kod yozing; `useMemo`/`useCallback`ni faqat effect uchun kafolatlangan barqaror identity kerak boʻlgan joylarda chiqish yoʻli sifatida saqlang va uning lint qoidalariga amal qiling.
+
+## Trade-off'lar
+
+| Vosita | Nimani tejaydi | Narxi | Tuzoq |
+| --- | --- | --- | --- |
+| `memo` | bola render'ini | har ota render'ida props taqqoslash | beqaror props bilan buziladi |
+| `useMemo` | qayta hisoblashni | xotira + deps taqqoslash | notoʻgʻri deps → eskirgan qiymatlar |
+| `useCallback` | oʻzi hech narsa | useMemo bilan bir xil | faqat memo/effect'lar bilan foydali |
+| React Compiler | qoʻlda memo'ning koʻpini | build qadami, Rules of React'ga mos kod talab qiladi | mos kelmaydigan komponentlar oʻtkaziladi |
+| Qayta tuzish (state'ni colocate, children-as-props) | render'larni butunlay | refactor | — odatda eng yaxshi birinchi qadam |
+
+## Senior nuance
+
+- **Context `memo`ni chetlab oʻtadi**: context oʻqiydigan memo qilingan komponent context qiymati oʻzgarganda re-render boʻladi. Context'larni boʻling yoki selector'lar uzating.
+- React hujjatlarida **`useMemo` — semantik kafolat emas, performance maslahati**: React cache'langan qiymatlarni tashlab yuborishi mumkin (masalan, offscreen). Toʻgʻrilik uchun (bitta nusxani saqlash kabi) unga tayanmang — buning uchun ref yoki state ishlating.
+- **Avval oʻlchang**: React DevTools Profiler ("why did this render?") va brauzer Performance paneli render'lar bottleneck ekanini aytadi; koʻpincha bu layout, tarmoq yoki ulkan roʻyxat (uni virtualizatsiya qiling).
+- **Compiler'ni joriy qilish** bosqichma-bosqich: uni katalog boʻyicha yoqish yoki komponent boʻyicha oʻchirish mumkin (`"use no memo"`), bu katta kod bazasida xavfsiz joriy qilishga imkon beradi.
+
+## Interview savollari
+
+<QA q="useCallback qachon performance'ni yaxshilaydi?" level="mid">
+Faqat funksiya identity'si muhim boʻlganda: u memo qilingan bolaga uzatiladi (memo'ning shallow taqqoslashi bir xil reference'ni koʻrishi uchun) yoki effect/memo'ning dependency array'ida ishlatiladi. Oʻzi hech narsani tezlashtirmaydi — u baribir har render'da yangi funksiya ajratadi; deps teng boʻlsa shunchaki eskisini qaytaradi.
+</QA>
+
+<QA q="Nega memo re-render'ning oldini olmasligi mumkin?" level="mid">
+Chunki prop har render'da yangi reference (inline obyekt, array yoki arrow function), chunki komponent qiymati oʻzgargan context'ni iste'mol qiladi yoki chunki uning oʻz state yangilanishi bor. memo faqat shallow-equal props bilan otadan kelgan render'larni qisqa tutashtiradi.
+</QA>
+
+<QA q="React Compiler memoization amaliyotini qanday oʻzgartiradi?" level="senior">
+U komponent va hook'larni statik tahlil qiladi va qiymatlar hamda JSX'ning mayda caching'ini avtomatik qoʻshadi, shuning uchun qoʻlda useMemo/useCallback/memo asosan keraksiz boʻladi. U kodning Rules of React'ga amal qilishiga tayanadi (sof render'lar, oʻzgarmas props/state); lint qoidalari buzilishlarni belgilaydi va mos kelmaydigan komponentlar notoʻgʻri kompilyatsiya qilinmasdan oʻtkazib yuboriladi. Qoʻlda memo chiqish yoʻli sifatida qoladi, masalan, barqaror boʻlishi shart boʻlgan effect bogʻliqliklari uchun.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "memo(Child) inline yozilgan style={{ color: 'red' }} prop bilan. Ota render boʻlganda Child re-render boʻladimi?", options: ["yoʻq", "ha", "faqat birinchi marta", "faqat dev'da"], answer: 1, explain: "Har render'da yangi obyekt Object.is'dan oʻtmaydi." },
+  { q: "Yolgʻiz useCallback (bola memo qilinmagan, deps'da ishlatilmaydi) nima beradi?", options: ["tezroq render'lar", "foyda yoʻq", "kamroq ajratishlar", "barqaror state"], answer: 1, explain: "Identity faqat memo yoki deps uchun muhim." },
+  { q: "Oʻzgargan context'ni iste'mol qiladigan memo qilingan komponent…", options: ["oʻtkazadi", "re-render boʻladi", "xato tashlaydi", "eskirgan context'ni saqlaydi"], answer: 1, explain: "Context oʻzgarishlari memo'dan qat'i nazar tarqaladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="react/memoization-compiler" />

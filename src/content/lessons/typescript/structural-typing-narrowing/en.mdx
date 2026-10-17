@@ -1,0 +1,114 @@
+## TL;DR
+
+TypeScript is <Term id="structural-typing">structurally typed</Term>: a value is assignable to a type if it has **at least** the required members with compatible types — names and declarations do not matter. Control-flow analysis then <Term id="narrowing">narrows</Term> union types inside branches based on checks you write (`typeof`, `in`, `instanceof`, equality, type predicates). Model states as a <Term id="discriminated-union" /> and the compiler can prove you handled every case.
+
+## Visual model
+
+```text
+interface Point { x: number; y: number }
+const p3 = { x: 1, y: 2, z: 3 };
+const p: Point = p3;              ✓  has x and y — extra z is fine (width subtyping)
+const q: Point = { x: 1, y: 2, z: 3 };  ✗  excess property check: a FRESH literal with unknown keys
+
+type Shape = { kind: "circle"; r: number } | { kind: "square"; size: number };
+if (s.kind === "circle") { s.r }  // narrowed to the circle member
+```
+
+## Mechanism
+
+**Assignability** compares shapes member by member, recursively. `{ x, y, z }` is a subtype of `{ x, y }` because it has everything required. This is why mocks and plain object literals work without `implements`.
+
+**Excess property checks** are a deliberate exception: when you assign an object **literal** directly to a typed location, unknown properties are errors — they are probably typos. Assigning the same object through a variable skips the check, because the object is no longer "fresh".
+
+**Narrowing** is flow-sensitive: the compiler tracks, at each point in the code, the set of types a variable can still have. Each check removes members of the union in the true and false branches. Assignments reset the narrowed type; callbacks see the declared type again (the compiler cannot know when they run).
+
+**Exhaustiveness**: after handling every member of a union, the variable's type is `never`. Assigning it to a `never`-typed variable makes the compiler fail the build when someone adds a new member.
+
+## Code
+
+```ts
+type Result<T> =
+  | { status: "loading" }
+  | { status: "error"; error: Error }
+  | { status: "success"; data: T };
+
+function render(r: Result<string[]>): string {
+  switch (r.status) {
+    case "loading": return "…";
+    case "error":   return r.error.message;      // r: { status: "error"; error: Error }
+    case "success": return r.data.join(", ");    // r: { status: "success"; data: string[] }
+    default: {
+      const unreachable: never = r;               // compile error if a case is missing
+      return unreachable;
+    }
+  }
+}
+
+// Narrowing tools
+function len(x: string | string[] | null) {
+  if (x == null) return 0;                         // removes null (and undefined)
+  if (typeof x === "string") return x.length;      // string
+  return x.length;                                 // string[]
+}
+
+// User-defined type guard (the compiler trusts you — test it)
+function isUser(v: unknown): v is { id: string; name: string } {
+  return typeof v === "object" && v !== null && "id" in v && typeof (v as { id: unknown }).id === "string";
+}
+
+// Assertion function: narrows everything AFTER the call
+function assertDefined<T>(v: T, msg: string): asserts v is NonNullable<T> {
+  if (v == null) throw new Error(msg);
+}
+```
+
+## When to use / when not to
+
+**Discriminated unions** fit any value with distinct states — request status, form steps, events, Redux-style actions, AST nodes. They replace bags of optional fields (`data?`, `error?`, `isLoading?`) that allow impossible combinations.
+
+**Type guards** at trust boundaries (JSON from the network, `localStorage`, message events): data typed as `unknown` must be validated before narrowing. In production prefer a schema library that both validates and infers the type, so the guard cannot drift from reality.
+
+**Avoid `as` casts** to "narrow" — they silence the checker instead of proving anything.
+
+## Trade-offs
+
+| Technique | Checked by compiler? | Runtime cost | Risk |
+| --- | --- | --- | --- |
+| `typeof` / `in` / `instanceof` / `===` | yes | tiny | none |
+| Discriminated union `switch` | yes, incl. exhaustiveness | none | none |
+| User-defined guard `x is T` | trusts your implementation | your check | guard can lie |
+| `as T` cast | no | none | silent wrong types |
+| Schema validation (zod-like) | yes, via inference | parsing | dependency, cost on hot paths |
+
+## Senior nuance
+
+- **Structural typing means accidental compatibility**: `UserId` and `OrderId` declared as `string` are interchangeable. Use branded types when mixing them up would be a real bug.
+- **Bivariance of method parameters**: method-syntax members (`handle(x: Dog): void`) are checked bivariantly even with `strictFunctionTypes`, which can let unsafe assignments through; function-property syntax (`handle: (x: Dog) => void`) is checked contravariantly.
+- **Narrowing does not survive closures** for `let` variables that are reassigned — capture into a `const` before the callback.
+- **`in` narrowing on unions** works when the property exists in some members and not others; on `unknown` it also adds the property to the type (since TS 4.9).
+
+## Interview questions
+
+<QA q="What is the difference between structural and nominal typing?" level="mid">
+Nominal typing (Java, C#) relates types by declared names and explicit inheritance; structural typing (TypeScript, Go interfaces) relates them by shape — a type is assignable if it has the required members. TypeScript chose structural typing because JavaScript code passes plain objects around and types must describe existing patterns without wrappers.
+</QA>
+
+<QA q="Why does an object literal with an extra property error, but the same object via a variable doesn't?" level="mid">
+Excess property checking applies only to fresh object literals assigned directly to a typed target, as a typo detector. A variable's object is not fresh; normal structural assignability applies, where extra properties are allowed.
+</QA>
+
+<QA q="How do you make a switch over a union exhaustive?" level="senior">
+In the default branch assign the value to a variable of type never (or call a function taking never). If every member was handled, the value's type is never and it compiles; adding a new member makes the type non-never and the build fails, pointing to every switch that needs updating.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "const a = { x: 1, y: 2, z: 3 }; const p: { x: number; y: number } = a;", options: ["error: excess property z", "OK", "error: missing z", "OK only with as"], answer: 1, explain: "Not a fresh literal, so only structural assignability applies." },
+  { q: "After if (typeof v === 'string') return; with v: string | number, v is…", options: ["string", "number", "never", "unknown"], answer: 1, explain: "The true branch removed string from the union." },
+  { q: "A guard function returns v is User but its check is wrong. The compiler…", options: ["catches it", "trusts it", "warns", "inserts a runtime check"], answer: 1, explain: "Type predicates are trusted; test them or derive them from a schema." }
+]} />
+
+## Resources
+
+<Resources topic="typescript/structural-typing-narrowing" />

@@ -1,0 +1,96 @@
+## TL;DR
+
+JavaScript xotirasi tracing <Term id="garbage-collection">garbage collector</Term> tomonidan qaytarib olinadi: root'lardan (global'lar, joriy call stack, faol closure'lar, kutilayotgan callback'lar) **yetib boriladigan** har narsa saqlanadi; qolgan hamma narsa — cycle hosil qilsa ham — chiqindi. Shuning uchun JS'dagi <Term id="memory-leak" /> hech qachon "ozod qilishni unutdim" emas — bu "tasodifan hali ham yetib boriladigan".
+
+## Vizual model
+
+```text
+root'lar ─▶ window ─▶ app ─▶ cache ─▶ user     yetib boriladi: saqlanadi
+root'lar ─▶ stack  ─▶ tmp                      yetib boriladi: saqlanadi
+            old ◀──▶ orphan                     cycle, lekin yetib boʻlmaydi: yigʻiladi
+```
+
+## Mexanizm
+
+<Term id="mark-and-sweep" />: root'lardan boshlab reference'lar boʻylab yetib boriladigan hamma narsani belgilang (graph aylanib chiqish); keyin heap'ni tozalab, har bir belgilanmagan obyektni ozod qiling. Qadamma-qadam yuring — `old` va `orphan` bir-biriga reference qilsa ham ozod qilinadi: reference counting bu cycle'ni leak qilardi, tracing esa yoʻq.
+
+<MarkSweepViz />
+
+**V8'dagi generational GC** koʻp obyektlar yosh oʻlishi kuzatuviga asoslanadi:
+- **Young generation** kichik va *scavenger* tomonidan tez-tez yigʻiladi: tirik obyektlar boshqa hududga nusxalanadi (va bir necha yigʻishdan omon qolgach old generation'ga koʻtariladi). Narx chiqindiga emas, **tirik** obyektlarga proporsional — koʻp obyekt oʻlik boʻlganda arzon.
+- **Old generation** mark-sweep(-compact) bilan kamroq yigʻiladi. V8 pauzalarni qisqa saqlash uchun belgilashning katta qismini yordamchi thread'larda **concurrent** va kichik qadamlarda **incremental** bajaradi; compaction xotirani defragmentatsiya qiladi.
+
+## Kod
+
+Real kodda va interview'larda uchraydigan beshta leak pattern'i:
+
+```js
+// 1. Unutilgan listener: handler (va u closure qilgan hamma narsa) `window`dan yetib boriladigan qoladi
+function mount(el) {
+  const big = new Array(1e6).fill(0);
+  const onResize = () => el.textContent = String(big.length);
+  window.addEventListener("resize", onResize);
+  return () => window.removeEventListener("resize", onResize);   // ✓ unmount'da buni chaqiring
+}
+
+// 2. Hech qachon tozalanmagan interval
+const id = setInterval(poll, 1000);   // poll'ni va uning closure'ini abadiy tirik saqlaydi → clearInterval(id)
+
+// 3. Obyektlar bilan kalitlangan cheksiz cache
+const cache = new Map();              // key'larni tirik saqlaydi → obyekt key'lar uchun WeakMap yoki LRU chegara
+const meta = new WeakMap();           // key obyekt yigʻilganda yozuv yoʻqoladi
+
+// 4. JS'dan hali reference qilinayotgan ajratilgan DOM node'lar
+let saved = document.querySelector("#row");
+saved.remove();                       // hujjatdan olib tashlandi, lekin `saved` butun subtree'ni saqlaydi
+
+// 5. Tasodifiy global'lar (sloppy mode): funksiya ichidagi `count = 0` window.count yaratadi
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Reachability haqida oʻylang**: uzoq yashaydigan sahifa yoki Node jarayonida xotira vaqt oʻtishi bilan oʻssa, SPA'da koʻp navigatsiyadan keyin, cache'lar, subscription'lar va timer'lar bilan.
+
+**Mikro-boshqaruv qilmang**: funksiya oxirida oʻzgaruvchilarni `null` qilish foydali hech narsa qilmaydi (lokal oʻzgaruvchilar baribir frame bilan oʻladi); "xotirani ozod qilish" uchun `delete obj.prop` obyekt shape'ini deoptimize qilishi mumkin. Buning oʻrniga egalik va umrni tuzating.
+
+## Trade-off'lar
+
+| Strategiya | Cycle'larni yigʻadi | Pauza xatti-harakati | Xarajat |
+| --- | --- | --- | --- |
+| Reference counting | yoʻq (cycle collector kerak) | incremental, darhol | har tayinlashda hisoblagich yangilanishi |
+| Mark-sweep | ha | belgilash tirik obyektlarga, tozalash heap'ga proporsional | compaction'siz fragmentatsiya |
+| Copying (scavenger) | ha | faqat tirik obyektlarga proporsional | nusxalanadigan hudud uchun 2× joy |
+| Generational + concurrent | ha | qisqa, asosan main thread'dan tashqarida | old→young pointer'larni kuzatuvchi write barrier'lar |
+
+## Senior nuance
+
+- Heap snapshot'larda **shallow va retained size**: shallow = obyektning oʻzi; retained = bu obyekt yigʻilsa ozod boʻladigan hamma narsa. Leak'lar retained size boʻyicha saralab, **retainer zanjiri**ni oʻqish orqali topiladi.
+- **Closure'lar context'ni boʻlishadi**: bitta scope'da yaratilgan ikki closure bitta context obyektini boʻlishadi; kichik closure qoʻshni closure ishlatgani uchun katta array'ni tirik saqlashi mumkin.
+- **WeakMap/WeakRef — eviction siyosatli cache'lar emas** — yozuvlar faqat key'lar yetib boʻlmaydigan boʻlganda, GC ixtiyoriga koʻra yoʻqoladi. Toʻgʻrilik uchun `WeakRef` yoki `FinalizationRegistry` vaqtiga tayanmang.
+- **Node.js heap chegaralari**: old-space hajmining standart chegarasi bor (`--max-old-space-size` bilan sozlanadi); undan oshish jarayonni "JavaScript heap out of memory" bilan qulatadi. Konteynerlarda chegarani cgroup xotira chegarasidan pastroq qoʻyish kerak.
+
+## Interview savollari
+
+<QA q="JavaScript reference counting ishlatadimi?" level="mid">
+Zamonaviy engine'lar tracing GC ishlatadi (mark-and-sweep/mark-compact va copying young-generation collector). Tiriklikni root'lardan yetib borish hal qiladi, shuning uchun yetib boʻlmaydigan cycle'lar yigʻiladi. Faqat reference counting cycle'larni ozod qila olmaydi — shuning uchun eski IE versiyalari DOM↔JS cycle'larini leak qilardi.
+</QA>
+
+<QA q="SPA'da memory leak'ni qanday topasiz?" level="senior">
+Shubhali amalni bir necha marta takrorlang (masalan, modal'ni 10 marta oching/yoping), GC'ni majburlang, oldin va keyin heap snapshot oling va solishtirish koʻrinishidan foydalaning: har takrorlashda soni oʻsadigan obyektlar — gumondorlar. Retained size boʻyicha saralang, retainer zanjirini koʻring — koʻpincha event listener, store subscription, timer yoki cache. Tuzatishni oʻlchovni takrorlab tasdiqlang; timeline'dagi Allocation instrumentation ham nima doim ajratilib, hech qachon ozod qilinmasligini koʻrsatadi.
+</QA>
+
+<QA q="Nega generational GC samarali?" level="senior">
+Generational gipoteza: koʻp obyektlar ajratilgandan keyin tez oʻladi. Faqat kichik young hududni copying collector bilan tez-tez yigʻish oz sonli omon qolganlarga proporsional vaqt oladi, shuning uchun qisqa umrli chiqindi deyarli bepul. Uzoq yashaydigan obyektlar koʻtariladi va kamdan-kam tekshiriladi. Write barrier old→young pointer'larni yozib boradi, shunda young yigʻishlar butun old hududni skanerlashi shart emas.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Ikki obyekt faqat bir-biriga reference qiladi va ularga boshqa hech narsa reference qilmaydi. Ular…", options: ["abadiy leak boʻladi", "tracing GC tomonidan yigʻiladi", "faqat WeakRef bilan yigʻiladi", "faqat Node'da yigʻiladi"], answer: 1, explain: "Root'lardan yetib boʻlmaydi ⇒ chiqindi, cycle boʻlsa ham, boʻlmasa ham." },
+  { q: "DOM node'larga ularni tirik saqlamasdan metadata biriktirish uchun eng yaxshi tuzilma?", options: ["Map", "Object", "WeakMap", "Array"], answer: 2, explain: "WeakMap key'lari oʻz obyektlarini tirik saqlamaydi." },
+  { q: "Heap snapshot obyekt uchun katta 'retained size' koʻrsatadi. Bu…", options: ["obyektning oʻzi katta", "uni ozod qilish shuncha xotirani ozod qiladi", "aniq leak", "u young generation'da"], answer: 1, explain: "Retained size faqat u orqali yetib boriladigan hamma narsani oʻz ichiga oladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/memory-gc" />

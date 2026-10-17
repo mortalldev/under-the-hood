@@ -1,0 +1,108 @@
+## TL;DR
+
+<Term id="replication" /> keeps **copies** of the same data on several nodes (availability, durability, read scaling). <Term id="sharding" /> **splits** data across nodes by a partition key (write and storage scaling). Real systems do both: each shard is replicated. The hard parts are choosing the **partition key** (even load, queries that stay on one shard), handling **replication lag**, and **rebalancing** without moving everything — which is what <Term id="consistent-hashing" /> is for.
+
+## Visual model
+
+```text
+                  shard A (users a–h)      shard B (users i–p)      shard C (users q–z)
+leader            [A-L]                    [B-L]                    [C-L]
+followers         [A-F1] [A-F2]            [B-F1] [B-F2]            [C-F1] [C-F2]
+writes ─▶ leader of the key's shard; reads ─▶ leader (fresh) or followers (scalable, maybe stale)
+```
+
+## Mechanism
+
+### Replication
+
+- **Single-leader**: all writes go to the leader, which streams its log to followers. **Synchronous** replication waits for followers (no data loss on failover, higher latency); **asynchronous** doesn't wait (fast, but a failover can lose the last writes and followers serve stale reads). Many systems use semi-sync: wait for one follower.
+- **Multi-leader**: several leaders accept writes (multi-region) — needs **conflict resolution** (last-write-wins loses data; CRDTs or app-level merges keep it).
+- **Leaderless** (Dynamo-style): clients write to and read from several replicas with <Term id="quorum" /> rules (R + W > N), using read repair and anti-entropy to converge.
+
+### Sharding
+
+- **Range partitioning** (by key ranges): efficient range scans; risk of hot ranges (all new timestamps go to the last shard).
+- **Hash partitioning**: even distribution; range queries scatter across shards.
+- **Directory-based**: a lookup service maps keys to shards — flexible, but it's another critical component.
+
+### Rebalancing with consistent hashing
+
+With `hash(key) % N`, changing N remaps almost every key. Consistent hashing places nodes and keys on a ring; a key belongs to the first node clockwise. Adding a node only takes over the keys in its arc. Try it — and compare with the modulo count:
+
+<ConsistentHashingViz />
+
+Real systems give each server many **virtual nodes** on the ring to even out arc sizes and to spread a failed node's load across all others.
+
+## Code
+
+```ts
+// Routing a request to its shard (hash partitioning with virtual nodes on a ring)
+class Ring {
+  private points: { pos: number; node: string }[] = [];
+  constructor(nodes: string[], vnodes = 100) {
+    for (const n of nodes) for (let v = 0; v < vnodes; v++) this.points.push({ pos: hash32(`${n}#${v}`), node: n });
+    this.points.sort((a, b) => a.pos - b.pos);
+  }
+  nodeFor(key: string): string {
+    const h = hash32(key);
+    let lo = 0, hi = this.points.length;          // first point with pos >= h (binary search)
+    while (lo < hi) { const m = (lo + hi) >> 1; if (this.points[m].pos < h) lo = m + 1; else hi = m; }
+    return this.points[lo % this.points.length].node;
+  }
+}
+
+// Read-your-own-writes with async replicas: route a user's reads to the leader for a short window after they write
+function chooseReplica(userId: string, lastWriteAt: number | undefined) {
+  return lastWriteAt && Date.now() - lastWriteAt < 5_000 ? leader : randomFollower();
+}
+```
+
+## When to use / when not to
+
+**Replicate** almost always (durability, failover, read scaling). **Shard** only when a single node can't hold the data or the write rate — sharding complicates transactions, joins, unique constraints and operations. Exhaust vertical scaling, read replicas, caching and archiving first.
+
+**Choosing a partition key**: high cardinality, even access, and aligned with the dominant query (e.g. `tenant_id` for B2B SaaS, `user_id` for social data). Avoid keys that create hotspots (timestamps, a celebrity user) — or add a salt/suffix for them.
+
+## Trade-offs
+
+| Choice | Gains | Costs |
+| --- | --- | --- |
+| Sync replication | no loss on failover | write latency, availability tied to followers |
+| Async replication | fast writes | possible loss on failover, stale reads |
+| Range sharding | range scans | hotspots |
+| Hash sharding | even load | scatter-gather for ranges |
+| Consistent hashing | minimal data movement | uneven arcs without virtual nodes |
+| Cross-shard transactions | correctness | 2PC/sagas, latency, complexity |
+
+## Senior nuance
+
+- **Replication lag anomalies**: read-your-own-writes, monotonic reads (don't go back in time between replicas), consistent prefix reads (causally related writes in order). Know which your product needs.
+- **Failover is dangerous**: split brain (two leaders), lost async writes, clients with stale leader addresses. Use fencing tokens and consensus-based leader election.
+- **Resharding online**: double-write or log-based backfill, verify, then switch reads; plan IDs so that moving tenants is possible.
+- **Global secondary indexes** on sharded data are either local (query all shards) or global (themselves partitioned, updated asynchronously).
+
+## Interview questions
+
+<QA q="Sharding vs replication?" level="mid">
+Replication copies the same data to multiple nodes for availability, durability and read throughput. Sharding partitions different data onto different nodes to scale storage and write throughput. They're orthogonal and combined: each shard is replicated.
+</QA>
+
+<QA q="Why consistent hashing instead of hash mod N?" level="mid">
+With mod N, changing the number of nodes changes the target of almost every key, forcing a massive data movement and cache miss storm. With consistent hashing only the keys in the arc taken over (or released) by the changed node move — about 1/N of them — and virtual nodes keep the distribution even.
+</QA>
+
+<QA q="A user updates their profile and immediately sees the old version. Explain and fix." level="senior">
+Their write went to the leader but the next read was served by an asynchronous follower that hadn't applied it yet (replication lag). Fix with read-your-own-writes: route that user's reads to the leader for a short time after a write, or read from a replica only if its replication position is at least the write's position (session/LSN tokens), or read the user's own profile from the leader always.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Adding 1 node to 4 with consistent hashing moves roughly…", options: ["all keys", "~1/5 of keys", "~4/5 of keys", "none"], answer: 1, explain: "Only the new node's share moves." },
+  { q: "Partitioning orders by created_at range causes…", options: ["even load", "a hot latest shard", "slow range scans", "no issues"], answer: 1, explain: "All new writes land in the newest range." },
+  { q: "Async replication + leader failover may…", options: ["lose recently acknowledged writes", "lose nothing", "double write throughput", "fix lag"], answer: 0, explain: "Writes not yet replicated are gone if the leader dies." }
+]} />
+
+## Resources
+
+<Resources topic="system-design/sharding-replication" />

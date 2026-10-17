@@ -1,0 +1,161 @@
+## TL;DR
+
+Every lesson on this site uses JavaScript/TypeScript, and so can your interviews. But JS has sharp edges that other interview languages don't. `sort()` compares **strings** unless you pass a <Term id="comparator" />, and numbers are 64-bit floats that are exact only up to 2⁵³ − 1. There's **no built-in heap or deque**, and `shift()` is O(n). Know these by heart, keep a few tiny helpers ready (MinHeap, Deque, counter, grid neighbours), and JS becomes a fast interview language.
+
+## Visual model
+
+```text
+need                           JS tool                          cost / gotcha
+hash map / counter             Map<K, number>                   any key type, insertion order kept
+hash set                       Set<T>                           objects compared by reference, not by value
+sorted order                   arr.sort((a, b) => a - b)        default sort is lexicographic: [10, 9, 1] → [1, 10, 9]
+stack                          push / pop                       O(1)
+queue (BFS)                    array + head index, or Deque     shift() is O(n) → BFS becomes O(n²)
+priority queue                 your own MinHeap                 no built-in — write it in 3 minutes
+big integers                   BigInt (10n ** 20n)              can't mix with Number: 1n + 1 throws TypeError
+string building                parts.push(); parts.join("")     strings are immutable
+2D grid                        Array.from({ length: r }, () => new Array(c).fill(0))   new Array(r).fill([]) shares ONE row
+```
+
+## Mechanism
+
+**Sorting.** `Array.prototype.sort` converts elements to strings and compares UTF-16 code units unless you pass a comparator, so `[10, 9, 1].sort()` gives `[1, 10, 9]`. The comparator returns a negative number to keep `a` first. Since ES2019 the sort is **stable**: equal elements keep their order, so you can sort by a secondary key first and then by the primary key. `toSorted()` (ES2023) returns a sorted copy instead of mutating.
+
+**Numbers.** Every `number` is an IEEE-754 double. Integers are exact up to `Number.MAX_SAFE_INTEGER` (2⁵³ − 1 ≈ 9 × 10¹⁵). Problems that ask for an answer "modulo 1e9 + 7" overflow the safe range when you multiply two values near 1e9, because the product is about 1e18. Use `BigInt` for that multiplication, or split it. Bitwise operators (`|`, `&`, `>>`) convert to **32-bit** integers, so `x | 0` truncates and `>> 1` breaks above 2³¹. Use `Math.floor(x / 2)` for big values and `>>> 0` to read a value as unsigned.
+
+**Map vs object.** `Map` keeps insertion order, accepts any key type, has `size`, and is faster for frequent adds and deletes. Plain objects turn keys into strings (`obj[1]` and `obj["1"]` are the same slot) and inherit from `Object.prototype` (a key like `"constructor"` already exists). Use `Map` and `Set` for algorithms.
+
+**Composite keys.** `Set` compares arrays by reference, so `new Set([[1, 2]]).has([1, 2])` is `false`. Encode keys as strings (`` `${r},${c}` ``) or numbers (`r * cols + c`).
+
+**Queues.** `shift()` re-indexes the whole array, which is O(n). For BFS, keep a `head` index into the array, or use a ring-buffer Deque.
+
+**Recursion depth.** V8's call stack fits roughly ten thousand frames (it depends on frame size). A DFS over a 10⁵-node linked chain can throw `RangeError: Maximum call stack size exceeded`. Convert deep recursion to an explicit stack.
+
+## Code
+
+```ts
+// MinHeap with a comparator — the priority queue JS doesn't ship
+class MinHeap<T> {
+  private a: T[] = [];
+  constructor(private less: (x: T, y: T) => boolean) {}
+  get size() { return this.a.length; }
+  peek(): T | undefined { return this.a[0]; }
+  push(x: T): void {
+    const a = this.a;
+    a.push(x);
+    let i = a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (!this.less(a[i], a[p])) break;
+      [a[i], a[p]] = [a[p], a[i]];
+      i = p;
+    }
+  }
+  pop(): T | undefined {
+    const a = this.a;
+    if (a.length === 0) return undefined;
+    const top = a[0];
+    const last = a.pop() as T;
+    if (a.length > 0) {
+      a[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < a.length && this.less(a[l], a[m])) m = l;
+        if (r < a.length && this.less(a[r], a[m])) m = r;
+        if (m === i) break;
+        [a[i], a[m]] = [a[m], a[i]];
+        i = m;
+      }
+    }
+    return top;
+  }
+}
+
+// Deque on a ring buffer: O(1) at both ends
+class Deque<T> {
+  private buf: (T | undefined)[] = new Array(8);
+  private head = 0;
+  private len = 0;
+  get size() { return this.len; }
+  private grow() {
+    const next: (T | undefined)[] = new Array(this.buf.length * 2);
+    for (let i = 0; i < this.len; i++) next[i] = this.buf[(this.head + i) % this.buf.length];
+    this.buf = next;
+    this.head = 0;
+  }
+  pushBack(x: T) { if (this.len === this.buf.length) this.grow(); this.buf[(this.head + this.len++) % this.buf.length] = x; }
+  pushFront(x: T) { if (this.len === this.buf.length) this.grow(); this.head = (this.head - 1 + this.buf.length) % this.buf.length; this.buf[this.head] = x; this.len++; }
+  popFront(): T | undefined { if (!this.len) return undefined; const x = this.buf[this.head]; this.buf[this.head] = undefined; this.head = (this.head + 1) % this.buf.length; this.len--; return x; }
+  popBack(): T | undefined { if (!this.len) return undefined; const i = (this.head + --this.len) % this.buf.length; const x = this.buf[i]; this.buf[i] = undefined; return x; }
+}
+
+// Everyday helpers
+const count = <T,>(xs: Iterable<T>) => { const m = new Map<T, number>(); for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1); return m; };
+const grid = (r: number, c: number, v = 0) => Array.from({ length: r }, () => new Array<number>(c).fill(v));
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+const MOD = 1_000_000_007n;
+const mulMod = (a: number, b: number) => Number((BigInt(a) * BigInt(b)) % MOD);   // exact even when a·b > 2^53
+
+// Usage: Dijkstra-style "smallest distance first"
+const pq = new MinHeap<[dist: number, node: number]>((x, y) => x[0] < y[0]);
+pq.push([5, 1]); pq.push([2, 7]); pq.push([9, 3]);
+console.log(pq.pop());                         // [2, 7]
+console.log([10, 9, 1].sort());                // [1, 10, 9]  ← string order!
+console.log([10, 9, 1].sort((a, b) => a - b)); // [1, 9, 10]
+console.log((999999999 * 999999999) % 1_000_000_007);  // 63 — WRONG, precision was lost
+console.log(mulMod(999999999, 999999999));             // 64 — correct
+```
+
+## When to use / when not to
+
+**Use JS/TS in interviews** when it's your strongest language. Fluency matters more than the language itself. TypeScript types (`Map<string, number[]>`) document your intent for the interviewer at almost no cost.
+
+**Be careful** when a problem needs heavy number theory (huge products, which means BigInt) or deep recursion (convert it to iteration). Some online judges also run older Node versions, so check the version before using brand-new methods like `Set.prototype.union`.
+
+## Trade-offs
+
+| Choice | Pros | Cons |
+| --- | --- | --- |
+| `Map` vs object | any key, order, `size`, fast deletes | slightly more verbose |
+| string keys `` `${r},${c}` `` | readable | allocation per lookup |
+| numeric keys `r * C + c` | fast, no allocation | must know the width |
+| array + head index queue | simplest O(1) BFS | memory isn't reclaimed until done |
+| ring-buffer Deque | O(1) both ends, bounded memory | more code |
+| BigInt | exact big integers | slower; can't mix with Number |
+
+## Senior nuance
+
+- **Stable sort guarantee** (ES2019+) lets you do multi-key sorts in passes, and it's also why `toSorted` exists: no surprise mutation of shared arrays.
+- **`Array(n).fill(obj)` puts the same object in every slot.** Use `Array.from({ length: n }, () => …)` to create a fresh object per slot.
+- **Negative modulo**: `-1 % 5 === -1` in JS, so use `((x % m) + m) % m`.
+- **Floating-point equality**: `0.1 + 0.2 !== 0.3`. For geometry or money, use an epsilon or integer units (cents).
+- **`for...of` vs index loops**: both are fine in V8. Pick readability; don't micro-optimise in interviews.
+
+## Interview questions
+
+<QA q="Why does [10, 9, 1].sort() return [1, 10, 9]?" level="mid">
+Without a comparator, sort converts elements to strings and compares them by UTF-16 code units: "1" < "10" < "9". Pass a numeric comparator: arr.sort((a, b) => a - b). It returns a negative value when a should come first.
+</QA>
+
+<QA q="How do you implement BFS efficiently in JavaScript?" level="mid">
+Avoid shift(), which re-indexes the array and is O(n), making BFS O(n²) in the worst case. Keep a head index and read queue[head++] while pushing to the end, or use a ring-buffer deque. Mark nodes visited when you enqueue them, not when you dequeue, to avoid duplicates.
+</QA>
+
+<QA q="You need (a * b) % (1e9 + 7) where a and b are up to 1e9. What goes wrong and how do you fix it?" level="senior">
+The product can reach about 1e18, beyond Number.MAX_SAFE_INTEGER (about 9e15), so the low digits are lost before the modulo and the answer is wrong. Use BigInt for the multiplication: Number((BigInt(a) * BigInt(b)) % 1000000007n). Or split one factor into high and low halves so every intermediate value stays below 2^53.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "new Array(3).fill([]) then grid[0].push(1). What is grid[1]?", options: ["[]", "[1]", "undefined", "error"], answer: 1, explain: "fill puts the same array object in every slot." },
+  { q: "new Set([[1, 2]]).has([1, 2]) returns…", options: ["true", "false", "throws", "undefined"], answer: 1, explain: "Arrays are compared by reference; use string or number keys." },
+  { q: "Time complexity of BFS that uses queue.shift() on an array, in the worst case:", options: ["O(V + E)", "O(V²) or worse", "O(log V)", "O(1)"], answer: 1, explain: "Each shift is O(length of the queue)." },
+  { q: "-7 % 3 in JavaScript is…", options: ["2", "-1", "1", "-2"], answer: 1, explain: "The result takes the sign of the dividend; normalise with ((x % m) + m) % m." }
+]} />
+
+## Resources
+
+<Resources topic="dsa/js-toolkit" />

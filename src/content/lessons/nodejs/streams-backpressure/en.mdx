@@ -1,0 +1,118 @@
+## TL;DR
+
+Streams process data **chunk by chunk** so a 10 GB file never has to fit in memory. <Term id="backpressure" /> is the feedback that keeps this true when the destination is slower than the source: `writable.write()` returns **`false`** once its internal buffer reaches <Term id="high-water-mark" />, and the producer must stop until the **`'drain'`** event. Ignore that signal and the buffer — and your process's memory — grows without bound. `pipeline()` wires backpressure, errors and cleanup for you.
+
+## Visual model
+
+```text
+readable ──chunks──▶ [ writable buffer ░░░░░░▓▓ | highWaterMark ] ──▶ disk / socket (slow)
+                       write() → true  while buffer < highWaterMark
+                       write() → false when buffer ≥ highWaterMark   → producer pauses
+                       'drain'           when the buffer empties      → producer resumes
+```
+
+## Mechanism
+
+Compare a producer that respects `write()`'s return value with one that ignores it. Watch the peak buffer: bounded near `highWaterMark` in the first case, growing linearly in the second.
+
+<BackpressureViz />
+
+Important details:
+- `write()` returning `false` is a **request**, not a rejection: the chunk *was* accepted and buffered. Keep writing and nothing breaks immediately — memory just grows.
+- **Readable side**: a readable stream in flowing mode pushes data until its own buffer reaches its `highWaterMark`; `pipe`/`pipeline` call `pause()`/`resume()` (or stop reading) based on the writable's signals, so the backpressure travels all the way back to the file descriptor or socket — and for TCP, to the remote sender's window.
+- `highWaterMark` is in **bytes** by default — since Node 22, 64 KiB on non-Windows platforms and 16 KiB on Windows (`stream.getDefaultHighWaterMark()` tells you) — or a **count of objects** in object mode (default 16).
+- **Errors and cleanup**: with `.pipe()`, an error in one stream does not destroy the others — file descriptors and sockets leak. `pipeline()` destroys all streams and calls the callback (or rejects the promise) once.
+
+## Code
+
+```js
+const { pipeline } = require("node:stream/promises");
+const fs = require("node:fs");
+const zlib = require("node:zlib");
+
+// ✓ Backpressure + error handling + cleanup in one line
+await pipeline(
+  fs.createReadStream("big.log"),
+  zlib.createGzip(),
+  fs.createWriteStream("big.log.gz"),
+);
+
+// ✓ Async generator as a transform step (also respects backpressure)
+await pipeline(
+  fs.createReadStream("events.ndjson"),
+  async function* (source) {
+    let buf = "";
+    for await (const chunk of source) {
+      buf += chunk;
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const line of lines) if (line.includes("ERROR")) yield line + "\n";
+    }
+  },
+  fs.createWriteStream("errors.ndjson"),
+);
+
+// Manual writing done right
+async function writeMany(ws, rows) {
+  for (const row of rows) {
+    if (!ws.write(JSON.stringify(row) + "\n")) {
+      await new Promise((resolve) => ws.once("drain", resolve));   // wait for the buffer to empty
+    }
+  }
+  ws.end();
+}
+
+// HTTP: stream a file to the client — slow clients apply backpressure automatically
+// http.createServer((req, res) => pipeline(fs.createReadStream(path), res).catch(() => {}));
+```
+
+## When to use / when not to
+
+**Use streams** for large or unbounded data (files, uploads, logs, database exports, proxies), for transformation pipelines (compress, encrypt, parse), and when time-to-first-byte matters (send output as it is produced).
+
+**Don't** stream small payloads that easily fit in memory — `await fs.readFile` and `JSON.parse` are simpler and often faster.
+
+**Prefer** `pipeline` (or `for await` + a single writer that awaits `'drain'`) over `.pipe()` chains and over manual `'data'` listeners.
+
+## Trade-offs
+
+| Approach | Memory | Error handling | Complexity |
+| --- | --- | --- | --- |
+| Read whole file into memory | O(file size) | simple | lowest |
+| `.pipe()` chain | bounded | manual per stream; leaks on error | low |
+| `stream.pipeline` | bounded | automatic destroy + single callback/promise | low |
+| `'data'` listener + `write` ignoring return | unbounded | manual | deceptively low |
+| Web Streams (`ReadableStream`) | bounded | built-in, also in browsers/fetch | medium |
+
+## Senior nuance
+
+- **Object mode** counts objects, not bytes: 16 huge objects can still be a lot of memory — size `highWaterMark` for your data.
+- **Async iterators on streams** (`for await (const chunk of readable)`) pause the source while your loop body awaits — a simple way to get backpressure for consumers.
+- **HTTP responses are writables**: `res.write` returns false when the client is slow; services that build big responses in memory instead of streaming hit OOM under slow clients.
+- **Node and Web Streams interoperate** (`Readable.fromWeb`, `Readable.toWeb`); `fetch` bodies are Web Streams.
+
+## Interview questions
+
+<QA q="What is backpressure in Node streams?" level="mid">
+The mechanism by which a slower consumer slows a faster producer. A writable buffers incoming chunks and write() returns false once the buffered amount reaches highWaterMark; the producer should stop and resume on 'drain'. pipe/pipeline implement this automatically by pausing the readable, so memory stays bounded regardless of data size.
+</QA>
+
+<QA q="Why use pipeline instead of pipe?" level="mid">
+pipe() forwards data and handles backpressure but not errors: if any stream errors, the others are not destroyed, leaving file descriptors or sockets open, and you need error handlers on every stream. pipeline() connects the streams with backpressure, destroys all of them on error or completion, and reports a single error via callback or promise.
+</QA>
+
+<QA q="A Node service's memory grows when exporting large CSVs to slow clients. Diagnose." level="senior">
+Likely the export writes rows to the response without honouring write()'s return value (or builds the whole CSV in memory). With slow clients the response buffer grows with every row. Fix by streaming from the database cursor through a transform into the response with pipeline, so the DB read pauses when the socket is congested; also cap concurrency and set timeouts.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "write() returned false. The chunk you passed…", options: ["was dropped", "was buffered — stop writing until 'drain'", "will be retried automatically", "throws"], answer: 1, explain: "false is a request to pause, not a rejection." },
+  { q: "Default highWaterMark for an object-mode stream is…", options: ["16 objects", "16 KiB", "64 KiB", "unlimited"], answer: 0, explain: "Object mode counts objects." },
+  { q: "An error occurs in the middle stream of a .pipe() chain. Without extra code…", options: ["all streams are destroyed", "the other streams may stay open (leak)", "the process restarts", "data is retried"], answer: 1, explain: "pipeline() exists to fix exactly this." }
+]} />
+
+## Resources
+
+<Resources topic="nodejs/streams-backpressure" />

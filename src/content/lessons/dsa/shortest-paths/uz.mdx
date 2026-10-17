@@ -1,0 +1,109 @@
+## TL;DR
+
+Algoritmni **edge vaznlari**ga qarab tanlang: hammasi teng → BFS; faqat 0 va 1 → deque bilan 0-1 BFS; manfiy emas → min-heap bilan **Dijkstra**, O((V + E) log V); manfiy boʻlishi mumkin → **Bellman-Ford**, O(V·E), u manfiy cycle'larni ham aniqlaydi. Ularning har biri bitta amal ustiga qurilgan — <Term id="relaxation" />.
+
+## Vizual model
+
+```text
+relax(u → v, w):  agar dist[u] + w < dist[v]  boʻlsa, dist[v] = dist[u] + w, prev[v] = u
+
+dist[v] faqat kamayadi; u doim QANDAYDIR haqiqiy yoʻlning uzunligi, shuning uchun u haqiqiy
+eng qisqa masofaning yuqori chegarasi. Algoritmlar faqat edge'larni relax qilish TARTIBIDA farq qiladi.
+```
+
+## Mexanizm
+
+**Dijkstra** node'larni oʻsuvchi masofa tartibida yakunlaydi. Eng yaqin yakunlanmagan u node heap'dan olinganda uning masofasi final: u ga boshqa har qanday yoʻl yakunlangan hududdan dist[x] ≥ dist[u] boʻlgan biror x node orqali chiqib, keyin manfiy boʻlmagan vaznlar qoʻshadi — demak qisqaroq boʻla olmaydi. Belgilarni kuzating: har bir node'ning soni u "yakunlangan" boʻlguncha faqat kamayadi.
+
+<DijkstraViz />
+
+Queue'dagi eskirgan yozuvlarga e'tibor bering: decrease-key amali oʻrniga bitta node yaxshiroq masofa bilan qayta push qilinadi va eskirgan nusxa olinganda oʻtkazib yuboriladi (lazy deletion).
+
+**Manfiy edge'lar isbotni buzadi**: yakunlangan node keyinroq manfiy edge orqali yaxshilanishi mumkin. **Bellman-Ford** shunchaki har bir edge'ni V − 1 marta relax qiladi; k raunddan keyin koʻpi bilan k ta edge ishlatadigan har bir eng qisqa yoʻl toʻgʻri. Agar V-raund hali ham nimanidir yaxshilasa, yetib boriladigan manfiy cycle bor.
+
+## Kod
+
+```ts
+function dijkstra(adj: [number, number][][], src: number): number[] {
+  const dist = new Array<number>(adj.length).fill(Infinity);
+  dist[src] = 0;
+  const pq = new MinHeap<[number, number]>((a, b) => a[0] < b[0]); // [dist, node]
+  pq.push([0, src]);
+  while (pq.size) {
+    const [d, u] = pq.pop()!;
+    if (d > dist[u]) continue;                      // eskirgan
+    for (const [v, w] of adj[u]) {
+      if (d + w < dist[v]) { dist[v] = d + w; pq.push([dist[v], v]); }
+    }
+  }
+  return dist;
+}
+
+function bellmanFord(n: number, edges: [number, number, number][], src: number) {
+  const dist = new Array<number>(n).fill(Infinity);
+  dist[src] = 0;
+  for (let i = 0; i < n - 1; i++) {
+    let changed = false;
+    for (const [u, v, w] of edges) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; changed = true; }
+    if (!changed) break;                            // erta chiqish
+  }
+  const negativeCycle = edges.some(([u, v, w]) => dist[u] + w < dist[v]);
+  return { dist, negativeCycle };
+}
+
+// 0-1 BFS: vazni 0 edge'lar deque'ning OLDIGA, vazni 1 edge'lar orqasiga
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+| Vaznlar | Algoritm | Vaqt |
+| --- | --- | --- |
+| vaznsiz | BFS | O(V + E) |
+| 0 yoki 1 | 0-1 BFS (deque) | O(V + E) |
+| manfiy emas | Dijkstra (binary heap) | O((V + E) log V) |
+| istalgan, bitta manba | Bellman-Ford | O(V · E) |
+| DAG, istalgan vaznlar | topological tartibda relax | O(V + E) |
+| barcha juftliklar, kichik V | Floyd–Warshall | O(V³) |
+
+**Tanib olish signallari**: "yetib borishning minimal narxi/vaqti/kuchi", "network delay", "eng arzon reys", har bir katagi har xil narxli grid. "Koʻpi bilan K ta toʻxtash" → K + 1 raund bilan cheklangan Bellman-Ford (har raundda array'ni nusxalang) yoki (node, toʻxtashlar) holatlari ustida BFS.
+
+## Trade-off'lar
+
+- Adjacency matrix bilan heap'siz Dijkstra O(V²) — juda zich graph'larda (E ≈ V²) aslida heap versiyasidan yaxshiroq.
+- A* — priority'ga heuristic qoʻshilgan Dijkstra; admissible heuristic bilan (hech qachon oshirib baholamaydi) optimal qoladi va xaritalarda ancha kam node'ni koʻradi.
+- Bellman-Ford soddaligi uni manfiy edge'li kichik graph'lar va distance-vector routing protokollari uchun tanlovga aylantiradi.
+
+## Senior nuance
+
+- **"Minimax" yoʻl narxlari** (yoʻldagi maksimal edge'ni minimallashtirish — Path With Minimum Effort, Swim in Rising Water) Dijkstra bilan ham ishlaydi: `d + w` ni `max(d, w)` ga almashtiring; monotonlik dalili baribir oʻrinli.
+- **Yoʻlni tiklash**: har bir muvaffaqiyatli relaxation'da `prev[v]` ni saqlang va target'dan orqaga yuring.
+- **Overflow / Infinity**: tiplangan tillarda `INF + w` overflow qiladi; `if (dist[u] === INF) continue` bilan himoyalaning.
+- **Dijkstra manfiy cycle'lar boʻlmasa ham manfiy edge'lar bilan ishlamaydi** — keng tarqalgan interview tuzogʻi. Johnson algoritmi edge'larni Bellman-Ford potensiallari bilan qayta vaznlaydi, ularni manfiy boʻlmagan qiladi, keyin har bir node'dan Dijkstra ishga tushiradi.
+
+## Interview savollari
+
+<QA q="Nega Dijkstra manfiy edge vaznlari bilan ishlamaydi?" level="mid">
+Uning toʻgʻrilik dalili: olingan u node'ning masofasi final, chunki har qanday muqobil yoʻl kamida shunchalik uzoq node orqali oʻtib, keyin manfiy boʻlmagan vaznlar qoʻshishi shart. Manfiy edge bilan uzoqroq node orqali yoʻl arzonroq qaytishi mumkin, shuning uchun node juda erta "yakunlanib" qolishi mumkin.
+</QA>
+
+<QA q="Cheapest Flights Within K Stops — nega oddiy Dijkstra emas?" level="senior">
+Holat faqat node emas: kamroq toʻxtashli qimmatroq yoʻl K ichida tugay oladigan yagona yoʻl boʻlishi mumkin. Yoki oldingi raund masofalaridan foydalanib K + 1 raund Bellman-Ford ishlating (har raund aynan bitta edge qoʻshadi), yoki (node, ishlatilgan toʻxtashlar) holatlari ustida Dijkstra/BFS ishlating — node'ga kamroq toʻxtash bilan qayta kirishga ruxsat bering.
+</QA>
+
+<QA q="Millionlab node'li yoʻl tarmogʻida koʻp soʻrovlar uchun eng qisqa yoʻllarni qanday hisoblaysiz?" level="senior">
+Bunday masshtabda har soʻrovga Dijkstra juda sekin. Production router'lar oldindan hisoblaydi: contraction hierarchies yoki hub labels soʻrovlarni mikro-millisekundlarda bajaradi, landmark'li A* (ALT) yaxshi heuristic beradi. Bidirectional qidiruv ham koʻriladigan hududni taxminan ikki baravar kamaytiradi. Oldindan hisoblash soʻrov latency'si uchun xotira va qurish vaqtini almashtirishini aytish — senior signal.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Edge vaznlari faqat 0 yoki 1. Eng yaxshi algoritm?", options: ["Dijkstra", "0-1 BFS", "Bellman-Ford", "Floyd–Warshall"], answer: 1, explain: "Deque masofa tartibini O(V + E) da saqlaydi: 0-edge'lar oldiga boradi." },
+  { q: "Bellman-Ford'ning V-raundi hali ham edge'ni relax qiladi. Bu…", options: ["bug", "yetib boriladigan manfiy cycle", "graph bogʻlanmagan", "vaznlar nol"], answer: 1, explain: "Eng qisqa oddiy yoʻllar koʻpi bilan V − 1 edge ishlatadi; keyingi yaxshilanish manfiy cycle'ni bildiradi." },
+  { q: "Path With Minimum Effort (maksimal qadamni minimallashtirish): Dijkstra nima bilan?", options: ["d + w", "max(d, w)", "min(d, w)", "d · w"], answer: 1, explain: "Yoʻl narxi — hozirgacha maksimal edge; u yoʻl boʻylab baribir monoton." }
+]} />
+
+**Klassik masalalar:** Network Delay Time (Medium) · Path With Minimum Effort (Medium) · Cheapest Flights Within K Stops (Medium) · Swim in Rising Water (Hard) · Minimum Cost to Make at Least One Valid Path in a Grid (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/shortest-paths" />

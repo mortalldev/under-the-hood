@@ -1,0 +1,112 @@
+## TL;DR
+
+JavaScript bitta <Term id="call-stack" />'da bir vaqtda bitta ishni bajaradi. <Term id="event-loop" /> takror-takror **bitta <Term id="task" />** oladi, uni oxirigacha bajaradi, keyin **barcha** <Term id="microtask">microtask</Term>'larni (promise reaction'lar, `queueMicrotask`, `await` davomlari) boʻshatadi, keyin brauzerga render qilish imkonini beradi va shundan keyingina keyingi task'ni oladi. Deyarli har bir "output tartibi qanday?" savoliga shu uch jumla javob beradi.
+
+## Vizual model
+
+```text
+┌────────────── event loop'ning bitta aylanishi ──────────────┐
+│ 1. eng eski TASK'ni olish (skript, timer, click, message)   │
+│ 2. call stack boʻshaguncha uni bajarish                     │
+│ 3. MICROTASK queue'ni toʻliq boʻshatish                     │   ← bu yerda qoʻshilgan yangi microtask'lar ham ishlaydi
+│ 4. ehtimol RENDER (rAF → style → layout → paint)            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Timer'larni engine bajarmaydi: `setTimeout` timer'ni host'ga (Web APIs) beradi. U tugaganda callback task queue'da kutadigan task'ga aylanadi.
+
+## Mexanizm
+
+Avval taxmin qiling, keyin ishga tushiring. Output tartibini maydonga yozing, **Tekshirish**ni bosing va modelingiz qayerda adashganini koʻrish uchun qadamma-qadam yuring. Kodni tahrirlashingiz ham mumkin — simulyator `console.log`, `setTimeout`, `Promise.resolve().then`, `new Promise`, `queueMicrotask`, `async`/`await` va funksiya chaqiruvlarini tushunadi.
+
+<EventLoopViz runtime="browser" />
+
+Qadamma-qadam yurganda asosiy kuzatuvlar:
+- Butun skript — birinchi task. U tugamaguncha hech qanday asinxron narsa ishlamaydi — hatto `setTimeout(…, 0)` ham.
+- Allaqachon resolve boʻlgan promise'dagi `.then` callback'ni **darhol** navbatga qoʻyadi; pending promise'dagi `.then` esa `resolve()` chaqirilguncha faqat reaction saqlaydi.
+- `await x` async funksiyani toʻxtatadi va davomini microtask sifatida navbatga qoʻyadi; chaqiruvchi sinxron davom etadi.
+- Zanjirlangan `.then`'lar aralashadi (`a1 b1 a2 b2`): har bir `.then` yangi promise yaratadi, u faqat oldingi callback qaytgandan keyin resolve boʻladi.
+
+## Kod
+
+```js
+console.log("1");                                   // sinxron
+setTimeout(() => console.log("2"), 0);              // task
+Promise.resolve().then(() => console.log("3"));     // microtask
+queueMicrotask(() => console.log("4"));             // microtask
+(async () => {
+  console.log("5");                                 // sinxron: tana birinchi await'gacha bajariladi
+  await null;
+  console.log("6");                                 // microtask (davom)
+})();
+console.log("7");                                   // sinxron
+// → 1 5 7 3 4 6 2
+```
+
+Uzun loop'da brauzerga navbat berish:
+
+```js
+async function processInChunks(items, work) {
+  for (let i = 0; i < items.length; i++) {
+    work(items[i]);
+    if (i % 500 === 0) await new Promise((r) => setTimeout(r, 0)); // yangi TASK → render'ga imkon beradi
+  }
+}
+// await Promise.resolve() YORDAM BERMAYDI: microtask'lar render'dan oldin ishlaydi.
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Bu modeldan foydalaning**: output tartibi, UI qotishi, "nega spinner'im koʻrinmayapti?", promise va timer'lar orasidagi race condition'lar va sahifani "och qoldirish" haqida fikrlaganda.
+
+**Keng tarqalgan notoʻgʻri modellar**
+- "setTimeout 0 darhol ishlaydi" — yoʻq, u barcha microtask'lardan keyin, keyingi task'da ishlaydi.
+- "Promise'lar asinxron, shuning uchun parallel ishlaydi" — yoʻq, ular bitta thread'da ishlaydi; faqat I/O boshqa joyda bajariladi.
+- "await dasturni toʻxtatadi" — u faqat oʻsha async funksiyani toʻxtatadi.
+
+## Trade-off'lar
+
+| Rejalashtirish API'si | Queue | Qachon ishlaydi | Odatiy qoʻllanish |
+| --- | --- | --- | --- |
+| `queueMicrotask`, `.then`, `await` | microtask | keyingi task va render'dan oldin | sinxron koddan keyin state izchilligi |
+| `setTimeout(fn, 0)` | task | render imkoniyatidan keyin, chuqur ichma-ich boʻlsa ≥ 4 ms | brauzerga navbat berish |
+| `requestAnimationFrame` | rendering qadami | keyingi paint'dan oldin | vizual yangilanishlar |
+| `MessageChannel.postMessage` | task | tez, timer cheklovisiz | scheduler'larda tez navbat berish |
+
+## Senior nuance
+
+- **Microtask ochligi**: oʻzi microtask qoʻshib turadigan microtask loop'ni hech qachon render'ga yoki keyingi task'ga yetkazmaydi — odatiy ma'noda hech narsa "bloklamasa" ham sahifa qotadi.
+- **Ichma-ich timer cheklovi**: HTML spec'ga koʻra, 5 darajadan chuqur ichma-ich timer'lar kamida 4 ms ga cheklanadi; brauzerlar fon tab'larida timer'larni ham kuchli sekinlashtiradi.
+- **Native promise'lar uchun `await` bitta microtask tick turadi** — 2018–2019 yillardagi spec oʻzgarishidan keyin, uni V8 erta joriy qilgan (resurslardagi "Faster async functions and promises"ga qarang); undan oldin uchta tick kerak edi. Native boʻlmagan thenable'lar qoʻshimcha tick oladi.
+- **Rendering har aylanishda kafolatlanmagan**: brauzerlar taxminan har display kadrida bir marta render qiladi (60 Hz da ~16.7 ms) va hech narsa oʻzgarmasa oʻtkazib yuborishi mumkin.
+- **Uzun task'lar** (> 50 ms) INP kabi javob berish metrikalariga zarar yetkazadi; ishni `setTimeout`/mavjud boʻlsa `scheduler.yield()` bilan boʻling yoki Web Worker'ga koʻchiring.
+
+<Callout kind="note" title="Model chegaralari">
+Simulyator sinxron kodni oniy deb hisoblaydi va `await x` ni allaqachon settled qiymatni kutish sifatida modellaydi. Bu interview savollari tekshiradigan narsaga mos; haqiqiy vaqt timer aniqligi va render ritmiga ham bogʻliq.
+</Callout>
+
+## Interview savollari
+
+<QA q="Task va microtask orasidagi farq nima?" level="mid">
+Task — host rejalashtiradigan birlik (skript, timer callback, event). Event loop har aylanishda aynan bitta task bajaradi. Microtask'larni (promise reaction'lar, queueMicrotask, await davomlari) JavaScript'ning oʻzi navbatga qoʻyadi va call stack har safar boʻshaganda — har bir task'dan keyin va render'dan oldin — butun microtask queue boʻshatiladi, boʻshatish paytida qoʻshilganlari ham.
+</QA>
+
+<QA q="Nega while(true) loop sahifani qotiradi, recursive setTimeout esa qotirmaydi?" level="mid">
+While loop hech qachon qaytmaydi, shuning uchun joriy task hech qachon tugamaydi; boshqa hech qanday task, microtask yoki render boʻla olmaydi. Recursive setTimeout har safar yangi task rejalashtiradi va qaytadi, bu loop'ga iteratsiyalar orasida render qilish va input'ni qayta ishlash imkonini beradi. (Recursive microtask ham qotirardi, chunki microtask'lar render'dan oldin boʻshatiladi.)
+</QA>
+
+<QA q="then bilan aralash async/await'ning output tartibini tushuntiring." level="senior">
+Async funksiyani chaqirish uning tanasini birinchi await'gacha sinxron bajaradi. `await v` davomni microtask sifatida navbatga qoʻyadi (native promise'lar uchun bitta tick) va boshqaruvni chaqiruvchiga qaytaradi. Shu orada roʻyxatga olingan Promise.then callback'lari FIFO tartibida navbatga turadi. Sinxron skript tugagach, microtask'lar navbat tartibida ishlaydi, ular qoʻshgan microtask'lar oxiriga qoʻshilib, keyingi task'dan oldin ular ham ishlaydi. Timer'lar faqat bularning barchasidan keyin ishlaydi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "setTimeout(A); Promise.resolve().then(B); console.log(C) natijasi", options: ["A B C", "C B A", "C A B", "B C A"], answer: 1, explain: "Avval sinxron, keyin microtask'lar, keyin task'lar." },
+  { q: "Uzun loop paytida sahifani sezgir saqlaydigan qaysi?", options: ["har 500 elementda await Promise.resolve()", "har 500 elementda await new Promise(r => setTimeout(r))", "har 500 elementda queueMicrotask", "hech biri"], answer: 1, explain: "Faqat yangi task brauzerga render imkoniyatini beradi." },
+  { q: "Microtask ichida qoʻshilgan microtask qachon ishlaydi?", options: ["keyingi task'da", "render'dan keyin", "oʻsha boʻshatishda, keyingi task'dan oldin", "hech qachon"], answer: 2, explain: "Microtask checkpoint queue boʻshaguncha davom etadi." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/event-loop" />

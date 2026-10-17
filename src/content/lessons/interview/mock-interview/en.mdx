@@ -1,0 +1,129 @@
+## TL;DR
+
+This is the capstone: a mixed self-assessment across every section of the site plus a mock-interview bank. Use it **after** finishing the other lessons. Do the quiz without looking anything up, then mark weak topics for review. For the mock bank, set a timer, answer **out loud** (or to a friend), and only then open the model answer. The goal is not to memorise answers but to practise **explaining mechanisms under time pressure**.
+
+## Visual model
+
+```text
+45-minute mock loop (repeat weekly):
+  5 min   pick one prompt from the bank, clarify assumptions out loud
+ 30 min   solve / design / tell the story — record yourself or use a partner
+ 10 min   compare with the model answer + the lesson; write 3 things to improve
+ → add weak topics to the Review list (spaced repetition: 1, 3, 7, 16, 35 days)
+```
+
+## Mechanism
+
+**Why mock interviews work**: retrieval under pressure is a different skill from recognition while reading. Mocks expose silent thinking, rambling, missed edge cases and timing problems that you never notice alone.
+
+**How to score yourself** (1–4 per axis, after each mock):
+- **Problem solving**: clarified, found a working approach, optimised with a named pattern.
+- **Code / design quality**: readable, correct, tested; or a coherent, quantified architecture.
+- **Communication**: structured, narrated decisions, handled hints/follow-ups.
+- **Senior signals**: trade-offs with costs, failure modes, operations, scope.
+
+Track scores over weeks; work on the lowest axis first.
+
+**Cross-topic quiz** — one question per area:
+
+<Quiz questions={[
+  { q: "Big-O: a loop over n with a nested binary search costs…", options: ["O(n)", "O(n log n)", "O(n²)", "O(log n)"], answer: 1, explain: "n iterations × log n each." },
+  { q: "Sliding window works for 'longest subarray with sum ≤ k' when…", options: ["values can be negative", "all values are non-negative", "the array is sorted", "always"], answer: 1, explain: "Non-negative values make the window sum monotonic as it grows/shrinks." },
+  { q: "Dijkstra fails with…", options: ["cycles", "negative edge weights", "undirected graphs", "dense graphs"], answer: 1, explain: "A settled node could later get a shorter path through a negative edge." },
+  { q: "Output order: setTimeout(A,0); Promise.resolve().then(B); console.log(C)", options: ["A B C", "C B A", "C A B", "B C A"], answer: 1, explain: "Sync first, then microtasks, then macrotasks." },
+  { q: "TypeScript: `type T = string extends string | number ? 1 : 0` is…", options: ["0", "1", "never", "error"], answer: 1, explain: "string is assignable to string | number." },
+  { q: "React: setCount(count + 1) three times in one handler (count = 0) gives…", options: ["3", "1", "0", "error"], answer: 1, explain: "All three read the same snapshot; use the updater form for 3." },
+  { q: "Next.js App Router: a component that uses useState must…", options: ["be async", "be a Client Component ('use client')", "be in /pages", "export metadata"], answer: 1, explain: "Hooks with state run on the client." },
+  { q: "Node.js: a CPU-heavy synchronous loop in a request handler…", options: ["runs in the thread pool", "blocks the event loop for all requests", "is automatically parallelised", "is fine"], answer: 1, explain: "JS runs on one thread; offload to worker threads." },
+  { q: "System design: R + W > N guarantees…", options: ["availability", "read set overlaps the latest write set", "zero latency", "no conflicts"], answer: 1, explain: "Quorum intersection." },
+  { q: "Behavioral: in STAR, most time goes to…", options: ["Situation", "Task", "Action", "Result"], answer: 2, explain: "Your actions are the evidence." }
+]} />
+
+## Code
+
+```ts
+// Mock coding prompt 1 — "Top K frequent elements" (target O(n log k))
+function topKFrequent(nums: number[], k: number): number[] {
+  const freq = new Map<number, number>();
+  for (const x of nums) freq.set(x, (freq.get(x) ?? 0) + 1);
+  // bucket sort by frequency: O(n) — mention as the follow-up optimisation
+  const buckets: number[][] = Array.from({ length: nums.length + 1 }, () => []);
+  for (const [x, f] of freq) buckets[f].push(x);
+  const out: number[] = [];
+  for (let f = buckets.length - 1; f > 0 && out.length < k; f--) out.push(...buckets[f]);
+  return out.slice(0, k);
+}
+
+// Mock coding prompt 2 — "Merge intervals": sort by start, extend or push
+function merge(intervals: [number, number][]): [number, number][] {
+  const sorted = [...intervals].sort((a, b) => a[0] - b[0]);
+  const out: [number, number][] = [];
+  for (const [s, e] of sorted) {
+    const last = out[out.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+```
+
+## When to use / when not to
+
+Start mocks once you've covered the fundamentals — usually 4–6 weeks before interviews — and do at least one per week per interview type (coding, system design, behavioral). Mix in a mock with an unfamiliar topic to practise thinking when you don't know the answer.
+
+Don't use mocks as your only learning: if the same gap shows up twice, go back to the lesson and its visualizer.
+
+## Trade-offs
+
+| Practice mode | Strength | Weakness |
+| --- | --- | --- |
+| Solo, timed, out loud | cheap, flexible | no external feedback |
+| Peer mock | realistic pressure, feedback | quality varies |
+| Recorded self-review | reveals filler words and pacing | uncomfortable, slower |
+| Paid/expert mock | calibrated feedback | cost |
+
+## Senior nuance
+
+- **Practise the opening and closing**: the first 5 minutes (clarification, plan) and the last 5 (summary, trade-offs, next steps) are where senior signals concentrate.
+- **Rotate roles**: interviewing others teaches you what a good answer looks like from the other side.
+- **Calibrate on the company's format**: some loops use shared editors without execution, some expect running code, some have a domain-specific design round — check with the recruiter.
+- **Rest matters**: memory consolidation needs sleep; cramming the night before hurts more than it helps.
+
+## Interview questions
+
+<QA q="Mock (coding): Given a string, return the length of the longest substring without repeating characters." level="mid">
+Variable sliding window with a map of last-seen indices: move right, and when the character was seen at an index ≥ left, jump left to that index + 1; track the maximum window length. O(n) time, O(alphabet) space. Edge cases: empty string, all identical characters, the "abba" case where the old index is outside the window.
+</QA>
+
+<QA q="Mock (coding): Detect a cycle in a directed graph of course prerequisites." level="mid">
+Use Kahn's algorithm: compute in-degrees, queue all zero-in-degree nodes, pop and decrement neighbours; if the number of processed nodes is less than the number of nodes, there's a cycle. Or DFS with three colours (unvisited, in stack, done) — reaching an in-stack node means a cycle. O(V + E).
+</QA>
+
+<QA q="Mock (system design): Design a notification service (email, push, SMS) for 50 M users." level="senior">
+Requirements: per-channel delivery, user preferences and quiet hours, templates/i18n, at-least-once delivery with no duplicates visible to users, priority (security alerts vs marketing), rate limits per user and per provider. Design: API accepts notification requests → validates and stores → publishes to a log partitioned by user ID; channel workers apply preferences, render templates, call providers with retries, backoff and circuit breakers; idempotency keys prevent duplicate sends; separate queues per priority; a DLQ for failures; delivery status tracking and analytics via events. Scale: estimate peak send rate (campaigns), provider rate limits, and storage for status history with TTL.
+</QA>
+
+<QA q="Mock (frontend): Design an autocomplete component used by many teams." level="senior">
+API: controlled/uncontrolled value, async data source with cancellation, render props or slots for items, debounce and min-length options. Behaviour: debounced fetching, AbortController for stale requests, client cache by query, keyboard navigation, loading/empty/error states. Accessibility: ARIA combobox pattern with listbox, aria-activedescendant, announcements of result counts. Performance: virtualised long lists, no layout shift. Testing: unit tests for keyboard and async races, visual and accessibility tests; versioning and documentation for consumers.
+</QA>
+
+<QA q="Mock (behavioral): Tell me about the most complex project you've led." level="senior">
+Use STAR with senior scope: the business problem and constraints; your role in defining the approach (design doc, alternatives considered, trade-offs); how you aligned other teams and handled risk (milestones, flags, migrations); obstacles and how you adapted; measurable results; and what you would do differently. Keep the action section focused on your decisions and leadership.
+</QA>
+
+<QA q="Mock (JavaScript): Explain why this logs 3, 3, 3 and fix it: for (var i = 0; i < 3; i++) setTimeout(() => console.log(i));" level="mid">
+var is function-scoped, so all three callbacks close over the same binding, which is 3 when the timers run after the loop. Fix with let (a fresh binding per iteration), or pass i as an argument / capture it in an IIFE.
+</QA>
+
+## Exercise
+
+Pick one prompt from each category above, run the 45-minute loop, score yourself on the four axes, and add the weakest topic's lesson to your Review list using the "mark as done" button on that lesson.
+
+<Quiz questions={[
+  { q: "Best moment to start weekly mock interviews?", options: ["the night before", "after covering fundamentals, ~4–6 weeks before", "never — reading is enough", "only after receiving an offer"], answer: 1, explain: "Mocks need a foundation and time to fix gaps." },
+  { q: "The same gap appears in two mocks. Next step?", options: ["do more mocks", "revisit the lesson and its visualizer, then retest", "ignore it", "memorise the model answer"], answer: 1, explain: "Fix understanding, not just the answer." }
+]} />
+
+## Resources
+
+<Resources topic="interview/mock-interview" />

@@ -1,0 +1,161 @@
+## TL;DR
+
+Bu saytdagi har bir dars JavaScript/TypeScript'da yozilgan, interview'larda ham shu tillardan foydalanishingiz mumkin. Lekin JS'da boshqa interview tillarida yoʻq oʻtkir burchaklar bor. <Term id="comparator" /> bermasangiz, `sort()` elementlarni **string** sifatida solishtiradi. Sonlar esa 64-bit float boʻlib, faqat 2⁵³ − 1 gacha aniq. **Oʻrnatilgan heap yoki deque yoʻq**, `shift()` esa O(n). Bularni yoddan biling va bir nechta kichik yordamchini (MinHeap, Deque, counter, grid qoʻshnilari) tayyor tuting — shunda JS tez interview tiliga aylanadi.
+
+## Vizual model
+
+```text
+kerak                          JS vositasi                      narx / tuzoq
+hash map / counter             Map<K, number>                   istalgan key turi, qoʻshilish tartibi saqlanadi
+hash set                       Set<T>                           obyektlar qiymat bilan emas, reference bilan solishtiriladi
+saralangan tartib              arr.sort((a, b) => a - b)        standart sort leksikografik: [10, 9, 1] → [1, 10, 9]
+stack                          push / pop                       O(1)
+queue (BFS)                    array + head indeks yoki Deque   shift() O(n) → BFS O(n²) boʻlib qoladi
+priority queue                 oʻzingizning MinHeap             oʻrnatilgani yoʻq — 3 daqiqada yozing
+katta butun sonlar             BigInt (10n ** 20n)              Number bilan aralashtirib boʻlmaydi: 1n + 1 TypeError tashlaydi
+string yigʻish                 parts.push(); parts.join("")     string'lar immutable
+2D grid                        Array.from({ length: r }, () => new Array(c).fill(0))   new Array(r).fill([]) BITTA qatorni boʻlishadi
+```
+
+## Mexanizm
+
+**Saralash.** Comparator berilmasa, `Array.prototype.sort` elementlarni string'ga aylantirib, UTF-16 kod birliklari boʻyicha solishtiradi, shuning uchun `[10, 9, 1].sort()` `[1, 10, 9]` beradi. `a` oldinda qolishi uchun comparator manfiy son qaytaradi. ES2019'dan beri sort **barqaror** (stable): teng elementlar tartibini saqlaydi. Shuning uchun avval ikkilamchi key boʻyicha, keyin asosiy key boʻyicha saralash mumkin. `toSorted()` (ES2023) massivni oʻzgartirish oʻrniga saralangan nusxa qaytaradi.
+
+**Sonlar.** Har bir `number` IEEE-754 double. Butun sonlar `Number.MAX_SAFE_INTEGER` (2⁵³ − 1 ≈ 9 × 10¹⁵) gacha aniq. Javobni "modulo 1e9 + 7" boʻyicha soʻraydigan masalalarda 1e9 atrofidagi ikki qiymatni koʻpaytirsangiz, natija ~1e18 boʻlib, xavfsiz oraliqdan chiqib ketadi. Bu koʻpaytirish uchun `BigInt` ishlating yoki uni boʻlaklang. Bitwise operatorlar (`|`, `&`, `>>`) **32-bit** butun songa aylantiradi, shuning uchun `x | 0` qirqadi va `>> 1` 2³¹ dan yuqorida buziladi. Katta qiymatlar uchun `Math.floor(x / 2)`, qiymatni ishorasiz oʻqish uchun `>>> 0` ishlating.
+
+**Map va object.** `Map` qoʻshilish tartibini saqlaydi, istalgan turdagi key'ni qabul qiladi, `size`'ga ega va tez-tez qoʻshish/oʻchirishda tezroq. Oddiy object'lar key'larni string'ga aylantiradi (`obj[1]` va `obj["1"]` — bitta slot) va `Object.prototype`'dan meros oladi (`"constructor"` kabi key allaqachon mavjud). Algoritmlar uchun `Map` va `Set` ishlating.
+
+**Tarkibiy key'lar.** `Set` massivlarni reference boʻyicha solishtiradi, shuning uchun `new Set([[1, 2]]).has([1, 2])` `false` qaytaradi. Key'larni string (`` `${r},${c}` ``) yoki son (`r * cols + c`) sifatida kodlang.
+
+**Queue'lar.** `shift()` butun massivni qayta indekslaydi, bu O(n). BFS uchun massivga `head` indeksini saqlang yoki ring-buffer Deque ishlating.
+
+**Recursion chuqurligi.** V8 call stack'iga taxminan oʻn mingga yaqin frame sigʻadi (frame hajmiga bogʻliq). 10⁵ node'li zanjir ustidagi DFS `RangeError: Maximum call stack size exceeded` tashlashi mumkin. Chuqur recursion'ni aniq stack'ga aylantiring.
+
+## Kod
+
+```ts
+// Comparator'li MinHeap — JS'da boʻlmagan priority queue
+class MinHeap<T> {
+  private a: T[] = [];
+  constructor(private less: (x: T, y: T) => boolean) {}
+  get size() { return this.a.length; }
+  peek(): T | undefined { return this.a[0]; }
+  push(x: T): void {
+    const a = this.a;
+    a.push(x);
+    let i = a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (!this.less(a[i], a[p])) break;
+      [a[i], a[p]] = [a[p], a[i]];
+      i = p;
+    }
+  }
+  pop(): T | undefined {
+    const a = this.a;
+    if (a.length === 0) return undefined;
+    const top = a[0];
+    const last = a.pop() as T;
+    if (a.length > 0) {
+      a[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < a.length && this.less(a[l], a[m])) m = l;
+        if (r < a.length && this.less(a[r], a[m])) m = r;
+        if (m === i) break;
+        [a[i], a[m]] = [a[m], a[i]];
+        i = m;
+      }
+    }
+    return top;
+  }
+}
+
+// Ring buffer'dagi Deque: ikkala uchida ham O(1)
+class Deque<T> {
+  private buf: (T | undefined)[] = new Array(8);
+  private head = 0;
+  private len = 0;
+  get size() { return this.len; }
+  private grow() {
+    const next: (T | undefined)[] = new Array(this.buf.length * 2);
+    for (let i = 0; i < this.len; i++) next[i] = this.buf[(this.head + i) % this.buf.length];
+    this.buf = next;
+    this.head = 0;
+  }
+  pushBack(x: T) { if (this.len === this.buf.length) this.grow(); this.buf[(this.head + this.len++) % this.buf.length] = x; }
+  pushFront(x: T) { if (this.len === this.buf.length) this.grow(); this.head = (this.head - 1 + this.buf.length) % this.buf.length; this.buf[this.head] = x; this.len++; }
+  popFront(): T | undefined { if (!this.len) return undefined; const x = this.buf[this.head]; this.buf[this.head] = undefined; this.head = (this.head + 1) % this.buf.length; this.len--; return x; }
+  popBack(): T | undefined { if (!this.len) return undefined; const i = (this.head + --this.len) % this.buf.length; const x = this.buf[i]; this.buf[i] = undefined; return x; }
+}
+
+// Kundalik yordamchilar
+const count = <T,>(xs: Iterable<T>) => { const m = new Map<T, number>(); for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1); return m; };
+const grid = (r: number, c: number, v = 0) => Array.from({ length: r }, () => new Array<number>(c).fill(v));
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+const MOD = 1_000_000_007n;
+const mulMod = (a: number, b: number) => Number((BigInt(a) * BigInt(b)) % MOD);   // a·b > 2^53 boʻlsa ham aniq
+
+// Foydalanish: Dijkstra uslubidagi "eng kichik masofa birinchi"
+const pq = new MinHeap<[dist: number, node: number]>((x, y) => x[0] < y[0]);
+pq.push([5, 1]); pq.push([2, 7]); pq.push([9, 3]);
+console.log(pq.pop());                         // [2, 7]
+console.log([10, 9, 1].sort());                // [1, 10, 9]  ← string tartibi!
+console.log([10, 9, 1].sort((a, b) => a - b)); // [1, 9, 10]
+console.log((999999999 * 999999999) % 1_000_000_007);  // 63 — XATO, aniqlik yoʻqoldi
+console.log(mulMod(999999999, 999999999));             // 64 — toʻgʻri
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Agar JS/TS eng kuchli tilingiz boʻlsa, **interview'larda undan foydalaning**. Tilning oʻzidan koʻra uni erkin bilish muhimroq. TypeScript turlari (`Map<string, number[]>`) deyarli tekinga interviewer uchun niyatingizni hujjatlashtiradi.
+
+Masala ogʻir sonlar nazariyasini (ulkan koʻpaytmalar, ya'ni BigInt) yoki chuqur recursion'ni (iteratsiyaga aylantiring) talab qilsa, **ehtiyot boʻling**. Ba'zi onlayn judge'lar eski Node versiyalarida ishlaydi, shuning uchun `Set.prototype.union` kabi yangi metodlarni ishlatishdan oldin versiyani tekshiring.
+
+## Trade-off'lar
+
+| Tanlov | Afzalliklar | Kamchiliklar |
+| --- | --- | --- |
+| `Map` va object | istalgan key, tartib, `size`, tez oʻchirish | biroz uzunroq yoziladi |
+| string key'lar `` `${r},${c}` `` | oʻqilishi oson | har qidiruvda allokatsiya |
+| son key'lar `r * C + c` | tez, allokatsiyasiz | kenglikni bilish kerak |
+| array + head indeksli queue | eng sodda O(1) BFS | xotira oxirigacha boʻshatilmaydi |
+| ring-buffer Deque | ikki uchda O(1), chegaralangan xotira | koʻproq kod |
+| BigInt | aniq katta butun sonlar | sekinroq; Number bilan aralashmaydi |
+
+## Senior nuance
+
+- **Barqaror sort kafolati** (ES2019+) koʻp key'li saralashni bosqichma-bosqich qilishga imkon beradi. Bu `toSorted` mavjudligining ham sababi: umumiy massivlar kutilmaganda oʻzgarmaydi.
+- **`Array(n).fill(obj)` har bir slot'ga bitta obyektni qoʻyadi.** Har slot uchun yangi obyekt yaratish uchun `Array.from({ length: n }, () => …)` ishlating.
+- **Manfiy modulo**: JS'da `-1 % 5 === -1`, shuning uchun `((x % m) + m) % m` ishlating.
+- **Floating-point tengligi**: `0.1 + 0.2 !== 0.3`. Geometriya yoki pul uchun epsilon yoki butun birliklar (tiyin) ishlating.
+- **`for...of` va indeks loop'lari**: V8'da ikkalasi ham yaxshi. Oʻqilishini tanlang; interview'da mikro-optimallashtirmang.
+
+## Interview savollari
+
+<QA q="Nega [10, 9, 1].sort() [1, 10, 9] qaytaradi?" level="mid">
+Comparator boʻlmasa, sort elementlarni string'ga aylantiradi va UTF-16 kod birliklari boʻyicha solishtiradi: "1" < "10" < "9". Sonli comparator bering: arr.sort((a, b) => a - b). a oldinda boʻlishi kerak boʻlsa, u manfiy qiymat qaytaradi.
+</QA>
+
+<QA q="JavaScript'da BFS'ni qanday samarali implementatsiya qilasiz?" level="mid">
+Massivni qayta indekslaydigan shift()'dan qoching: u O(n) va eng yomon holatda BFS'ni O(n²) qiladi. Head indeksini saqlab, oxiriga qoʻshayotganda queue[head++] ni oʻqing yoki ring-buffer deque ishlating. Dublikatlardan qochish uchun node'larni queue'dan chiqarganda emas, qoʻshganda visited deb belgilang.
+</QA>
+
+<QA q="a va b 1e9 gacha boʻlganda (a * b) % (1e9 + 7) kerak. Nima buziladi va qanday tuzatasiz?" level="senior">
+Koʻpaytma ~1e18 ga yetishi mumkin, bu Number.MAX_SAFE_INTEGER (~9e15) dan katta, shuning uchun modulo'dan oldin pastki raqamlar yoʻqoladi va javob notoʻgʻri chiqadi. Koʻpaytirish uchun BigInt ishlating: Number((BigInt(a) * BigInt(b)) % 1000000007n). Yoki bitta koʻpaytuvchini yuqori va past yarimlarga boʻling, shunda har bir oraliq qiymat 2^53 dan past qoladi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "new Array(3).fill([]), keyin grid[0].push(1). grid[1] nima?", options: ["[]", "[1]", "undefined", "xato"], answer: 1, explain: "fill har bir slot'ga bitta massiv obyektini qoʻyadi." },
+  { q: "new Set([[1, 2]]).has([1, 2]) nima qaytaradi?", options: ["true", "false", "xato tashlaydi", "undefined"], answer: 1, explain: "Massivlar reference boʻyicha solishtiriladi; string yoki son key'lar ishlating." },
+  { q: "Massivda queue.shift() ishlatadigan BFS'ning eng yomon holatdagi vaqt murakkabligi:", options: ["O(V + E)", "O(V²) yoki yomonroq", "O(log V)", "O(1)"], answer: 1, explain: "Har bir shift — O(queue uzunligi)." },
+  { q: "JavaScript'da -7 % 3 qiymati…", options: ["2", "-1", "1", "-2"], answer: 1, explain: "Natija boʻlinuvchining ishorasini oladi; ((x % m) + m) % m bilan normallashtiring." }
+]} />
+
+## Resurslar
+
+<Resources topic="dsa/js-toolkit" />

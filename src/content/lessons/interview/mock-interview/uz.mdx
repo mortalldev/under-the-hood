@@ -1,0 +1,129 @@
+## TL;DR
+
+Bu yakuniy dars: saytning barcha boʻlimlari boʻyicha aralash oʻz-oʻzini baholash va mock interview banki. Uni boshqa darslarni tugatgandan **keyin** ishlating. Quiz'ni hech narsaga qaramasdan bajaring, keyin zaif mavzularni takrorlash uchun belgilang. Mock bank uchun timer qoʻying, **ovoz chiqarib** (yoki doʻstingizga) javob bering va faqat shundan keyin namunaviy javobni oching. Maqsad — javoblarni yodlash emas, **vaqt bosimi ostida mexanizmlarni tushuntirishni** mashq qilish.
+
+## Vizual model
+
+```text
+45 daqiqalik mock sikli (har hafta takrorlang):
+  5 daq   bankdan bitta topshiriq tanlang, taxminlarni ovoz chiqarib aniqlashtiring
+ 30 daq   yeching / loyihalang / hikoyani ayting — oʻzingizni yozib oling yoki sherik bilan
+ 10 daq   namunaviy javob + dars bilan solishtiring; yaxshilash uchun 3 ta narsani yozing
+ → zaif mavzularni Takrorlash roʻyxatiga qoʻshing (spaced repetition: 1, 3, 7, 16, 35 kun)
+```
+
+## Mexanizm
+
+**Nega mock interview'lar ishlaydi**: bosim ostida eslash — oʻqish paytida tanishdan farqli koʻnikma. Mock'lar yolgʻiz hech qachon sezmaydigan jim fikrlash, chalgʻish, oʻtkazib yuborilgan chegara holatlari va vaqt muammolarini ochib beradi.
+
+**Oʻzingizni qanday baholash** (har mock'dan keyin, har oʻq boʻyicha 1–4):
+- **Muammo yechish**: aniqlashtirdi, ishlaydigan yondashuv topdi, nomlangan pattern bilan optimallashtirdi.
+- **Kod / dizayn sifati**: oʻqiladigan, toʻgʻri, test qilingan; yoki izchil, miqdorlangan arxitektura.
+- **Muloqot**: tuzilmali, qarorlarni gapirib berdi, maslahat/follow-up'larni hal qildi.
+- **Senior signallar**: narxi bilan trade-off'lar, nosozlik rejimlari, operatsiyalar, doira.
+
+Ballarni haftalar davomida kuzating; avval eng past oʻq ustida ishlang.
+
+**Mavzulararo quiz** — har sohaga bitta savol:
+
+<Quiz questions={[
+  { q: "Big-O: n boʻylab loop va ichida binary search narxi…", options: ["O(n)", "O(n log n)", "O(n²)", "O(log n)"], answer: 1, explain: "n ta iteratsiya × har biri log n." },
+  { q: "Sliding window 'yigʻindisi ≤ k boʻlgan eng uzun subarray' uchun qachon ishlaydi?", options: ["qiymatlar manfiy boʻlishi mumkin boʻlsa", "barcha qiymatlar manfiy emas boʻlsa", "massiv saralangan boʻlsa", "doim"], answer: 1, explain: "Manfiy boʻlmagan qiymatlar window yigʻindisini kengayish/qisqarishda monoton qiladi." },
+  { q: "Dijkstra nimada ishlamaydi?", options: ["sikllar", "manfiy edge vaznlari", "yoʻnalishsiz graflar", "zich graflar"], answer: 1, explain: "Hal qilingan node keyinroq manfiy edge orqali qisqaroq yoʻl olishi mumkin." },
+  { q: "Chiqish tartibi: setTimeout(A,0); Promise.resolve().then(B); console.log(C)", options: ["A B C", "C B A", "C A B", "B C A"], answer: 1, explain: "Avval sinxron, keyin microtask'lar, keyin macrotask'lar." },
+  { q: "TypeScript: `type T = string extends string | number ? 1 : 0` qiymati…", options: ["0", "1", "never", "xato"], answer: 1, explain: "string string | number ga assignable." },
+  { q: "React: bitta handler'da setCount(count + 1) uch marta (count = 0) natija…", options: ["3", "1", "0", "xato"], answer: 1, explain: "Uchalasi bir xil snapshot'ni oʻqiydi; 3 uchun updater shaklidan foydalaning." },
+  { q: "Next.js App Router: useState ishlatadigan komponent…", options: ["async boʻlishi", "Client Component boʻlishi ('use client')", "/pages da boʻlishi", "metadata export qilishi"], answer: 1, explain: "State'li hook'lar client'da ishlaydi." },
+  { q: "Node.js: request handler'dagi CPU'ga ogʻir sinxron loop…", options: ["thread pool'da ishlaydi", "barcha request'lar uchun event loop'ni bloklaydi", "avtomatik parallellashtiriladi", "normal"], answer: 1, explain: "JS bitta thread'da ishlaydi; worker thread'larga koʻchiring." },
+  { q: "System design: R + W > N nimani kafolatlaydi?", options: ["mavjudlik", "oʻqish toʻplami oxirgi yozish toʻplami bilan kesishishi", "nol latency", "ziddiyatlar yoʻqligi"], answer: 1, explain: "Quorum kesishmasi." },
+  { q: "Behavioral: STAR'da eng koʻp vaqt nimaga ketadi?", options: ["Situation", "Task", "Action", "Result"], answer: 2, explain: "Harakatlaringiz — dalil." }
+]} />
+
+## Kod
+
+```ts
+// Mock coding topshirigʻi 1 — "Top K frequent elements" (maqsad O(n log k))
+function topKFrequent(nums: number[], k: number): number[] {
+  const freq = new Map<number, number>();
+  for (const x of nums) freq.set(x, (freq.get(x) ?? 0) + 1);
+  // chastota boʻyicha bucket sort: O(n) — follow-up optimallashtirish sifatida eslating
+  const buckets: number[][] = Array.from({ length: nums.length + 1 }, () => []);
+  for (const [x, f] of freq) buckets[f].push(x);
+  const out: number[] = [];
+  for (let f = buckets.length - 1; f > 0 && out.length < k; f--) out.push(...buckets[f]);
+  return out.slice(0, k);
+}
+
+// Mock coding topshirigʻi 2 — "Merge intervals": start boʻyicha saralash, kengaytirish yoki qoʻshish
+function merge(intervals: [number, number][]): [number, number][] {
+  const sorted = [...intervals].sort((a, b) => a[0] - b[0]);
+  const out: [number, number][] = [];
+  for (const [s, e] of sorted) {
+    const last = out[out.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Asoslarni qamrab olgandan keyin mock'larni boshlang — odatda interview'lardan 4–6 hafta oldin — va har interview turi (coding, system design, behavioral) uchun haftasiga kamida bittadan qiling. Javobni bilmaganingizda fikrlashni mashq qilish uchun notanish mavzuli mock'ni ham aralashtiring.
+
+Mock'larni yagona oʻrganish usuli qilmang: bir xil kamchilik ikki marta chiqsa, darsga va uning vizualizatoriga qayting.
+
+## Trade-off'lar
+
+| Mashq usuli | Kuchli tomoni | Zaif tomoni |
+| --- | --- | --- |
+| Yolgʻiz, vaqt bilan, ovoz chiqarib | arzon, moslashuvchan | tashqi fikr-mulohaza yoʻq |
+| Sherik bilan mock | real bosim, fikr-mulohaza | sifati har xil |
+| Yozib olib oʻzini koʻrib chiqish | parazit soʻzlar va sur'atni ochib beradi | noqulay, sekinroq |
+| Pullik/ekspert mock | kalibrlangan fikr-mulohaza | narx |
+
+## Senior nuance
+
+- **Boshlanish va yakunni mashq qiling**: birinchi 5 daqiqa (aniqlashtirish, reja) va oxirgi 5 daqiqa (xulosa, trade-off'lar, keyingi qadamlar) senior signallar jamlanadigan joy.
+- **Rollarni almashtiring**: boshqalarni interview qilish yaxshi javob qarama-qarshi tomondan qanday koʻrinishini oʻrgatadi.
+- **Kompaniya formatiga kalibrlang**: ba'zi loop'lar bajarilmaydigan umumiy editor ishlatadi, ba'zilari ishlaydigan kod kutadi, ba'zilarida sohaga xos design raundi bor — recruiter bilan tekshiring.
+- **Dam olish muhim**: xotirani mustahkamlash uyqu talab qiladi; oldingi kechasi yodlash foydadan koʻra koʻproq zarar keltiradi.
+
+## Interview savollari
+
+<QA q="Mock (coding): String berilgan, takrorlanuvchi belgilarsiz eng uzun substring uzunligini qaytaring." level="mid">
+Oxirgi koʻrilgan indekslar map'i bilan variable sliding window: right'ni suring va belgi ≥ left indeksda koʻrilgan boʻlsa, left'ni oʻsha indeks + 1 ga sakrating; maksimal window uzunligini kuzating. O(n) vaqt, O(alfavit) xotira. Chegara holatlari: boʻsh string, hammasi bir xil belgilar, eski indeks window'dan tashqarida boʻlgan "abba" holati.
+</QA>
+
+<QA q="Mock (coding): Kurs prerequisite'larining yoʻnaltirilgan grafida siklni aniqlang." level="mid">
+Kahn algoritmidan foydalaning: in-degree'larni hisoblang, nol in-degree'li barcha node'larni queue'ga qoʻying, chiqarib, qoʻshnilarni kamaytiring; qayta ishlangan node'lar soni node'lar sonidan kam boʻlsa, sikl bor. Yoki uch rangli DFS (koʻrilmagan, stack'da, tugagan) — stack'dagi node'ga yetish sikl demak. O(V + E).
+</QA>
+
+<QA q="Mock (system design): 50 M foydalanuvchi uchun bildirishnoma servisini (email, push, SMS) loyihalang." level="senior">
+Talablar: kanal boʻyicha yetkazish, foydalanuvchi sozlamalari va tinch soatlar, shablonlar/i18n, foydalanuvchiga koʻrinadigan dublikatlarsiz at-least-once yetkazish, ustuvorlik (xavfsizlik alert'lari va marketing), foydalanuvchi va provayder boʻyicha rate limit'lar. Dizayn: API bildirishnoma request'larini qabul qiladi → tekshiradi va saqlaydi → foydalanuvchi ID boʻyicha partition qilingan log'ga e'lon qiladi; kanal worker'lari sozlamalarni qoʻllaydi, shablonlarni render qiladi, provayderlarni retry, backoff va circuit breaker'lar bilan chaqiradi; idempotency key'lar takroriy yuborishning oldini oladi; ustuvorlik boʻyicha alohida queue'lar; nosozliklar uchun DLQ; event'lar orqali yetkazish holatini kuzatish va analitika. Masshtab: choʻqqi yuborish tezligini (kampaniyalar), provayder rate limit'larini va TTL'li holat tarixi uchun saqlashni baholang.
+</QA>
+
+<QA q="Mock (frontend): Koʻp jamoalar ishlatadigan autocomplete komponentini loyihalang." level="senior">
+API: controlled/uncontrolled qiymat, bekor qilinadigan asinxron ma'lumot manbai, elementlar uchun render prop yoki slot'lar, debounce va minimal uzunlik opsiyalari. Xatti-harakat: debounce'li fetch, eskirgan request'lar uchun AbortController, query boʻyicha client cache, klaviatura navigatsiyasi, yuklanish/boʻsh/xato holatlari. Accessibility: listbox'li ARIA combobox pattern'i, aria-activedescendant, natijalar soni e'lonlari. Performance: virtualizatsiya qilingan uzun roʻyxatlar, layout siljishi yoʻq. Test: klaviatura va asinxron race'lar uchun unit testlar, vizual va accessibility testlari; iste'molchilar uchun versiyalash va hujjatlar.
+</QA>
+
+<QA q="Mock (behavioral): Siz boshqargan eng murakkab loyiha haqida aytib bering." level="senior">
+Senior doirali STAR'dan foydalaning: biznes muammosi va cheklovlar; yondashuvni belgilashdagi rolingiz (design doc, koʻrib chiqilgan muqobillar, trade-off'lar); boshqa jamoalarni qanday kelishtirganingiz va xavfni qanday boshqarganingiz (bosqichlar, flag'lar, migratsiyalar); toʻsiqlar va qanday moslashganingiz; oʻlchanadigan natijalar; va nimani boshqacha qilishingiz. Action qismini qarorlaringiz va yetakchiligingizga qaratilgan holda saqlang.
+</QA>
+
+<QA q="Mock (JavaScript): Bu nega 3, 3, 3 chiqarishini tushuntiring va tuzating: for (var i = 0; i < 3; i++) setTimeout(() => console.log(i));" level="mid">
+var function-scoped, shuning uchun uchala callback ham bitta binding'ni yopadi, timer'lar loop'dan keyin ishlaganda u 3 ga teng. let bilan tuzating (har iteratsiyada yangi binding) yoki i'ni argument sifatida uzating / IIFE'da ushlab qoling.
+</QA>
+
+## Mashq
+
+Yuqoridagi har bir toifadan bitta topshiriq tanlang, 45 daqiqalik siklni bajaring, toʻrt oʻq boʻyicha oʻzingizni baholang va eng zaif mavzu darsini oʻsha darsdagi "tugatildi deb belgilash" tugmasi orqali Takrorlash roʻyxatingizga qoʻshing.
+
+<Quiz questions={[
+  { q: "Haftalik mock interview'larni boshlash uchun eng yaxshi payt?", options: ["oldingi kechasi", "asoslarni qamrab olgandan keyin, ~4–6 hafta oldin", "hech qachon — oʻqish yetarli", "faqat offer olgandan keyin"], answer: 1, explain: "Mock'larga poydevor va kamchiliklarni tuzatish uchun vaqt kerak." },
+  { q: "Bir xil kamchilik ikki mock'da chiqdi. Keyingi qadam?", options: ["koʻproq mock qilish", "darsni va uning vizualizatorini qayta koʻrib, qayta test qilish", "e'tiborsiz qoldirish", "namunaviy javobni yodlash"], answer: 1, explain: "Faqat javobni emas, tushunishni tuzating." }
+]} />
+
+## Resurslar
+
+<Resources topic="interview/mock-interview" />

@@ -1,0 +1,112 @@
+## TL;DR
+
+Node gives you three ways to use more than one CPU core. **Worker threads** run JavaScript in parallel **inside one process** (separate V8 isolates and event loops, shared memory possible via `SharedArrayBuffer`) — for CPU-heavy work. **Cluster** forks several **processes** of the same server that share a listening port — for scaling request handling across cores. **Child processes** run **any program** (another Node script, Python, ffmpeg) with full isolation — for external tools and fault isolation.
+
+## Visual model
+
+<FlowDiagram height={58} nodes={[
+  { id: "proc", label: "one process", sub: "main thread + event loop", x: 19, y: 10, w: 24 },
+  { id: "w1", label: "worker thread", sub: "own isolate + loop", x: 10, y: 32, w: 18, kind: "queue" },
+  { id: "w2", label: "worker thread", sub: "SharedArrayBuffer ok", x: 30, y: 32, w: 18, kind: "queue" },
+  { id: "primary", label: "cluster primary", sub: "accepts / distributes", x: 70, y: 10, w: 24 },
+  { id: "c1", label: "worker process", sub: "own heap, same port", x: 52, y: 32, w: 18, kind: "service" },
+  { id: "c2", label: "worker process", sub: "crash isolated", x: 88, y: 32, w: 18, kind: "service" },
+  { id: "child", label: "child process", sub: "ffmpeg / python / node", x: 70, y: 50, w: 26, kind: "note" }
+]} edges={[
+  { from: "proc", to: "w1", label: "postMessage" }, { from: "proc", to: "w2" },
+  { from: "primary", to: "c1", label: "IPC" }, { from: "primary", to: "c2" },
+  { from: "primary", to: "child", dashed: true, label: "spawn + stdio" }
+]} caption="Threads share a process (cheap, less isolated); processes share nothing by default (heavier, crash-isolated)." />
+
+## Mechanism
+
+**Worker threads** (`node:worker_threads`): each worker has its own V8 isolate, heap and event loop. Communication is by message passing (`postMessage`, structured clone) — objects are **copied** unless you transfer an `ArrayBuffer` (ownership moves, zero-copy) or use `SharedArrayBuffer` + `Atomics` for real shared memory. Startup costs tens of milliseconds and memory per worker, so use a **pool** for many small tasks.
+
+**Cluster** (`node:cluster`): the primary process forks N workers running the same script. Connections are distributed by the primary (round-robin by default on most platforms) or by the OS. Workers have separate memory — in-process caches and sessions are **not shared**, so state must live in Redis/DB. A crashed worker can be restarted without dropping the whole service.
+
+**Child processes** (`node:child_process`): `spawn` (stream stdio, for long-running or large output), `exec` (buffers output, runs through a shell — beware injection), `execFile` (no shell), `fork` (Node script with an IPC channel). Full OS-level isolation.
+
+In containers, horizontal scaling (more pods behind a load balancer) often replaces `cluster`: one Node process per container, let the orchestrator handle restarts and distribution.
+
+## Code
+
+```js
+// Worker thread for CPU-heavy work
+// main.js
+const { Worker } = require("node:worker_threads");
+function hash(password) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL("./hash-worker.js", "file://" + __filename), { workerData: password });
+    w.once("message", resolve);
+    w.once("error", reject);
+  });
+}
+// hash-worker.js
+const { parentPort, workerData } = require("node:worker_threads");
+parentPort.postMessage(expensiveHash(workerData));
+
+// Zero-copy transfer of a large buffer
+// worker.postMessage(buffer, [buffer]);   // `buffer` becomes unusable in the sender
+
+// Child process without a shell (no injection through arguments)
+const { execFile } = require("node:child_process");
+execFile("ffmpeg", ["-i", input, "-vf", "scale=640:-1", output], (err) => { /* … */ });
+
+// ✗ Shell injection risk
+// exec(`convert ${userFilename} out.png`);   // userFilename = "a.png; rm -rf /"
+```
+
+## When to use / when not to
+
+| Need | Choose |
+| --- | --- |
+| CPU-heavy JS (image/video processing in JS, parsing, crypto in JS) without blocking requests | worker threads (pool) |
+| Use all cores for an HTTP server on a single VM | cluster, or several processes behind a reverse proxy |
+| Run external binaries or other languages | child process (`spawn`/`execFile`) |
+| Strong fault isolation for untrusted or crash-prone work | child process |
+| Kubernetes / containers | one process per container, scale replicas |
+
+**Don't** use workers for I/O-bound work — the event loop already handles thousands of concurrent I/O operations.
+
+## Trade-offs
+
+| | Worker threads | Cluster | Child process |
+| --- | --- | --- | --- |
+| Isolation | thread (shared process) | process | process (any program) |
+| Memory sharing | `SharedArrayBuffer`, transfer | none (IPC only) | none (stdio/IPC) |
+| Startup cost | tens of ms | process fork | process spawn |
+| A crash takes down | the whole process (unless handled) | one worker | only the child |
+| Typical use | CPU tasks | multi-core servers | external tools |
+
+## Senior nuance
+
+- **Message serialization can dominate**: sending a 50 MB object to a worker structured-clones it; transfer buffers or share memory instead.
+- **Thread pool vs worker threads**: workers don't increase the libuv pool; each worker has its own event loop but they share the process-wide libuv thread pool.
+- **Sticky sessions** are needed with cluster for WebSockets/long-polling unless connection state is externalised.
+- **Graceful restarts**: with cluster, restart workers one by one (`disconnect`, wait for in-flight requests) for zero-downtime deploys.
+
+## Interview questions
+
+<QA q="Worker threads vs cluster — when each?" level="mid">
+Worker threads run parallel JavaScript within one process for CPU-bound tasks while the main thread keeps serving requests; they can share memory. Cluster runs several processes of the same server to use multiple cores for request handling; they share nothing and coordinate via IPC/external stores. CPU-bound task offloading → workers; scaling a stateless server on one machine → cluster (or multiple containers).
+</QA>
+
+<QA q="Why is exec dangerous with user input?" level="mid">
+exec runs the command through a shell, so metacharacters in interpolated input (; | && $()) are interpreted, enabling command injection. Use execFile or spawn with an argument array (no shell), validate inputs, and never build shell strings from user data.
+</QA>
+
+<QA q="How would you process 10 000 thumbnails without hurting API latency?" level="senior">
+Move the work off the request path: enqueue jobs and process them in background workers (separate processes or containers) using a worker-thread pool or native tools (sharp/libvips, ffmpeg) sized to the CPU count; stream files rather than loading them fully; apply backpressure via the queue's concurrency limit; and keep the API process only enqueuing and reporting status.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "postMessage(obj) to a worker without a transfer list…", options: ["shares obj", "copies obj via structured clone", "moves obj", "throws"], answer: 1, explain: "Messages are cloned unless buffers are transferred or shared." },
+  { q: "In-memory sessions with cluster…", options: ["are shared automatically", "are per worker process — use an external store", "require SharedArrayBuffer", "work only on Linux"], answer: 1, explain: "Cluster workers are separate processes." },
+  { q: "Running a Python script from Node with full isolation:", options: ["worker_threads", "cluster.fork", "child_process.spawn", "setImmediate"], answer: 2, explain: "Child processes can run any executable." }
+]} />
+
+## Resources
+
+<Resources topic="nodejs/workers-cluster-processes" />

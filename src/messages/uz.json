@@ -1,0 +1,236 @@
+{
+  "Site": {
+    "name": "Under the Hood",
+    "tagline": "Senior va FAANG interview'lariga yodlash orqali emas, mexanizmni tushunish orqali tayyorlanish",
+    "description": "Algoritmlar, JavaScript, TypeScript, React, Next.js, Node.js va system design boʻyicha interaktiv, animatsiyali darslar — narsalar haqiqatda qanday ishlashi darajasida tushuntirilgan.",
+    "short": "Dasturchilar uchun interaktiv, animatsiyali darslar",
+    "ogFooter": "76 ta dars · uz / en · bepul"
+  },
+  "Nav": {
+    "skipToContent": "Asosiy kontentga oʻtish",
+    "home": "Bosh sahifa",
+    "learn": "Darslar",
+    "sections": "Boʻlimlar",
+    "openMenu": "Navigatsiyani ochish",
+    "language": "Til",
+    "switchTo": "{language} tiliga oʻtish",
+    "toggleTheme": "Dark mode'ni almashtirish",
+    "primary": "Asosiy",
+    "lessonNav": "Darslar navigatsiyasi",
+    "review": "Takrorlash",
+    "resources": "Resurslar",
+    "search": "Qidiruv",
+    "glossary": "Glossariy",
+    "filterLessons": "Darsni topish",
+    "noMatches": "Mos dars topilmadi",
+    "overview": "Boʻlim haqida"
+  },
+  "Languages": {
+    "uz": "Oʻzbekcha",
+    "en": "English"
+  },
+  "Home": {
+    "eyebrow": "Vizual · Interaktiv · Mexanizm darajasida",
+    "title": "Qanday ishlashini tushuning — shunda istalgan interview'da tushuntira olasiz.",
+    "lead": "Algoritmlar, JavaScript, TypeScript, React, Next.js, Node.js va system design — har bir mavzu avval sodda tilda tushuntiriladi, keyin toʻxtatib, orqaga qaytarib koʻrish mumkin boʻlgan animatsiyada qadamma-qadam koʻrsatiladi.",
+    "start": "Shu yerdan boshlang",
+    "browse": "Boʻlimlarni koʻrish",
+    "sectionsTitle": "Boʻlimlar",
+    "stats": "{lessons} ta dars · {viz} ta interaktiv vizualizator · oʻzbek va ingliz tilida",
+    "howTitle": "Har bir dars qanday ishlaydi",
+    "how1": "Avval sodda tilda",
+    "how1Body": "Har bir dars kundalik hayotdan olingan oʻxshatish bilan boshlanadi — atamalardan oldin gʻoyaning oʻzini tushunasiz.",
+    "how2": "Ishlashini koʻring",
+    "how2Body": "Algoritmni oʻz input'ingiz bilan qadamma-qadam ishga tushiring. Kodning joriy qatori va har bir qadamning sababi koʻz oldingizda turadi.",
+    "how3": "Mashq qiling va eslang",
+    "how3Body": "Real kod, trade-off'lar, interview savollari va qisqa quiz — keyin dars takrorlash roʻyxatingizga tushadi.",
+    "partsTitle": "Oʻnta qism, hamma joyda bir xil tartibda",
+    "previewTitle": "Sliding window",
+    "previewNote": "right takroriy “a”ga yetdi — left uning oldingi oʻrnidan keyinga sakraydi, window yana toʻgʻri boʻladi."
+  },
+  "LessonParts": {
+    "tldr": "TL;DR",
+    "visual": "Vizual model",
+    "mechanism": "Mexanizm (animatsiya)",
+    "code": "Kod",
+    "when": "Qachon ishlatiladi / qachon ishlatilmaydi",
+    "tradeoffs": "Trade-off'lar",
+    "nuance": "Senior nuance",
+    "interview": "Interview savollari",
+    "exercise": "Mashq",
+    "resources": "Resurslar"
+  },
+  "Sections": {
+    "start": {
+      "title": "Boshlash",
+      "description": "Platforma qanday ishlaydi va undan qanday oʻqish kerak."
+    },
+    "dsa": {
+      "title": "Algoritmlar va ma'lumotlar tuzilmalari",
+      "description": "Masalalar roʻyxati emas, pattern'lar: tanib olish signallari, shablonlar, complexity va klassik masalalar."
+    },
+    "javascript": {
+      "title": "JavaScript",
+      "description": "Event loop, execution context, closure, prototype, GC va V8 — mexanizm darajasida."
+    },
+    "typescript": {
+      "title": "Advanced TypeScript",
+      "description": "Structural typing, generics va variance, conditional va mapped types, type-level jumboqlar."
+    },
+    "react": {
+      "title": "React",
+      "description": "Render va commit, reconciliation, Fiber, hook'lar ichidan, concurrency va Server Components."
+    },
+    "nextjs": {
+      "title": "Next.js",
+      "description": "App Router arxitekturasi, rendering strategiyalari, RSC payload, hydration va caching."
+    },
+    "nodejs": {
+      "title": "Node.js",
+      "description": "Event loop phase'lari, libuv va thread pool, streams va backpressure, production gigienasi."
+    },
+    "system-design": {
+      "title": "System Design",
+      "description": "Diagrammalar bilan backend va frontend system design, hamda interview framework."
+    },
+    "interview": {
+      "title": "Interview tayyorgarligi",
+      "description": "Coding interview jarayoni, behavioral (STAR) va senior darajadagi signal'lar."
+    }
+  },
+  "Lesson": {
+    "lessonsCount": "{count, plural, =0 {Hozircha dars yoʻq} other {# ta dars}}",
+    "prev": "Oldingi",
+    "next": "Keyingi",
+    "minutes": "{n} daqiqa oʻqish",
+    "plainTitle": "Sodda qilib aytganda",
+    "sectionsTabs": "Dars qismlari",
+    "breadcrumb": "Navigatsiya yoʻli",
+    "lessonOf": "{total} tadan {n}-dars"
+  },
+  "Theme": {
+    "light": "Yorugʻ",
+    "dark": "Qorongʻi"
+  },
+  "NotFound": {
+    "title": "Sahifa topilmadi",
+    "body": "Bu sahifa (hozircha) mavjud emas.",
+    "home": "Bosh sahifaga oʻtish"
+  },
+  "Footer": {
+    "note": "Kontent rasmiy dokumentatsiya bilan tekshiriladi. Tekshirilmagan da'volar alohida belgilanadi."
+  },
+  "Visualizer": {
+    "run": "Ishga tushirish",
+    "presets": "Misollar",
+    "code": "Kod",
+    "play": "Boshlash",
+    "pause": "Toʻxtatish",
+    "stepBack": "Oldingi qadam",
+    "stepForward": "Keyingi qadam",
+    "reset": "Boshiga qaytish",
+    "end": "Oxiriga oʻtish",
+    "speed": "Tezlik",
+    "timeline": "Timeline",
+    "stepOf": "{current} / {total}",
+    "allSteps": "Barcha qadamlar matn koʻrinishida",
+    "keyboardHint": "← → qadam · Space boshlash",
+    "predictLabel": "Taxminingiz (output tartibi, boʻsh joy bilan ajrating)",
+    "predictCheck": "Tekshirish",
+    "predictCorrect": "Toʻgʻri — tartibni aniq topdingiz.",
+    "predictWrong": "Unchalik emas. Haqiqiy tartib: {actual}. Modelingiz qayerda adashganini koʻrish uchun qadamma-qadam yuring.",
+    "predictPending": "Avval taxmin qiling, keyin Boshlash'ni bosing yoki oxiriga oʻting.",
+    "line": "qator"
+  },
+  "Quiz": {
+    "title": "Oʻzingizni tekshiring",
+    "check": "Tekshirish",
+    "correct": "Toʻgʻri",
+    "incorrect": "Unchalik emas",
+    "score": "{total} tadan {correct} tasi toʻgʻri"
+  },
+  "Progress": {
+    "markDone": "Oʻrganildi deb belgilash",
+    "done": "Oʻrganildi",
+    "addReview": "Takrorlashga qoʻshish",
+    "inReview": "Takrorlash roʻyxatida",
+    "reviewTitle": "Takrorlash",
+    "reviewLead": "Spaced repetition: har bir muvaffaqiyatli takrorlash keyingisini uzoqroqqa suradi (1 → 3 → 7 → 16 → 35 kun). Darsni ochishdan oldin TL;DR va mexanizmni eslashga harakat qiling.",
+    "reviewEmpty": "Takrorlash roʻyxatingiz boʻsh. Darslarni “Takrorlashga qoʻshish” orqali qoʻshing.",
+    "due": "Hozir takrorlash kerak",
+    "dueOn": "Keyingisi: {date}",
+    "remembered": "Esladim",
+    "forgot": "Unutibman",
+    "remove": "Olib tashlash",
+    "learnedCount": "{total} tadan {done} tasi oʻrganildi"
+  },
+  "Search": {
+    "open": "Qidiruv",
+    "placeholder": "Darslar, pattern'lar, atamalarni qidiring…",
+    "noResults": "Hech narsa topilmadi.",
+    "lesson": "Dars",
+    "term": "Atama",
+    "section": "Boʻlim",
+    "close": "Yopish"
+  },
+  "Resources": {
+    "title": "Chuqurroq oʻrganish",
+    "free": "Bepul",
+    "paid": "Pullik",
+    "verified": "Havola {date} da tekshirilgan",
+    "pageTitle": "Resurslar",
+    "pageLead": "Har bir boʻlim uchun kurslar, kitoblar va rasmiy dokumentatsiya. Har bir havolaning mavjudligi tekshirilgan; sana qachon tekshirilganini koʻrsatadi.",
+    "kind": {
+      "docs": "Rasmiy dokumentatsiya",
+      "course": "Kurs",
+      "book": "Kitob",
+      "article": "Maqola",
+      "video": "Video",
+      "tool": "Vosita"
+    },
+    "level": {
+      "beginner": "Boshlangʻich",
+      "intermediate": "Oʻrta",
+      "advanced": "Yuqori"
+    },
+    "freemium": "Bepul + pullik",
+    "uzNote": "Oʻzbek tilidagi resurslar hali tekshirilmagan — shuning uchun roʻyxatda yoʻq."
+  },
+  "Puzzle": {
+    "title": "Type puzzle",
+    "check": "Type-check qilish",
+    "checking": "Tekshirilmoqda…",
+    "passed": "Barcha assertion'lar oʻtdi.",
+    "failed": "Type xatolari:",
+    "reset": "Qayta boshlash",
+    "solution": "Yechimni koʻrsatish",
+    "limit": "Kod serverda TypeScript compiler bilan tekshiriladi; u hech qachon ishga tushirilmaydi."
+  },
+  "Glossary": {
+    "title": "Glossariy",
+    "lead": "Darslarda ishlatiladigan texnik atamalarning qisqa va sodda ta'riflari — Big-O va closure'dan Cache Components va CRDT'gacha. Atamalar ikkala tilda ham inglizcha qoladi; faqat izoh tarjima qilinadi.",
+    "search": "Atamani qidirish",
+    "all": "Hammasi",
+    "usedIn": "Darslarda",
+    "noResults": "Qidiruvga mos atama topilmadi.",
+    "count": "{count} ta atama",
+    "jump": "Harfga oʻtish",
+    "more": "yana {n} ta",
+    "categories": {
+      "learning": "Oʻrganish",
+      "dsa": "Algoritmlar",
+      "javascript": "JavaScript",
+      "typescript": "TypeScript",
+      "react": "React",
+      "nextjs": "Next.js",
+      "nodejs": "Node.js",
+      "web": "Veb platforma",
+      "system-design": "System design",
+      "interview": "Interview"
+    }
+  },
+  "Diagram": {
+    "scrollHint": "Butun diagrammani koʻrish uchun yonga suring",
+    "connections": "Bogʻlanishlar"
+  }
+}

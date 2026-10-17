@@ -1,0 +1,130 @@
+## TL;DR
+
+Almost every tree problem is one traversal plus a decision about **what each call returns** and **what it passes down**. DFS (pre/in/post-order) is recursion — i.e. an implicit stack whose depth equals the tree height; BFS is a queue that processes the tree level by level. A <Term id="bst" /> adds one invariant (left < node < right) that turns search into O(h).
+
+## Visual model
+
+```text
+          5            preorder  (node, left, right): 5 3 1 2 4 8 7 9
+        /   \          inorder   (left, node, right): 1 2 3 4 5 7 8 9   ← sorted for a BST
+       3     8         postorder (left, right, node): 2 1 4 3 7 9 8 5
+      / \   / \        level     (BFS):               5 3 8 1 4 7 9 2
+     1   4 7   9
+      \
+       2
+```
+
+## Mechanism
+
+Recursion *is* a stack. Step through inorder and watch the call stack: its height is the depth of the current node, and a node is visited exactly when its left subtree's frames have all returned.
+
+<TreeTraversalViz mode="inorder" />
+
+BFS replaces the call stack with a queue. Everything at depth d is dequeued before anything at depth d + 1 — which is why BFS finds the minimum depth or the rightmost node of each level naturally.
+
+<TreeTraversalViz mode="bfs" />
+
+## Code
+
+```ts
+interface TreeNode { val: number; left: TreeNode | null; right: TreeNode | null }
+
+// "Return info upward" (postorder): height and diameter in one pass
+function diameter(root: TreeNode | null): number {
+  let best = 0;
+  const height = (n: TreeNode | null): number => {
+    if (!n) return 0;
+    const l = height(n.left), r = height(n.right);
+    best = Math.max(best, l + r);               // path through n
+    return 1 + Math.max(l, r);                  // what the parent needs
+  };
+  height(root);
+  return best;
+}
+
+// "Pass constraints downward" (preorder): validate a BST
+function isValidBST(n: TreeNode | null, lo = -Infinity, hi = Infinity): boolean {
+  if (!n) return true;
+  if (n.val <= lo || n.val >= hi) return false;
+  return isValidBST(n.left, lo, n.val) && isValidBST(n.right, n.val, hi);
+}
+
+// Lowest common ancestor in a binary tree (not necessarily a BST)
+function lca(n: TreeNode | null, p: TreeNode, q: TreeNode): TreeNode | null {
+  if (!n || n === p || n === q) return n;
+  const l = lca(n.left, p, q), r = lca(n.right, p, q);
+  return l && r ? n : l ?? r;                   // found on both sides ⇒ n splits them
+}
+
+// Serialize / deserialize with preorder + null markers
+const serialize = (n: TreeNode | null): string =>
+  n ? `${n.val},${serialize(n.left)},${serialize(n.right)}` : "#";
+
+function deserialize(s: string): TreeNode | null {
+  const tokens = s.split(",");
+  let i = 0;
+  const build = (): TreeNode | null => {
+    const t = tokens[i++];
+    if (t === "#") return null;
+    return { val: Number(t), left: build(), right: build() };
+  };
+  return build();
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- Something about a subtree (height, sum, balanced?, max path) → **postorder**, return values upward.
+- A constraint or path from the root (valid BST range, root-to-leaf sums) → **preorder**, pass arguments downward.
+- Sorted order in a BST, k-th smallest → **inorder**.
+- "Level", "minimum depth", "right side view", "zigzag" → **BFS**.
+- <Term id="lca" /> → the "found on both sides" recursion, or parent pointers + depths.
+
+**When not to**
+- Very deep / skewed trees (10⁵ nodes in a line) → recursion may overflow the stack; use an explicit stack.
+- Many LCA queries on a static tree → binary lifting (O(log n) per query) instead of O(n) each.
+
+## Trade-offs
+
+| Traversal | Extra space | Good for |
+| --- | --- | --- |
+| Recursive DFS | O(h) stack | concise, subtree aggregates |
+| Iterative DFS (explicit stack) | O(h) heap | deep trees, early exit |
+| BFS | O(width), up to O(n) | levels, shortest depth |
+| Morris traversal | O(1) | inorder without stack (temporarily rewires pointers) |
+
+## Senior nuance
+
+- **Validating a BST by comparing only with the children is wrong**: `5 → left 3 → right 6` passes local checks but 6 > 5. Carry the (lo, hi) range.
+- **h is not log n** unless the tree is balanced. A BST built from sorted input degenerates into a list: every operation becomes O(n). Self-balancing trees (red-black, AVL) or B-trees keep h = O(log n); databases use B+ trees because high fan-out minimizes disk reads.
+- **Serialization must encode structure**, not just values: inorder alone cannot be inverted; preorder with null markers can.
+- **Return-value design** is the senior signal: say "each call returns X to its parent and updates a global best Y" before writing code.
+
+## Interview questions
+
+<QA q="Binary Tree Maximum Path Sum — what does each call return?" level="senior">
+Each call returns the best "downward" path starting at that node: `node.val + max(0, left, right)` — only one branch, because a path through the parent cannot fork. Separately it updates a global best with `node.val + max(0, left) + max(0, right)`, the best path that bends at this node. Clamping with 0 drops negative branches.
+</QA>
+
+<QA q="Kth smallest element in a BST — and what if the tree changes often?" level="mid">
+Iterative inorder, stop at the k-th visit: O(h + k). If the BST is modified frequently and queried often, augment each node with its subtree size; then you can descend directly: O(h) per query, with sizes updated on insert/delete.
+</QA>
+
+<QA q="Why is the iterative inorder traversal 'push all lefts'?" level="mid">
+An inorder visit of a node happens only after its whole left subtree. So from the current node push it and go left until null; pop, visit, then repeat from the popped node's right child. The stack holds exactly the ancestors whose left subtrees are in progress — the same frames recursion would hold.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which traversal of a BST yields sorted order?", options: ["preorder", "inorder", "postorder", "level order"], answer: 1, explain: "left < node < right, so visiting left, node, right is ascending." },
+  { q: "Tree height uses which pattern?", options: ["pass down", "return up (postorder)", "BFS only", "inorder"], answer: 1, explain: "Height of a node depends on its children's heights." },
+  { q: "Space of recursive DFS on a completely skewed tree of n nodes?", options: ["O(1)", "O(log n)", "O(n)", "O(n log n)"], answer: 2, explain: "The recursion depth equals the height, which is n for a path." }
+]} />
+
+**Classic problems:** Maximum Depth of Binary Tree (Easy) · Diameter of Binary Tree (Easy) · Binary Tree Level Order Traversal (Medium) · Validate Binary Search Tree (Medium) · Kth Smallest Element in a BST (Medium) · Lowest Common Ancestor of a Binary Tree (Medium) · Binary Tree Maximum Path Sum (Hard) · Serialize and Deserialize Binary Tree (Hard).
+
+## Resources
+
+<Resources topic="dsa/trees" />

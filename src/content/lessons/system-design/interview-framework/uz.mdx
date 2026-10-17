@@ -1,0 +1,92 @@
+## TL;DR
+
+System design interview — bitta toʻgʻri diagrammali quiz emas, **trade-off'lar haqida tuzilmali suhbat**. Takrorlanadigan oqimdan foydalaning: **talablar** (funksional + nofunksional) → **baholash** (trafik, saqlash, bandwidth) → **API va ma'lumot modeli** → **yuqori darajadagi dizayn** → eng qiyin qismlarga **chuqur kirish** → **trade-off'lar, nosozlik holatlari va rivojlanish**. Senior nomzodlar suhbatni boshqaradi, miqdoriy fikrlaydi va nimani *qurmasligini* aytadi.
+
+## Vizual model
+
+<FlowDiagram height={42} nodes={[
+  { id: "req", label: "1. Talablar", sub: "funksional + nofunksional", x: 10, y: 10, w: 18 },
+  { id: "est", label: "2. Baholash", sub: "QPS, saqlash, bandwidth", x: 30, y: 10, w: 18 },
+  { id: "api", label: "3. API + ma'lumot", sub: "endpoint'lar, schema", x: 50, y: 10, w: 18 },
+  { id: "hld", label: "4. Yuqori daraja", sub: "qutilar va strelkalar", x: 70, y: 10, w: 18 },
+  { id: "deep", label: "5. Chuqur tahlil", sub: "bottleneck'lar, masshtab", x: 90, y: 10, w: 18 },
+  { id: "trade", label: "6. Trade-off'lar va nosozliklar", sub: "nima buziladi, keyin nima", x: 50, y: 30, w: 30, kind: "note" }
+]} edges={[
+  { from: "req", to: "est" }, { from: "est", to: "api" }, { from: "api", to: "hld" }, { from: "hld", to: "deep" }, { from: "deep", to: "trade" }
+]} caption="Taxminan 45 daqiqa: 5–8 talablar, 3–5 baholash, 5 API/ma'lumot, 10 yuqori daraja, 15 chuqur tahlil, qolgani trade-off'lar." />
+
+## Mexanizm
+
+**1. Talablar.** Foydalanuvchilar kimligi va 2–4 ta asosiy use case nimaligini soʻrang; doiradan tashqari xususiyatlarni aniq belgilang. Nofunksional talablarni sonlar bilan aniqlang: masshtab (DAU, oʻqish/yozish nisbati), latency maqsadlari (p99), mavjudlik (99.9% ≈ yiliga 8.8 soat uzilish; 99.99% ≈ 53 daqiqa), consistency ehtiyojlari, chidamlilik, geografiya, compliance.
+
+**2. Baholash** — tartib kattaliklarida, ovoz chiqarib:
+- 1 kun ≈ 86 400 s ≈ **10⁵ s**. Kuniga 1 M request ≈ oʻrtacha 12 req/s; choʻqqi uchun ≈ oʻrtachadan 2–10× rejalashtiring.
+- Saqlash = kunlik elementlar × hajm × saqlash muddati × replication faktori.
+- Bandwidth = QPS × javob hajmi.
+- Foydali latency tartiblari (taxminiy): xotiraga murojaat ~100 ns; SSD tasodifiy oʻqish ~0.1 ms; bir datacenter ichidagi aylanish ~0.5 ms; qit'alararo aylanish ~100 ms.
+
+**3. API va ma'lumot modeli.** Endpoint'larni (yoki event'larni) asosiy parametrlar, sahifalash va idempotency bilan nomlang. Asosiy entity'lar va murojaat pattern'larini chizing — murojaat pattern'i SQL, key-value, wide-column yoki search index orasidagi tanlovni hal qiladi.
+
+**4. Yuqori darajadagi dizayn.** Client'lar → edge (DNS, CDN) → load balancer → stateless servislar → cache'lar → ma'lumotlar bazalari/queue'lar/object storage. Avval sodda saqlang; har bir qutining sababi boʻlishi shart.
+
+**5. Chuqur tahlil.** Eng qiyin 2–3 qismni tanlang (interviewer koʻpincha yoʻnaltiradi): hot key'lar, fan-out, tartib, servislar orasidagi consistency, choʻqqidagi yozish yoʻli, eng katta jadval uchun ma'lumot modeli.
+
+**6. Trade-off'lar va nosozliklar.** Har bir tanlov uchun nima yutib, nima toʻlashingizni ayting. Nosozliklar boʻyicha yuring: node oʻladi, region oʻladi, bogʻliqlik sekin, trafik choʻqqisi, yomon deploy. Monitoring/alerting'ni va dizayn 10× masshtabda qanday rivojlanishini eslating.
+
+## Kod
+
+```text
+Misol: "News feed loyihalang" — 2 daqiqalik baholash
+DAU 200 M, har biri feed'ni kuniga 10× ochadi  → kuniga 2 × 10⁹ oʻqish ≈ oʻrtacha 2 × 10⁴ QPS, choʻqqi ~10⁵
+Postlar: foydalanuvchilarning 10% kuniga 1× post qiladi → kuniga 2 × 10⁷ post ≈ oʻrtacha 230 yozish/s
+Post metadata 1 KB → kuniga 20 GB → yiliga ~7 TB (replication'dan oldin); media → object storage + CDN
+Oʻqishga ogʻir (100:1) → koʻp foydalanuvchilar uchun feed'larni oldindan hisoblash (fan-out on write),
+                         mashhurlar (millionlab obunachi) uchun fan-out on read — gibrid
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Chizishdan oldin **doim** aniqlashtiring; notoʻgʻri masala uchun chiroyli dizayn past baho oladi. 100 QPS uchun mikroservislar, Kafka va sharding'ga **sakramang** — murakkablikni masshtabga moslash oʻzi senior signal. Oʻylayotganda **jim qolmang**; solishtirayotgan variantlaringizni gapirib boring.
+
+## Trade-off'lar
+
+| Interviewer'lar qidiradigan signal | U qanday koʻrinadi |
+| --- | --- |
+| Masalani boshqarish | aniqlashtiruvchi savollar beradi, doirani belgilaydi, ustuvorlik beradi |
+| Miqdoriy fikrlash | baholashlar qarorlarni boshqaradi (cache hajmi, shard soni) |
+| Texnik chuqurlik | soʻralganda saqlash, consistency, queue'larga chuqur kira oladi |
+| Trade-off'larni ifodalash | "X ni tanlaymiz, u Y turadi; Z sababli maqbul" |
+| Operatsion yetuklik | nosozlik holatlari, monitoring, deploy'lar, ma'lumot migratsiyasi |
+
+## Senior nuance
+
+- **Dizaynni oʻzgartiradigan sonlarni ayting**: 10 KB/request × 50k QPS javob — 500 MB/s; endi CPU'dan koʻra bandwidth va CDN muhimroq.
+- **Zerikarli texnologiyani afzal koʻring** va murakkablikni qachon qoʻshishingizni tushuntiring: "yozishlar X dan oshguncha read replica'li bitta Postgres, keyin user_id boʻyicha shard".
+- **Ma'lumotning tortish kuchi bor**: ID'lar, partition key'lar va schema'lar haqidagi qarorlarni keyin oʻzgartirish eng qiyin — u yerga vaqt sarflang.
+- **Zanjirni yoping**: dizaynni, uning chegaralarini va koʻproq vaqt boʻlsa nima qilishingizni xulosa qiling.
+
+## Interview savollari
+
+<QA q="System design interview'ni qanday boshlaysiz?" level="mid">
+Aniqlashtirish bilan: asosiy use case'lar, foydalanuvchilar, masshtab, oʻqish/yozish pattern'lari va nofunksional talablar (latency, mavjudlik, consistency, chidamlilik). Keyin interviewer bilan doirani tasdiqlang va biror narsani baholash yoki chizishdan oldin talablarni yozib qoʻying.
+</QA>
+
+<QA q="Nega taxminiy hisob-kitoblar muhim?" level="mid">
+Ular arxitekturani hal qiladi: ma'lumot bitta mashinaga sigʻadimi, nechta server yoki shard kerak, cache hajmlari, bandwidth va narx. Ular yana miqdoriy fikrlay olishingizni va dizayn birinchi qayerda buzilishini koʻra olishingizni koʻrsatadi.
+</QA>
+
+<QA q="Senior javobni middle darajadagidan nima ajratadi?" level="senior">
+Suhbatni boshqarish, doirani ongli belgilash, miqdoriy fikrlash, avval sodda yechimlarni tanlab, qoʻshilgan murakkablikni asoslash, eng qiyin komponentga chuqur kirish, nosozlik holatlari, operatsion qulaylik, ma'lumot migratsiyasi va rivojlanishni muhokama qilish hamda bitta "toʻgʻri" dizaynni taqdim etish oʻrniga trade-off'larni aniq aytish.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Kuniga 50 M request oʻrtacha soniyasiga taxminan nechta request?", options: ["~60", "~600", "~6 000", "~60 000"], answer: 1, explain: "5 × 10⁷ / 10⁵ s ≈ 500–600 req/s." },
+  { q: "99.99% mavjudlik yiliga taxminan qancha uzilishga ruxsat beradi?", options: ["8.8 soat", "53 daqiqa", "5 daqiqa", "1 kun"], answer: 1, explain: "525 600 daqiqaning 0.01% ≈ 53 daqiqa." },
+  { q: "'Twitter'ni loyihalang' berilganda birinchi nima qilinadi?", options: ["mikroservislarni chizish", "ma'lumotlar bazasini tanlash", "talablar va doirani aniqlashtirish", "saqlashni baholash"], answer: 2, explain: "Qolgan hamma narsa nimani qurayotganingizga bogʻliq." }
+]} />
+
+## Resurslar
+
+<Resources topic="system-design/interview-framework" />

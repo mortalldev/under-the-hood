@@ -1,0 +1,128 @@
+## TL;DR
+
+Dynamic programming = recursion + caching, applicable when a problem has <Term id="optimal-substructure" /> and <Term id="overlapping-subproblems" />. The whole skill is choosing the **state** (what minimal information determines the rest of the answer?) and the **transition** (how does a state's answer combine smaller states?). Once those are right, the table fills itself; order the loops so every dependency is computed first.
+
+## Visual model
+
+```text
+recursion tree of fib(5)                 DP collapses it into a line of states
+           f5                            f0 → f1 → f2 → f3 → f4 → f5
+        /      \                         each computed once: O(n) instead of O(φⁿ)
+      f4        f3
+     /  \      /  \
+   f3   f2   f2   f1     ← f3, f2 recomputed again and again
+```
+
+## Mechanism
+
+### 1D: each state reads a few previous states
+
+House Robber: `dp[i]` = best total using the first i houses. For house i − 1 you either skip it (`dp[i − 1]`) or rob it (`dp[i − 2] + nums[i − 1]`). The state does not need to remember *which* houses were robbed — only the best so far — which is what makes it linear.
+
+<HouseRobberViz />
+
+### 2D: states indexed by two prefixes
+
+Longest common subsequence: `dp[i][j]` = LCS of `a[0..i)` and `b[0..j)`. If the last characters match, they extend the diagonal; otherwise drop one of them. Each cell depends on its top, left and top-left neighbours, so row-by-row filling works. At the end, walking back along the decisions recovers the actual subsequence.
+
+<LcsViz />
+
+## Code
+
+```ts
+// 0/1 knapsack: dp[c] = best value with capacity c; iterate capacity DOWNWARD so each item is used once
+function knapsack(weights: number[], values: number[], cap: number): number {
+  const dp = new Array<number>(cap + 1).fill(0);
+  for (let i = 0; i < weights.length; i++) {
+    for (let c = cap; c >= weights[i]; c--) dp[c] = Math.max(dp[c], dp[c - weights[i]] + values[i]);
+  }
+  return dp[cap];
+}
+// Unbounded knapsack / coin change (combinations): iterate capacity UPWARD
+
+// Coin Change (min coins)
+function coinChange(coins: number[], amount: number): number {
+  const dp = new Array<number>(amount + 1).fill(Infinity);
+  dp[0] = 0;
+  for (let a = 1; a <= amount; a++) for (const c of coins) if (c <= a) dp[a] = Math.min(dp[a], dp[a - c] + 1);
+  return dp[amount] === Infinity ? -1 : dp[amount];
+}
+
+// LIS in O(n log n): tails[k] = smallest tail of an increasing subsequence of length k + 1
+function lis(nums: number[]): number {
+  const tails: number[] = [];
+  for (const x of nums) {
+    let lo = 0, hi = tails.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (tails[m] < x) lo = m + 1; else hi = m; }
+    tails[lo] = x;
+  }
+  return tails.length;
+}
+
+// Interval DP (burst balloons, matrix chain): dp[l][r] over increasing interval length
+// Bitmask DP (TSP-like, n ≤ 20): dp[mask][last] = best cost visiting exactly `mask`, ending at `last`
+// State machine DP (stock with cooldown): states hold / sold / rest, transitions per day
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- "Number of ways", "minimum/maximum cost", "is it possible", "longest/shortest … subsequence".
+- Choices at each step whose effect on the future can be summarised in a few numbers.
+- Brute force is exponential but the number of distinct states is polynomial.
+
+| Family | State | Example |
+| --- | --- | --- |
+| 1D linear | dp[i] | Climbing Stairs, House Robber, Decode Ways |
+| 2D grid / two strings | dp[i][j] | Unique Paths, LCS, Edit Distance |
+| Knapsack | dp[i][capacity] → 1D | Partition Equal Subset Sum, Coin Change |
+| LIS | dp[i] or patience tails | Longest Increasing Subsequence, Russian Doll Envelopes |
+| Interval | dp[l][r] | Burst Balloons, Palindrome Partitioning II |
+| Bitmask | dp[mask][…] | Shortest Path Visiting All Nodes |
+| State machine | dp[i][state] | Best Time to Buy and Sell Stock with Cooldown |
+
+**When not to**: a provably safe greedy exists (it is simpler and faster); the state would need the whole history (then it is search, not DP); n is small and you need all solutions (backtracking).
+
+## Trade-offs
+
+| Style | Pros | Cons |
+| --- | --- | --- |
+| Top-down (<Term id="memoization" />) | natural from recursion; computes only reachable states | recursion depth; cache overhead |
+| Bottom-up (tabulation) | no recursion; easy space optimisation | must find a valid fill order; computes all states |
+| Rolling arrays | O(width) memory | loses the table needed to reconstruct the answer |
+
+## Senior nuance
+
+- **Define the state in words before coding**: "dp[i][j] is the minimum edits to turn a[0..i) into b[0..j)". Most DP bugs are a fuzzy definition.
+- **Base cases come from the empty prefix**: dp[0] or dp[0][*] usually represent "nothing taken yet", which removes edge-case branches.
+- **Loop direction encodes semantics** in knapsack: downward = each item once (0/1); upward = unlimited reuse. Swapping loops (coins outer vs amount outer) switches between counting combinations and permutations.
+- **Reconstructing the answer** needs either the full table or stored parent choices — mention it when you space-optimise.
+- **Complexity = #states × cost per transition.** If a transition loops over k options, say so: Burst Balloons is O(n³).
+
+## Interview questions
+
+<QA q="Edit Distance: define the state and the transition." level="mid">
+dp[i][j] = minimum operations to convert a[0..i) into b[0..j). If a[i−1] = b[j−1], dp[i][j] = dp[i−1][j−1]. Otherwise 1 + min(dp[i−1][j] (delete), dp[i][j−1] (insert), dp[i−1][j−1] (replace)). Bases: dp[i][0] = i, dp[0][j] = j. O(nm) time, O(min(n, m)) space with two rows.
+</QA>
+
+<QA q="Coin Change II counts combinations. Why does the loop order matter?" level="senior">
+With coins in the outer loop, each coin is considered once in a fixed order, so {1, 2} and {2, 1} are the same combination counted once. With amount in the outer loop, every order of coins is a separate path, which counts permutations (that is Combination Sum IV).
+</QA>
+
+<QA q="Explain the O(n log n) LIS." level="senior">
+Maintain tails[k] = the smallest possible tail of any increasing subsequence of length k + 1; this array is strictly increasing. For each x, binary-search the first tail ≥ x and replace it (or append if none). Replacing keeps the same length with a smaller tail, which can only help future extensions. The length of tails is the LIS length (tails itself is not necessarily a valid subsequence).
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "0/1 knapsack with a 1D array: capacity loop direction?", options: ["upward", "downward", "either", "random"], answer: 1, explain: "Downward reads dp[c − w] from the previous item row, so the item is used at most once." },
+  { q: "LCS cell dp[i][j] when a[i−1] ≠ b[j−1]?", options: ["dp[i−1][j−1] + 1", "max(dp[i−1][j], dp[i][j−1])", "0", "dp[i−1][j−1]"], answer: 1, explain: "At least one of the two last characters is not in the LCS; drop either." },
+  { q: "Burst Balloons has O(n²) states. Why is it O(n³)?", options: ["recursion", "each state tries every last balloon k in (l, r)", "sorting", "memoization overhead"], answer: 1, explain: "Cost = states × transition cost = n² × n." }
+]} />
+
+**Classic problems:** Climbing Stairs (Easy) · House Robber (Medium) · Coin Change (Medium) · Longest Increasing Subsequence (Medium) · Longest Common Subsequence (Medium) · Edit Distance (Medium) · Partition Equal Subset Sum (Medium) · Word Break (Medium) · Best Time to Buy and Sell Stock with Cooldown (Medium) · Burst Balloons (Hard) · Shortest Path Visiting All Nodes (Hard).
+
+## Resources
+
+<Resources topic="dsa/dynamic-programming" />

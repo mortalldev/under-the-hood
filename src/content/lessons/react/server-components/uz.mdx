@@ -1,0 +1,116 @@
+## TL;DR
+
+**Server Component'lar** faqat serverda ishlaydi (build vaqtida yoki har bir request'da). Ular `async` boʻlishi, ma'lumotlar bazasi va secret'larni toʻgʻridan-toʻgʻri oʻqishi mumkin va ularning kodi **brauzerga hech qachon yuborilmaydi**. **Client Component'lar** (`'use client'` fayl chegarasi bilan belgilangan) dastlabki HTML uchun serverda render boʻladi *va* brauzerda ishlaydi, u yerda state, effect va event handler'lardan foydalanishi mumkin. Server Component'lar natijasini client'ga <Term id="rsc-payload" /> sifatida yuboradi: render qilingan elementlar hamda client component'larga reference'lar va ularning serializable props'i.
+
+## Vizual model
+
+<FlowDiagram height={58} nodes={[
+  { id: "page", label: "page.tsx", sub: "Server Component (async)", x: 18, y: 10, w: 26 },
+  { id: "db", label: "ma'lumotlar bazasi / secret'lar", x: 18, y: 32, w: 26, kind: "store" },
+  { id: "list", label: "ProductList", sub: "Server Component", x: 52, y: 10, w: 24 },
+  { id: "cart", label: "AddToCart", sub: "'use client' chegarasi", x: 52, y: 32, w: 24, kind: "client" },
+  { id: "payload", label: "RSC payload", sub: "elementlar + client ref'lar + props", x: 84, y: 10, w: 26, kind: "queue" },
+  { id: "browser", label: "brauzer", sub: "faqat client qismlarni hydrate qiladi", x: 84, y: 32, w: 26, kind: "client" },
+  { id: "js", label: "JS bundle", sub: "faqat AddToCart kodi", x: 84, y: 50, w: 26, kind: "note" }
+]} edges={[
+  { from: "page", to: "db", label: "await query" },
+  { from: "page", to: "list" },
+  { from: "list", to: "cart", label: "props serializable boʻlishi shart" },
+  { from: "list", to: "payload" },
+  { from: "payload", to: "browser" },
+  { from: "js", to: "browser", dashed: true }
+]} caption="Server kodi va uning bogʻliqliklari serverda qoladi; faqat client component'lar kodi yuklab olinadi." />
+
+## Mexanizm
+
+**Chegara — modul graph chegarasi.** Fayl boshidagi `'use client'` uni — va u import qiladigan hamma narsani — client kodi deb belgilaydi. Server Component'lar Client Component'larni import qilib render qila oladi; Client Component'lar Server Component'larni **import qila olmaydi**, lekin allaqachon render qilingan server kontentini props orqali (`children`, slot'lar) qabul qila oladi.
+
+**Chegaradan nima oʻtadi**: serverdan client'ga props React tomonidan serializable boʻlishi shart — primitivlar, oddiy obyekt/array'lar, Date'lar, Map/Set'lar, Promise'lar (client'da `use` bilan resolve qilinadi), JSX va Server Function'lar (`'use server'`). Class nusxalari, closure'lar yoki modul scope'idagi symbol'lar emas.
+
+**Rendering**: request'da React server daraxtini render qilib, RSC payload hosil qiladi. Birinchi sahifa yuklanishi uchun bu payload va client component'lar ham HTML'ga render qilinadi (SSR), shunda foydalanuvchi hech qanday JS ishlamasdan kontentni koʻradi; keyin brauzer faqat client component'larni <Term id="hydration">hydrate</Term> qiladi. Client-side navigatsiyada faqat yangi route uchun RSC payload olinadi va mavjud daraxtga birlashtiriladi — oʻzgargan segment'lardan tashqaridagi client state saqlanadi.
+
+**`'use server'`** — boshqa direktiva: u client tarmoq orqali chaqira oladigan funksiyalarni (Server Function'lar / Server Action'lar) belgilaydi. U "bu Server Component" degani **emas**.
+
+## Kod
+
+```tsx
+// app/products/page.tsx — Server Component (App Router'da sukut boʻyicha)
+import { db } from "@/lib/db";                       // brauzer uchun hech qachon bundle qilinmaydi
+import { AddToCart } from "./AddToCart";
+
+export default async function Page() {
+  const products = await db.product.findMany();     // toʻgʻridan-toʻgʻri ma'lumotga murojaat, API route kerak emas
+  return (
+    <ul>
+      {products.map((p) => (
+        <li key={p.id}>
+          {p.name} — {p.price}
+          <AddToCart productId={p.id} />            {/* faqat serializable props */}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// app/products/AddToCart.tsx
+"use client";
+import { useState } from "react";
+export function AddToCart({ productId }: { productId: string }) {
+  const [added, setAdded] = useState(false);
+  return <button onClick={() => setAdded(true)}>{added ? "Added" : "Add to cart"}</button>;
+}
+
+// Server'da render qilingan kontentni children orqali client component ICHIGA uzatish
+// <ClientTabs>{<ServerOnlyMarkdown slug="intro" />}</ClientTabs>
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Sukut boʻyicha Server Component'lar**: data fetching, statik yoki ma'lumotga asoslangan markup, ogʻir bogʻliqliklar (markdown parser'lar, syntax highlighter'lar, sana kutubxonalari) va secret'larga tegadigan har narsa uchun.
+
+**Client Component'lar**: interaktivlik kerak boʻlgan joyda — state, effect'lar, event handler'lar, brauzer API'lari (`window`, `localStorage`) va hook ishlatadigan koʻp uchinchi tomon UI kutubxonalari.
+
+**Chegarani pastga suring**: butun sahifani emas, interaktiv bargni client component qiling — bundle `'use client'` faylidan pastdagi hamma narsani oʻz ichiga oladi.
+
+## Trade-off'lar
+
+| | Server Component | Client Component |
+| --- | --- | --- |
+| Qayerda ishlaydi | faqat serverda | server (SSR) + brauzer |
+| Brauzerga yuboriladigan JS | uning kodi uchun yoʻq | uning kodi + import'lari |
+| Hook/state/effect'lar | yoʻq | ha |
+| Ma'lumotga murojaat | toʻgʻridan-toʻgʻri (DB, fs, secret'lar) | API/Server Function'lar orqali |
+| Oʻzaro ta'sirda re-render | yoʻq (server aylanishi/refresh kerak) | ha, lokal |
+
+## Senior nuance
+
+- **Server kodining sizib chiqishi**: faqat serverga moʻljallangan modulni client fayliga import qilish uni bundle qiladi (va secret'larni ochib qoʻyishi mumkin). Modullarni `server-only` paketi bilan himoyalang, shunda bunday import'lar build vaqtida yiqiladi.
+- **Serialization narxi**: client component'larga katta obyektlarni props sifatida uzatish ma'lumotni HTML va payload'da takrorlaydi. Faqat client'ga kerak boʻlganini uzating.
+- **Context chegaradan oʻtmaydi**: provider'lar client component boʻlishi shart; ularni iloji boricha past oʻrang va server'da render qilingan `children`ni ular orqali uzating.
+- **Mutatsiyalar** Server Function'lar yoki route handler'lar orqali oʻtadi; mutatsiyadan keyin server daraxti yangi ma'lumot bilan re-render boʻlishi uchun revalidate/refresh qiling.
+
+## Interview savollari
+
+<QA q="'use client' va 'use server' orasidagi farq nima?" level="mid">
+'use client' modulni (va uning import'larini) client kodi deb belgilaydi — komponent daraxtida client component'lar boshlanadigan chegara. 'use server' async funksiyalarni client RPC orqali chaqira oladigan Server Function'lar deb belgilaydi. Server Component'larga direktiva kerak emas; Next.js App Router kabi framework'larda ular sukut boʻyicha.
+</QA>
+
+<QA q="Client Component Server Component'ni render qila oladimi?" level="mid">
+Uni import qila olmaydi, chunki client modullari brauzer uchun bundle qilinadi. Lekin Server Component client component'ni render qilib, unga server'da render qilingan elementlarni props sifatida (masalan, children) uzatishi mumkin, shunda client component server kontentini oʻz UI'si ichiga joylashtira oladi.
+</QA>
+
+<QA q="Nega Server Component'lar bundle hajmini kamaytiradi va ular nimani hal qilmaydi?" level="senior">
+Ularning kodi va bogʻliqliklari hech qachon brauzerga yetib bormaydi — faqat render natijasi boradi — shuning uchun faqat render uchun ishlatiladigan ogʻir kutubxonalar client'da hech narsa turmaydi. Ular interaktiv client component'lar narxini kamaytirmaydi, ular uchun hydration'ni olib tashlamaydi va data fetching ketma-ket boʻlsa server latency'si yoki waterfall'lar qoʻshishi mumkin.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Fayl 'use client' bilan boshlanadi. Uning import qilingan yordamchi moduli…", options: ["faqat server", "u ham client kodi (bundle qilinadi)", "chiqarib tashlanadi", "takrorlanadi"], answer: 1, explain: "Direktiva modul-graph chegarasini belgilaydi; u import qiladigan hamma narsa client bundle'ning bir qismi." },
+  { q: "Server Component Client Component'ga qaysi prop'ni uzata oladi?", options: ["class nusxasi", "string va sonli oddiy obyekt", "server faylida aniqlangan closure", "ma'lumotlar bazasi ulanishi"], answer: 1, explain: "Props serializable boʻlishi shart." },
+  { q: "useState qayerda yashashi kerak?", options: ["Server Component", "Client Component", "istalganida", "hech birida"], answer: 1, explain: "Server Component'larda state yoki effect'lar yoʻq." }
+]} />
+
+## Resurslar
+
+<Resources topic="react/server-components" />

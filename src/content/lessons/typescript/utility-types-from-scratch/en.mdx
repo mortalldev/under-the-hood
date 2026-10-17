@@ -1,0 +1,103 @@
+## TL;DR
+
+Every built-in utility type is a few lines of mapped, conditional or indexed-access types. Rebuilding them is the fastest way to *own* those tools: once you can write `Pick`, `Omit`, `DeepPartial` and `UnionToIntersection` from memory, you can design the exact type a real API needs instead of fighting it. Solve the puzzles below — they are type-checked on the server by the real TypeScript compiler.
+
+## Visual model
+
+```text
+building blocks                         utilities built from them
+keyof T            → union of keys      Pick<T, K>      = { [P in K]: T[P] }
+T[K]               → property type      Omit<T, K>      = Pick<T, Exclude<keyof T, K>>
+{ [P in K]: … }    → mapped type        Partial<T>      = { [P in keyof T]?: T[P] }
+T extends U ? X:Y  → conditional        Exclude<T, U>   = T extends U ? never : T
+infer              → pattern capture    ReturnType<F>   = F extends (...a: never[]) => infer R ? R : never
+```
+
+## Mechanism
+
+Three ideas do almost all the work:
+
+1. **Iterate keys** with a mapped type and **look up** values with indexed access `T[K]`.
+2. **Filter unions** with distributive conditional types (map unwanted members to `never`).
+3. **Recurse** for deep variants — and stop at primitives and functions, or you will "deep-partial" methods and `Date`s.
+
+**UnionToIntersection** uses a less obvious fact: when the same type variable is inferred from several **contravariant** positions (function parameters), TypeScript intersects the candidates. Distribute the union into function types, then infer the parameter of their union.
+
+## Code
+
+```ts
+type MyPick<T, K extends keyof T> = { [P in K]: T[P] };
+type MyOmit<T, K extends PropertyKey> = { [P in keyof T as P extends K ? never : P]: T[P] };
+type MyRequired<T> = { [P in keyof T]-?: T[P] };
+
+type DeepPartial<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends object
+    ? { [K in keyof T]?: DeepPartial<T[K]> }
+    : T;
+
+type UnionToIntersection<U> =
+  (U extends unknown ? (arg: U) => void : never) extends (arg: infer I) => void ? I : never;
+
+// Practical: make some keys optional
+type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+type Simplify<T> = { [K in keyof T]: T[K] } & {};   // flattens intersections in editor tooltips
+```
+
+### Puzzles
+
+<TypePuzzle id="my-pick" />
+
+<TypePuzzle id="deep-readonly" />
+
+<TypePuzzle id="union-to-intersection" />
+
+## When to use / when not to
+
+**Write custom utilities** when the same transformation repeats across a codebase (API → form model, entity → patch), or when a library's types are too loose.
+
+**Prefer built-ins** (`Pick`, `Omit`, `Partial`, `Record`, `Awaited`, `ReturnType`, `Parameters`, `NonNullable`) where they fit — readers know them.
+
+**Stop** when the type is harder to understand than the code it describes; a named interface written by hand is often clearer than a five-level derived type.
+
+## Trade-offs
+
+| Built-in | Gotcha |
+| --- | --- |
+| `Omit<T, K>` | `K` is not constrained to `keyof T`, so typos silently do nothing |
+| `Partial<T>` | shallow only |
+| `Record<string, V>` | claims every string key exists; with `noUncheckedIndexedAccess` off, `r[k]` is typed `V` not `V \| undefined` |
+| `ReturnType<typeof f>` | for overloads, uses the last signature |
+
+## Senior nuance
+
+- **`Omit` on a union** is not distributive: `Omit<A | B, "k">` only keeps keys common to both. Write a distributive version: `T extends unknown ? Omit<T, K> : never`.
+- **Deep types should exclude built-ins** like `Date`, `Map`, `Set`, functions — otherwise `DeepReadonly<Date>` maps its methods.
+- **`Simplify`** is purely cosmetic for tooltips, but it can significantly improve DX in large codebases.
+- **Compile-time cost**: utilities applied to big unions or deeply recursive models slow down the editor; measure with `tsc --extendedDiagnostics` or `--generateTrace`.
+
+## Interview questions
+
+<QA q="Implement Omit without using Pick or Exclude." level="mid">
+`type MyOmit<T, K extends PropertyKey> = { [P in keyof T as P extends K ? never : P]: T[P] };` — key remapping to never drops the omitted keys while keeping the others' types and modifiers (it is homomorphic over keyof T).
+</QA>
+
+<QA q="Explain how UnionToIntersection works." level="senior">
+First distribute U into a union of functions taking each member: (arg: A) => void | (arg: B) => void. Then match that union against (arg: infer I) => void. Because I appears in a parameter (contravariant) position and has multiple candidates, TypeScript infers their intersection A & B.
+</QA>
+
+<QA q="Why should DeepPartial special-case functions?" level="mid">
+Functions are objects, so a naive DeepPartial maps over their properties and turns a method into an object type with optional properties — no longer callable. Checking for function types first and returning them unchanged preserves methods.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Omit<{ a: 1; b: 2 }, 'c'> compiles?", options: ["yes — K is not constrained to keyof T", "no", "only with strict", "returns never"], answer: 0, explain: "Built-in Omit accepts any PropertyKey, so typos are silent." },
+  { q: "Partial<{ a: { b: number } }>['a'] is…", options: ["{ b?: number }", "{ b: number } | undefined", "{ b?: number } | undefined", "Partial<{ b: number }>"], answer: 1, explain: "Partial is shallow: only the top-level property becomes optional." },
+  { q: "UnionToIntersection relies on inference from…", options: ["covariant positions", "contravariant positions", "template literals", "mapped types"], answer: 1, explain: "Multiple contravariant candidates are intersected." }
+]} />
+
+## Resources
+
+<Resources topic="typescript/utility-types-from-scratch" />

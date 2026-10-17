@@ -1,0 +1,106 @@
+## TL;DR
+
+React UI'ni ikki bosqichda yangilaydi. **<Term id="render" />**: yangi element daraxtini hisoblash uchun komponent funksiyalarini chaqirish — sof, DOM oʻzgarishsiz, takrorlanishi yoki tashlab yuborilishi mumkin. **<Term id="commit" />**: minimal oʻzgarishlar toʻplamini DOM'ga qoʻllash va effect'larni ishga tushirish — sinxron, hech qachon toʻxtatilmaydi. Komponent **state'i oʻzgarganda**, **otasi re-render boʻlganda** yoki **u oʻqiydigan context oʻzgarganda** re-render boʻladi — props'i "oʻzgarganda" emas. <Term id="reconciliation" /> **har bir pozitsiyadagi element turi va key'i** boʻyicha qaysi komponent nusxalari (va ularning state'i) saqlanishini hal qiladi.
+
+## Vizual model
+
+```text
+Page'da setState
+   │
+   ▼
+render bosqichi:  Page() → Toolbar() → List (memo, bir xil props → oʻtkazish) → Chart() → Sidebar() → Ad()
+                  yangi element daraxtini qurish, oldingisi bilan diff (har pozitsiyada: tur + key)
+   │
+   ▼
+commit bosqichi:  DOM mutatsiyalarini qoʻllash → useLayoutEffect → brauzer paint qiladi → useEffect
+```
+
+## Mexanizm
+
+### Kim re-render boʻladi
+
+Daraxtning turli komponentlarida `setState`ni ishga tushiring. E'tibor bering: render oʻzgargan komponentdan **pastga** oqadi, hech qachon yuqoriga emas, `memo` esa faqat props shallow-equal boʻlganda yordam beradi — yangi obyekt yoki arrow function prop (`!`) uni buzadi.
+
+<RerenderViz />
+
+### Roʻyxatlar qanday reconcile qilinadi
+
+Har bir pozitsiya uchun React yangi elementni eski fiber bilan solishtiradi. **Bir xil tur va bir xil key → fiber'ni (va uning state'ini) qayta ishlatish**, props'ni yangilash. Boshqa tur yoki key → eski subtree'ni unmount, yangisini mount qilish. Array'lar uchun key'lar React'ga koʻchgan bolalarni moslashtirishga imkon beradi.
+
+<ReconcileViz mode="keyed" />
+
+Endi xuddi shu gʻoya `key={index}` bilan: identity — pozitsiya, shuning uchun birinchi elementni oʻchirish qolgan har bir elementni **qoʻshnisining state'ini meros oladigan** qiladi.
+
+<ReconcileViz mode="index" />
+
+## Kod
+
+```tsx
+// State daraxtdagi POZITSIYA + TUR boʻyicha saqlanadi
+function Form({ isEditing }: { isEditing: boolean }) {
+  return isEditing ? <input key="edit" /> : <input key="view" />;  // har xil key'lar → almashtirishda state tiklanadi
+}
+
+// State'ni ataylab tiklash: key'ni oʻzgartiring
+<ProfileEditor key={userId} userId={userId} />   // foydalanuvchini almashtirish remount qiladi va lokal state'ni tozalaydi
+
+// ✗ Boshqa komponent ichida aniqlangan komponent: har render'da YANGI tur → remount, state va focus yoʻqoladi
+function Parent() {
+  const Child = () => <input />;
+  return <Child />;
+}
+
+// Rendering — sof hisoblash; side effect'lar handler yoki effect'larga tegishli
+function Price({ cents }: { cents: number }) {
+  return <span>{(cents / 100).toFixed(2)}</span>;       // ✓ sof
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Ma'lumotdan barqaror, noyob key'lar ishlating** (ma'lumotlar bazasi id'lari). **Index'ni** faqat hech qachon qayta tartiblanmaydigan, filtrlanmaydigan, boshiga qoʻshilmaydigan va elementlarida state boʻlmagan statik roʻyxatlar uchun ishlating.
+
+**Sukut boʻyicha re-render'lar bilan kurashmang.** Bir xil natija beradigan render — arzon CPU ishi; DOM faqat natija farq qilganda commit'da tegiladi. Profiler bilan oʻlchagandan keyin optimallashtiring.
+
+## Trade-off'lar
+
+| Usul | Ta'siri | Narxi |
+| --- | --- | --- |
+| State'ni pastga tushirish (colocate) | kamroq komponent re-render boʻladi | yoʻq — odatda eng yaxshi birinchi qadam |
+| Children'ni props sifatida uzatish (`<Layout>{children}</Layout>`) | yuqoridagi ota yaratgan children elementlari Layout state'i bilan re-render boʻlmaydi | API'ning kichik oʻzgarishi |
+| `memo` | props shallow-equal boʻlsa render'ni oʻtkazish | taqqoslash narxi, barqaror props kerak |
+| Context'ni boʻlish / selector'lar | kamroq iste'molchi re-render boʻladi | koʻproq provider/tuzilma |
+| `key` oʻzgartirish | ataylab tiklash | remount narxi |
+
+## Senior nuance
+
+- **Bail out**: `setState` bir xil qiymat olsa (`Object.is`), React komponent va uning bolalarini re-render qilishni oʻtkazib yuborishi mumkin (bail out qilishdan oldin komponentning oʻzini bir marta render qilishi mumkin).
+- **Children-as-props hiylasi**: `children` sifatida uzatilgan elementlarni bobo-komponent yaratgan; oʻram oʻz state'idan re-render boʻlganda, bu element obyektlari bir xil reference'lar, shuning uchun React ularni oʻtkazib yuborishi mumkin.
+- **Strict Mode** development'da sof boʻlmagan render'lar va yetishmayotgan cleanup'larni ochib berish uchun render funksiyalarini ikki marta chaqiradi (va effect'larni bir marta qoʻshimcha mount/unmount qiladi) — production'da bunday boʻlmaydi.
+- **Diff ataylab O(n)**: React heuristic'lari (faqat bir xil pozitsiyani solishtirish, har xil turlar har xil daraxt beradi deb faraz qilish, roʻyxatlar uchun key'larga tayanish) umumiy daraxt-diff'ning O(n³) muammosidan qochadi.
+
+## Interview savollari
+
+<QA q="Komponent re-render boʻlishiga nima sabab boʻladi?" level="mid">
+Oʻzining state yangilanishi (yangi qiymatli useState/useReducer setter'i), otasining re-render boʻlishi (props sukut boʻyicha solishtirilmaydi) yoki u iste'mol qiladigan context'ning oʻzgarishi. Props oʻzgarishi mustaqil trigger emas — props faqat ota render boʻlgani uchun oʻzgaradi.
+</QA>
+
+<QA q="Nega key={index} muammo?" level="mid">
+Key'lar identity'ni belgilaydi. Index key'lar bilan identity — pozitsiya: element boshiga qoʻshilsa yoki oʻrtadan olib tashlansa, keyingi har bir komponent nusxasi oʻz pozitsiyasining eski state'ini (input matni, focus, lokal state) saqlaydi, lekin keyingi elementning props'ini oladi. U koʻchishlarni DOM koʻchirishlari oʻrniga koʻp props yangilanishlariga ham aylantiradi.
+</QA>
+
+<QA q="Render va commit orasidagi farq nima va nega bu muhim?" level="senior">
+Render komponentlarni chaqiradi va element daraxtlarini diff qiladi; u sof boʻlishi shart, chunki React uni bir necha marta ishlatishi, toʻxtatishi yoki natijani tashlab yuborishi mumkin (concurrent rendering, Strict Mode). Commit DOM oʻzgarishlarini qoʻllaydi va layout effect'larni sinxron ishga tushiradi, keyin effect'lar paint'dan keyin ishlaydi. Render'dagi side effect'lar (subscription'lar, mutatsiyalar, tarmoq) bir necha marta yoki hech qachon koʻrinmaydigan UI uchun ishlashi mumkin.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Ota re-render boʻladi; Child'da props yoʻq. Child re-render boʻladimi?", options: ["yoʻq — props oʻzgarmadi", "ha, Child memo qilinmagan boʻlsa", "faqat Strict Mode'da", "faqat context ishlatsa"], answer: 1, explain: "Sukut boʻyicha render boʻlayotgan otaning har bir bolasi render boʻladi." },
+  { q: "Keyed roʻyxat A B C D → D A B C. Qaysi DOM koʻchirishlari boʻladi?", options: ["D ni koʻchirish", "A, B, C ni koʻchirish", "hammasini oʻchirib, hammasini qoʻshish", "hech biri"], answer: 1, explain: "D saqlanadi (eski indeks 3 lastPlacedIndex boʻladi), shuning uchun eski indeksi kichikroq A, B, C koʻchiriladi." },
+  { q: "Komponentni boshqa komponent tanasi ichida aniqlash nimaga olib keladi?", options: ["closure, zararsiz", "har render'da yangi komponent turi → remount", "hook xatosi", "tezroq render'lar"], answer: 1, explain: "Bir pozitsiyada boshqa tur ⇒ unmount + mount." }
+]} />
+
+## Resurslar
+
+<Resources topic="react/rendering-reconciliation" />

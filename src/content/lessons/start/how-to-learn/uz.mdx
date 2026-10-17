@@ -1,0 +1,72 @@
+
+## TL;DR
+
+Har bir dars bir xil oʻn qismli tuzilishga ega, har bir animatsiya algoritm holatlarining yozib olingan roʻyxati asosida ishlaydi, va bilimni mustahkamlashning eng tez yoʻli — **"next" tugmasini bosishdan oldin natijani taxmin qilish**.
+
+## Nega ta'rif emas, mexanizm
+
+Senior darajadagi interview'larda interviewer kamdan-kam hollarda "X nima?" savoli bilan cheklanadi. Keyingi savol deyarli har doim "nega u shunday ishlaydi?" yoki "agar … boʻlsa, nima buziladi?" boʻladi. Yodlangan ta'rif sizga bitta jumla beradi; mexanizmning mental modeli esa hech qachon koʻrmagan follow-up savolingizga ham javobni oʻzingiz keltirib chiqarishga imkon beradi.
+
+Shuning uchun har bir mavzu xatti-harakat aynan qayerdan kelib chiqadigan darajada tushuntiriladi. Masalan, bu yerda closure "funksiya ichidagi funksiya" emas — u oʻzi yaratilgan lexical environment'ga reference saqlab turadigan function object. Aynan shu sababli funksiya reachable boʻlib turgan paytda oʻsha environment garbage collection qilinmaydi.
+
+## Dars tuzilishi
+
+| Qism | Sizga nima beradi |
+| --- | --- |
+| TL;DR | Interview'da ovoz chiqarib ayta oladigan bir-ikki jumla |
+| Vizual model | Boshingizda saqlab yuradigan statik rasm |
+| Mexanizm | Ichkarida nima sodir boʻlishining qadamma-qadam animatsiyasi |
+| Kod | TypeScript'dagi namunaviy implementatsiya |
+| Qachon ishlatiladi / ishlatilmaydi | Tanib olish signallari va anti-pattern'lar |
+| Trade-off'lar | Time/space complexity, performance, maintainability |
+| Senior nuance | Production'dagi gotcha'lar, edge case'lar, real bug'lar |
+| Interview savollari | Tipik savollar, follow-up'lar, interviewer nimani tekshiradi |
+| Mashq | Oʻqiladigan emas, bajariladigan narsa |
+| Resurslar | Chuqurroq oʻrganish uchun tekshirilgan rasmiy dokumentatsiya va kurslar |
+
+## Animatsiyalar qanday ishlaydi
+
+Saytdagi har bir animatsiya <Term id="step-generator" /> tomonidan yaratiladi: bu haqiqiy algoritmni bajarib, har bir muhim qadamdan keyin snapshot yozib oladigan <Term id="pure-function" />. Player faqat shu snapshot'larni render qiladi.
+
+```ts
+interface Step<State> {
+  state: State;        // toʻliq snapshot: array, pointer'lar, stack, queue…
+  line: number;        // highlight qilinadigan kod satri
+  explain: { en: string; uz: string }; // bu qadam nega sodir boʻladi
+}
+
+function* run(input: number[]): Generator<Step<{ i: number }>> {
+  for (let i = 0; i < input.length; i++) {
+    yield { state: { i }, line: 2, explain: { en: "visit i", uz: "i ga kirish" } };
+  }
+}
+```
+
+Logika va UI ajratilgani sababli uchta foydali natija kelib chiqadi:
+
+1. **Orqaga** qadam tashlash mumkin — orqaga qaytish shunchaki oldingi snapshot'ni koʻrsatish, hech narsa "bekor qilinmaydi".
+2. Animatsiyani test qilish mumkin: oxirgi snapshot oddiy algoritm natijasiga teng boʻlishi shart.
+3. Reduced motion yoqilganda ham har bir qadam matn sifatida oʻqiladi; hech narsa yoʻqolmaydi.
+
+Sinab koʻring — **Boshlash** tugmasini bosing yoki ← / → bilan qadam tashlang. Input'ni oʻzgartirib, **Ishga tushirish**ni bosing; har bir qadam “Barcha qadamlar matn koʻrinishida” ostida matn sifatida ham mavjud.
+
+<BinarySearchViz />
+
+## Qanday oʻqish kerak
+
+- **Avval taxmin qiling, keyin qadam tashlang.** Har bir "next"dan oldin holat qanday boʻlishini ayting. Xato qilgan paytingiz — darsning eng qimmatli lahzasi.
+- **<Term id="active-recall" />dan foydalaning.** Darsdan keyin uni yoping va TL;DR hamda shablonni xotiradan yozib chiqing.
+- **<Term id="spaced-repetition" />dan foydalaning.** Mavzuga bir kundan keyin, keyin bir necha kundan keyin, keyin bir-ikki haftadan keyin qayting. Har safar uni qaytadan keltirib chiqarish — asosiy maqsad.
+- **Ovoz chiqarib tushuntiring.** Interview ogʻzaki fikrlashni tekshiradi. Mexanizmni interviewer'ga gapirib berayotgandek bayon qiling.
+
+## Aniqlik haqida
+
+Versiyaga bogʻliq xatti-harakat (framework API'lari, caching qoidalari, runtime tafsilotlari) yozilishidan oldin joriy rasmiy dokumentatsiya bilan tekshiriladi. Biror narsani tekshirib boʻlmasa, u aniq belgilanadi:
+
+<Callout kind="unverified" title="Tekshirish kerak">
+Bunday bloklar hali rasmiy manba bilan tasdiqlanmagan da'volarni belgilaydi.
+</Callout>
+
+## Atamalar inglizcha qoladi
+
+Oʻzbekcha versiyada closure, event loop, microtask, reconciliation yoki backpressure kabi texnik atamalar inglizcha qoldiriladi — interview'da aynan shu soʻzlarni eshitasiz va dokumentatsiyada aynan shularni oʻqiysiz. Qisqa ta'rifni koʻrish uchun nuqtali chiziq bilan belgilangan atama ustiga sichqonchani olib boring yoki fokus qiling.

@@ -1,0 +1,134 @@
+## TL;DR
+
+<Term id="backtracking" /> — qisman yechimlar daraxti ustida DFS: variantni **tanlash**, rekursiv **chuqurlash**, holatni tiklash uchun **bekor qilish**, keyingi variantni sinash. U eksponensial koʻp nomzodlarni sanab chiqadi, shuning uchun mahorat <Term id="pruning" />'da — (yaxshiroq) javobga olib bormaydigan tarmoqlarni kesishda — va bekor qilish qadamini aniq qilishda.
+
+## Vizual model
+
+```text
+                        []
+          /              |            \
+        [1]             [2]           [3]          har bir node = bitta qisman yechim
+       /    \            |                         subset'lar: har bir node — javob
+   [1,2]   [1,3]       [2,3]                       permutation'lar: faqat n chuqurlikdagi barglar
+     |
+  [1,2,3]
+```
+
+## Mexanizm
+
+Recursion bitta umumiy `path`ni saqlaydi. Har bir push rekursiv chaqiruv qaytgandan keyingi pop bilan juftlanadi, shuning uchun boshqaruv frame'ga qaytganda `path` aynan oʻsha frame kutgandek boʻladi. Call stack va path'ning oʻsishi va qisqarishini kuzating:
+
+<SubsetsViz />
+
+`start` indeksi `[1, 2]`dan keyin `[2, 1]` kabi dublikatlarning oldini oladi: har bir frame faqat oxirgi tanlangandan oʻngdagi elementlarni tanlaydi.
+
+## Kod
+
+```ts
+// Permutation'lar: qaysi elementlar ishlatilganini kuzatish
+function permutations(nums: number[]): number[][] {
+  const out: number[][] = [], path: number[] = [];
+  const used = new Array<boolean>(nums.length).fill(false);
+  const go = () => {
+    if (path.length === nums.length) { out.push([...path]); return; }
+    for (let i = 0; i < nums.length; i++) {
+      if (used[i]) continue;
+      used[i] = true; path.push(nums[i]);
+      go();
+      path.pop(); used[i] = false;
+    }
+  };
+  go();
+  return out;
+}
+
+// Combination Sum (qayta ishlatish mumkin) saralangan array'da pruning bilan
+function combinationSum(cands: number[], target: number): number[][] {
+  cands.sort((a, b) => a - b);
+  const out: number[][] = [], path: number[] = [];
+  const go = (start: number, remaining: number) => {
+    if (remaining === 0) { out.push([...path]); return; }
+    for (let i = start; i < cands.length; i++) {
+      if (cands[i] > remaining) break;           // pruning: saralangan, demak qolganlari ham katta
+      path.push(cands[i]);
+      go(i, remaining - cands[i]);               // i + 1 emas, i: qayta ishlatish mumkin
+      path.pop();
+    }
+  };
+  go(0, target);
+  return out;
+}
+
+// N-Queens: ustun va diagonal set'lari bilan O(1) konflikt tekshiruvi
+function solveNQueens(n: number): number {
+  const cols = new Set<number>(), d1 = new Set<number>(), d2 = new Set<number>();
+  let count = 0;
+  const place = (r: number) => {
+    if (r === n) { count++; return; }
+    for (let c = 0; c < n; c++) {
+      if (cols.has(c) || d1.has(r - c) || d2.has(r + c)) continue;
+      cols.add(c); d1.add(r - c); d2.add(r + c);
+      place(r + 1);
+      cols.delete(c); d1.delete(r - c); d2.delete(r + c);
+    }
+  };
+  place(0);
+  return count;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- "**Barcha** subset / permutation / kombinatsiya / boʻlinish / joylashuvlarni qaytaring".
+- Cheklovlarni qanoatlantirish: N-Queens, Sudoku, doskada soʻz qidirish.
+- Kichik n (≤ ~15–20) — constraint'larning oʻzi eksponensial kutilayotganini aytadi.
+
+**Qachon kerak emas**
+- Roʻyxat emas, **soni** yoki **eng yaxshi** qiymat kerak va kichik masalalar takrorlanadi → DP / memoization.
+- Greedy tanlov isbotli xavfsiz → greedy.
+- n katta va kuchli pruning yoʻq → modelni qayta koʻrib chiqing.
+
+## Trade-off'lar
+
+| Masala | Natija hajmi | Vaqt |
+| --- | --- | --- |
+| Subset'lar | 2ⁿ | O(n · 2ⁿ) |
+| Permutation'lar | n! | O(n · n!) |
+| Kombinatsiyalar C(n, k) | C(n, k) | O(k · C(n, k)) |
+| N-Queens | ≤ n! | pruning bilan ancha kam |
+
+## Senior nuance
+
+- **Input'dagi dublikatlar** (Subsets II, Permutations II): saralang, keyin oldingi teng element shu darajada **tanlanmagan** boʻlsa `nums[i] === nums[i − 1]`ni oʻtkazib yuboring (subset'lar uchun `i > start`, permutation'lar uchun `!used[i − 1]`).
+- **Yozishda nusxa oling**: `out.push(path)` siz oʻzgartirishda davom etadigan array'ga reference saqlaydi — har bir javob oxir-oqibat boʻsh boʻladi. `[...path]` ni push qiling.
+- **Bekor qilish aniq boʻlishi shart**: oʻzgartirgan har bir holat qismini (grid katagi, hisoblagichlar, set'lar) teskari tartibda tiklang. Bu yerdagi bug'lar "faqat birinchi tarmoqda ishlaydi" kabi koʻrinadi.
+- **Holat kichik boʻlsa memoize qiling**: kelajak faqat (indeks, qolgan) ga bogʻliq boʻlsa, masala niqoblangan DP (Word Break, Partition Equal Subset Sum).
+
+## Interview savollari
+
+<QA q="Grid'da Word Search — katakni qayta ishlatishdan qanday saqlanasiz?" level="mid">
+Qoʻshnilarga rekursiv kirishdan oldin katakni belgilang (masalan, vaqtincha '#' bilan almashtiring) va keyin tiklang. Bu — bekor qilish qadami. Joriy katak keyingi harfga mos kelmasa, darhol prune qiling. Eng yomon holat O(R · C · 4 · 3^(L−1)).
+</QA>
+
+<QA q="Subsets II (input'da dublikatlar bor): takroriy subset'lardan qanday qochasiz?" level="mid">
+Avval saralang. Frame loop'ida `i > start` va `nums[i] === nums[i − 1]` boʻlsa `nums[i]`ni oʻtkazib yuboring: bir chuqurlikda ikkinchi teng qiymatni tanlash birinchisini tanlagan tarmoqqa aynan oʻxshash tarmoqni qayta yaratadi.
+</QA>
+
+<QA q="Backtracking qachon DP'ga aylanadi?" level="senior">
+Holatdan boshlab oʻrganish natijasi butun yoʻlga emas, faqat yoʻlning kichik xulosasiga bogʻliq boʻlsa va bir xil xulosalar takrorlansa. Shunda natijalarni holat boʻyicha cache qiling; recursion daraxti holatlar DAG'iga siqiladi. Misol: Word Break holati — faqat boshlanish indeksi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Nega path emas, [...path] push qilinadi?", options: ["Performance", "path keyinroq oʻzgaradi; sizga snapshot kerak", "TypeScript talab qiladi", "Saralash uchun"], answer: 1, explain: "Saqlangan barcha reference'lar oxir-oqibat boʻsh boʻladigan bitta array'ga koʻrsatadi." },
+  { q: "Combination Sum qayta ishlatishga ruxsat beradi. Rekursiv chaqiruv nimani ishlatadi?", options: ["i + 1", "i", "0", "start + 1"], answer: 1, explain: "i da qolish bitta nomzodni yana tanlashga imkon beradi." },
+  { q: "N-Queens: ikki farzin (r1, c1), (r2, c2) bitta diagonalda, faqat agar…", options: ["r1 + c1 = r2 + c2 yoki r1 − c1 = r2 − c2", "r1 = r2", "c1 = c2", "r1 · c1 = r2 · c2"], answer: 0, explain: "Teskari diagonallarda r + c, diagonallarda r − c oʻzgarmas." }
+]} />
+
+**Klassik masalalar:** Subsets (Medium) · Permutations (Medium) · Combination Sum (Medium) · Letter Combinations of a Phone Number (Medium) · Word Search (Medium) · Palindrome Partitioning (Medium) · N-Queens (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/backtracking" />

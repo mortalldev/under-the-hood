@@ -1,0 +1,178 @@
+## TL;DR
+
+Ilgari npm paketlarini talab qilgan koʻp narsalar endi **Node'ga oʻrnatilgan**. Node 24 LTS'da bor:
+- **test runner** (<Term id="node-test-runner" />, `node:test`, mock'lar, soxta timer'lar, coverage)
+- **watch mode** (`--watch`)
+- **.env yuklash** (`--env-file`, `process.loadEnvFile`)
+- **paket skriptlarini ishga tushirish** (`node --run`)
+- <Term id="type-stripping" /> orqali **TypeScript'ni bajarish** (`node app.ts`)
+- **veb-standart API'lar** (`fetch`, Web Streams, `WebSocket` client, `AbortController`, `structuredClone`)
+- **CLI argumentlarini parse qilish** (`util.parseArgs`)
+- **permission model** (`--permission`)
+- ES modullarni `require()` qilish
+
+Yangi loyihalar uchun natija: kamroq bogʻliqlik, kichikroq hujum yuzasi, tezroq CI.
+
+## Vizual model
+
+```text
+ilgari oʻrnatilardi                   endi oʻrnatilgan (Node 24 LTS)
+nodemon                               node --watch src/server.ts
+dotenv                                node --env-file=.env …   |  process.loadEnvFile()
+ts-node / tsx (oddiy holatlar)        node src/server.ts         (turlar oʻchiriladi, tekshirilmaydi)
+jest / mocha (koʻp holatlar)          node --test                 +  node:test, node:assert, mock.timers
+node-fetch, ws (client)               fetch, WebSocket            (global, veb-standart)
+yargs / minimist (oddiy CLI'lar)      util.parseArgs
+npm run <script>                      node --run <script>         (npm ishga tushish narxisiz, pre/post hook'larsiz)
+"type": "module" muammolari           require(esm) sinxron ES modul graflari uchun ishlaydi
+```
+
+## Mexanizm
+
+**Test runner.** `node --test` `*.test.{js,mjs,cjs,ts}` kabi nomlangan fayllarni (va yana bir nechta pattern'larni) topadi va har bir faylni alohida jarayonda, sukut boʻyicha parallel ishga tushiradi (`--test-concurrency`). `node:test` `test`/`describe`/`it`, hook'lar, subtest'lar, `t.mock.fn()`, `mock.method()`, **soxta timer'lar** (`mock.timers.enable({ apis: ["setTimeout"] })`, keyin `mock.timers.tick(ms)`) va snapshot testlarni beradi. Coverage `--experimental-test-coverage` bilan mavjud.
+
+**Watch mode.** `--watch` kirish fayli yoki u import qiladigan istalgan narsa oʻzgarganda jarayonni qayta ishga tushiradi. `--watch-path` boshqa papkalarni qoʻshadi.
+
+**Env fayllar.** `--env-file=.env` kodingiz ishga tushishidan oldin oʻzgaruvchilarni yuklaydi. Fayl ixtiyoriy boʻlsa, `--env-file-if-exists` ishlating. `process.loadEnvFile(path)` ularni runtime'da yuklaydi. Haqiqiy muhit oʻzgaruvchilari fayldagidan ustun. Bular faqat fayllarni oʻqiydi — secret store emas.
+
+**TypeScript'ni ishga tushirish.** Node oʻchiriladigan type sintaksisini olib tashlab, natijani bajaradi. Type tekshiruvi ham, transformatsiya ham yoʻq, shuning uchun enum va parameter property'lar `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` tashlaydi. Import yoʻllari `.ts` kengaytmasini oʻz ichiga olishi shart. CI'da `tsc --noEmit`'ni saqlang. Mos tsconfig TypeScript darsida bor.
+
+**Veb-standart API'lar.** `fetch` undici ustiga qurilgan, `Response.body` esa Web `ReadableStream`. `Readable.fromWeb` / `Readable.toWeb` Node stream'lariga koʻprik boʻladi. Faqat veb API'lardan foydalanadigan kod Node, Deno, Bun, edge runtime'lar va brauzerlarda oʻzgarishsiz ishlaydi.
+
+**Permission model.** `node --permission` fayl tizimiga yozish va oʻqishni, child process'larni, worker thread'larni va native addon'larni ruxsat bermaguningizcha taqiqlaydi, masalan `--allow-fs-read=./data`. Taqiqlangan chaqiruvlar `ERR_ACCESS_DENIED` tashlaydi. Bu buzilgan bogʻliqlikka qarshi qoʻshimcha himoya qatlami, ishonchsiz kodni ishga tushirish uchun **sandbox emas**.
+
+**`require(esm)`.** CommonJS modul ES modulni `require()` qila oladi, agar shu modul grafida top-level `await` boʻlmasa. Bu kutubxona mualliflari uchun CJS'dan ESM'ga oʻtishning eng katta ogʻrigʻini olib tashladi.
+
+**`node:sqlite`** bogʻliqliksiz ichki SQLite ma'lumotlar bazasini beradi. Node 24'da u hali **eksperimental** va ogohlantirish chiqaradi.
+
+## Kod
+
+```js
+// src/rate.js — test qilinadigan kod
+export function createLimiter({ max, windowMs }) {
+  const hits = new Map();
+  return function allow(key) {
+    const now = Date.now();
+    const recent = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
+    if (recent.length >= max) { hits.set(key, recent); return false; }
+    recent.push(now);
+    hits.set(key, recent);
+    return true;
+  };
+}
+```
+
+```js
+// src/rate.test.js — ishga tushirish: node --test   (yoki: node --test --watch)
+import { test, describe, mock } from "node:test";
+import assert from "node:assert/strict";
+import { createLimiter } from "./rate.js";
+
+describe("createLimiter", () => {
+  test("allows up to max requests per window", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 0 });   // soxta soat: haqiqiy kutish yoʻq
+    const allow = createLimiter({ max: 2, windowMs: 1000 });
+    assert.equal(allow("ip1"), true);
+    assert.equal(allow("ip1"), true);
+    assert.equal(allow("ip1"), false);                  // bitta oynadagi uchinchisi
+    t.mock.timers.tick(1000);                           // oyna oʻtadi
+    assert.equal(allow("ip1"), true);
+  });
+
+  test("keys are independent", () => {
+    const allow = createLimiter({ max: 1, windowMs: 1000 });
+    assert.equal(allow("a"), true);
+    assert.equal(allow("b"), true);
+  });
+
+  test("mock.fn records calls", () => {
+    const send = mock.fn((msg) => msg.length);
+    send("hi");
+    assert.equal(send.mock.callCount(), 1);
+    assert.deepEqual(send.mock.calls[0].arguments, ["hi"]);
+  });
+});
+```
+
+```js
+// cli.js — argumentlarni parse qilish + timeout'li fetch, bogʻliqliksiz
+import { parseArgs } from "node:util";
+
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
+  options: {
+    timeout: { type: "string", short: "t", default: "3000" },
+    verbose: { type: "boolean", short: "v" },
+  },
+});
+
+for (const url of positionals) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(Number(values.timeout)) });
+  if (values.verbose) console.log(res.status, res.headers.get("content-type"));
+  console.log(url, (await res.text()).length, "bytes");
+}
+// node cli.js -v -t 2000 https://example.com
+```
+
+```text
+// package.json
+{
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env src/server.ts",
+    "test": "node --test",
+    "check": "tsc --noEmit"
+  }
+}
+// node --run dev      ← skriptni npm'ning ishga tushish narxisiz toʻgʻridan-toʻgʻri bajaradi
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Ehtiyojlaringizni qoplaydigan servislar, CLI'lar va kutubxonalar uchun **oʻrnatilgan vositalardan foydalaning**. Kamroq bogʻliqlik — kamroq supply-chain xavfi va kamroq yangilash. Oʻrnatilgan test runner backend kodi va kutubxonalar uchun yaxshi standart tanlov.
+
+Aniq yaxshiroq boʻlgan joylarda **maxsus vositalarni saqlang**: katta front-end test toʻplamlari uchun Vitest/Jest (JSDOM, boy watch UI, qulay modul mock'lash), brauzerlar uchun Playwright, front-end ilovalar uchun haqiqiy bundler va enum/decorator/JSX uchun `tsc` yoki kompilyator. Ishonchsiz kodni ishga tushirish uchun `--permission`'ga tayanmang. Buning uchun OS darajasidagi izolyatsiyadan (konteynerlar, VM'lar) foydalaning.
+
+## Trade-off'lar
+
+| Oʻrnatilgan | Oʻrniga | Yutuq | Cheklov |
+| --- | --- | --- | --- |
+| `node --test` | Jest/Mocha | nol bogʻliqlik, tez, jarayon izolyatsiyasi | kamroq plugin; modul mock'lash eksperimental |
+| `--watch` | nodemon | nol konfiguratsiya | butun jarayonni qayta ishga tushiradi |
+| `--env-file` | dotenv | bogʻliqliksiz | ba'zi ilovalar tayangan oʻzgaruvchi kengaytirish hiylalari yoʻq |
+| type stripping | ts-node/tsx | build qadamisiz | type tekshiruvi yoʻq, faqat erasable sintaksis |
+| `--permission` | — | buzilgan bogʻliqliklar zararini cheklaydi | xavfsizlik sandbox'i emas |
+
+## Senior nuance
+
+- **Release liniyalari muhim**: juft raqamli Node versiyalari LTS boʻladi (2026 yil oktabr holatiga 24 — eng yangi LTS liniyasi, 26 esa "Current"). Production LTS'da ishlashi kerak, toq versiyalar esa xususiyatlarni erta sinab koʻrish uchun.
+- **Barqarorlik indeksi**: Node hujjatlari har bir API'ni Stable, Experimental yoki Deprecated deb belgilaydi. Eksperimental API'lar (Node 24'dagi `node:sqlite` kabi) minor versiyalarda oʻzgarishi mumkin — ularga tayanishdan oldin versiyani qotiring va test qiling.
+- **Supply-chain gigiyenasi** — asosiy yutuq: olib tashlagan har bir bogʻliqlik audit qilish, patch qilish va ishonish shart boʻlmagan kod.
+- **Veb-standart kod koʻchma**: Node'ga xos API'lar oʻrniga `fetch`, Web Streams va `AbortSignal`'ni afzal koʻrish bitta modulni server'da, edge'da va testlarda ishlatishga imkon beradi.
+
+## Interview savollari
+
+<QA q="`node app.ts` turlaringiz bilan nima qiladi?" level="mid">
+Ularni olib tashlaydi: type annotatsiyalari boʻsh joy bilan almashtiriladi va qolgan JavaScript bajariladi. Hech narsa type-check qilinmaydi, shuning uchun type xatosi dasturni toʻxtatmaydi, kod generatsiyasini talab qiladigan sintaksis (enum'lar, parameter property'lar, qiymatli namespace'lar) esa rad etiladi. tsc --noEmit bilan alohida type-check qiling.
+</QA>
+
+<QA q="Oʻrnatilgan test runner bilan vaqtga bogʻliq kodni qanday test qilasiz?" level="mid">
+Mock timer'lardan foydalaning: `t.mock.timers.enable({ apis: ["setTimeout", "Date"] })` timer va soat API'larini almashtiradi, t.mock.timers.tick(ms) esa ularni darhol oldinga suradi — test tez va deterministik boʻladi. t.mock ishlatilganda mock'lar testdan keyin avtomatik tiklanadi.
+</QA>
+
+<QA q="Node'ning permission model'i ishonchsiz kodni ishga tushirish uchun sandbox'mi?" level="senior">
+Yoʻq. U jarayon qila oladigan narsalarni (fayl tizimi yoʻllari, child process'lar, worker'lar, addon'lar) cheklaydi va shu orqali buzilgan bogʻliqlik zararini kamaytiradi, lekin Node hujjatlari u zararli kodga qarshi xavfsizlik chegarasi emasligini aytadi. Ishonchsiz kod uchun OS darajasidagi izolyatsiya kerak: cheklangan foydalanuvchili alohida jarayonlar, konteynerlar, VM'lar yoki maxsus sandbox'lar.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Qaysi buyruq nodemon'siz fayllar oʻzgarganda serverni qayta yuklaydi?", options: ["node --reload", "node --watch server.js", "node --hot", "node --dev"], answer: 1, explain: "--watch kirish fayli va uning import'lari oʻzgarganda qayta ishga tushiradi." },
+  { q: "`node --env-file=.env app.js`, shell'da allaqachon PORT=8080 bor; .env'da PORT=3000. process.env.PORT…", options: ["3000", "8080", "undefined", "xato"], answer: 1, explain: "Mavjud muhit oʻzgaruvchilari fayldagidan ustun." },
+  { q: "CommonJS fayl top-level await ishlatadigan ES modulni require() qiladi. Natija?", options: ["ishlaydi", "xato tashlaydi (ERR_REQUIRE_ASYNC_MODULE)", "promise qaytaradi", "osilib qoladi"], answer: 1, explain: "require(esm) faqat sinxron modul graflarini qoʻllab-quvvatlaydi." },
+  { q: "Node 24'da yangi backend kutubxonasi testlari uchun eng yaxshi standart?", options: ["test yoʻq", "node:assert bilan node --test", "brauzer test runner'i", "qoʻlda console.log"], answer: 1, explain: "Oʻrnatilgan, nol bogʻliqlik, tez — koʻprogʻi kerak boʻlsagina almashtiring." }
+]} />
+
+## Resurslar
+
+<Resources topic="nodejs/modern-node" />

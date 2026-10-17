@@ -1,0 +1,97 @@
+## TL;DR
+
+Asinxron xabar almashish producer'larni consumer'lardan **vaqt** (consumer ishlamay turishi mumkin), **tezlik** (portlashlarni buffer'lash) va **bilim** (producer kim tinglayotganini bilmaydi) boʻyicha ajratadi. Ikki oila: **queue**'lar (har bir xabarni bitta consumer qayta ishlaydi, keyin olib tashlanadi — ish taqsimlash) va **log/stream**'lar (xabarlar tartibda saqlanadi; koʻp consumer group'lar oʻz offset'larida oʻqiydi — event tarqatish va qayta oʻynash). Yetkazish deyarli doim **at-least-once**, shuning uchun consumer'lar **idempotent** boʻlishi shart; tartib faqat **partition ichida** kafolatlanadi.
+
+## Vizual model
+
+<FlowDiagram height={58} nodes={[
+  { id: "orders", label: "order servisi", sub: "producer", x: 12, y: 10, w: 20 },
+  { id: "outbox", label: "outbox jadvali", sub: "bitta DB tranzaksiyasi", x: 12, y: 32, w: 20, kind: "store" },
+  { id: "log", label: "log: order-events", sub: "order_id boʻyicha partition'lar", x: 46, y: 21, w: 24, kind: "queue" },
+  { id: "email", label: "email servisi", sub: "A guruh, offset 1042", x: 82, y: 8, w: 22 },
+  { id: "search", label: "qidiruv indeksatori", sub: "B guruh, offset 998", x: 82, y: 24, w: 22 },
+  { id: "dlq", label: "dead-letter queue", sub: "zaharli xabarlar", x: 82, y: 42, w: 22, kind: "note" }
+]} edges={[
+  { from: "orders", to: "outbox" }, { from: "outbox", to: "log", label: "relay" }, { from: "log", to: "email" }, { from: "log", to: "search" }, { from: "search", to: "dlq", dashed: true, label: "N muvaffaqiyatsizlikdan keyin" }
+]} caption="Outbox 'buyurtmani saqlash' va 'event'ni e'lon qilish'ni atomik qiladi; har bir consumer group log'dagi oʻz pozitsiyasini kuzatadi." />
+
+## Mexanizm
+
+**Yetkazish kafolatlari**:
+- **At-most-once**: qayta ishlashdan oldin ack — qulashlar xabarlarni yoʻqotadi.
+- **At-least-once**: qayta ishlash, keyin ack — qulashlar qayta yetkazishga (dublikatlarga) olib keladi. Standart tanlov.
+- **Exactly-once processing**: at-least-once yetkazish + <Term id="idempotency" /> (xabar ID boʻyicha dedupe, upsert'lar, shartli yozishlar) yoki bitta tizim ichidagi tranzaksion qayta ishlash orqali oxiridan-oxirigacha erishiladi.
+
+**Tartib**: log tartibni **partition** boʻyicha saqlaydi. Tartibli qolishi kerak boʻlgan xabarlar (bitta buyurtmaning barcha event'lari) uni boʻlishishi uchun partition key'ni tanlang. Koʻproq partition = koʻproq parallelizm, lekin global tartib yoʻq.
+
+**Backpressure va retry'lar**: queue portlashlarni yutadi, lekin consumer lag kuzatilishi shart. Retry'lar eksponensial backoff ishlatadi; doim muvaffaqiyatsiz boʻladigan xabarlar partition'ni abadiy bloklash oʻrniga **dead-letter queue**'ga boradi.
+
+**Dual-write muammosi**: DB'ga yozib, keyin broker'ga e'lon qilish oraliqda muvaffaqiyatsiz boʻlib, ularni nomuvofiq qoldirishi mumkin. <Term id="outbox-pattern" /> event'ni state oʻzgarishi bilan **bitta tranzaksiyada** outbox jadvaliga yozadi; relay (polling yoki change-data-capture) uni e'lon qiladi.
+
+## Kod
+
+```ts
+// Tranzaksion outbox (producer)
+await db.transaction(async (tx) => {
+  const order = await tx.orders.insert({ userId, items, status: "placed" });
+  await tx.outbox.insert({ topic: "order-events", key: order.id, payload: { type: "OrderPlaced", orderId: order.id } });
+});
+// Alohida relay e'lon qilinmagan outbox qatorlarini oʻqiydi, e'lon qiladi, yuborilgan deb belgilaydi (at-least-once).
+
+// Idempotent consumer
+async function onOrderPlaced(msg: { id: string; payload: { orderId: string } }) {
+  const firstTime = await db.processed.insertIfAbsent(msg.id);   // xabar id'sida unique cheklov
+  if (!firstTime) return;                                         // takroriy yetkazish → hech narsa qilmaslik
+  await sendConfirmationEmail(msg.payload.orderId);
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Xabar almashishdan foydalaning**: keyinroq bajarilishi mumkin boʻlgan ish (email'lar, thumbnail'lar, hisobotlar), trafik choʻqqilarini tekislash, domen event'larini koʻp servislarga tarqatish, mavjudligi har xil tizimlarni integratsiya qilish, event sourcing/CDC pipeline'lari uchun.
+
+**Foydalanmang**: chaqiruvchiga natija hozir kerak boʻlganda (sinxron request/response soddaroq), DB jadvali + cron job yetadigan kichik tizimlar uchun yoki tuzatish mumkin boʻlgan sekin bogʻliqlikni yashirish usuli sifatida.
+
+## Trade-off'lar
+
+| | Queue (masalan RabbitMQ, SQS) | Log/stream (masalan Kafka, Kinesis) |
+| --- | --- | --- |
+| Iste'mol | raqobatlashuvchi consumer'lar, ack'dan keyin xabar olib tashlanadi | offset'li consumer group'lar, xabarlar saqlanadi |
+| Qayta oʻynash | yoʻq (iste'mol qilingach) | ha, saqlash muddati ichida |
+| Tartib | queue boʻyicha (parallel consumer'lar bilan koʻpincha boʻshashtiriladi) | partition boʻyicha |
+| Routing | boy (exchange'lar, topic'lar, ustuvorliklar, kechikishlar) | topic/partition boʻyicha |
+| Odatiy qoʻllanish | task taqsimlash | event streaming, CDC, analitika |
+
+## Senior nuance
+
+- **Zaharli xabarlar** tartibli consumer'larda partition'ni bloklaydi — retry'larni cheklang va ularni keyinroq qayta oʻynash uchun yetarli kontekst bilan DLQ'ga koʻchiring.
+- **Consumer lag** — asosiy SLO metrikasi; faqat xatolarga emas, lag oʻsishiga alert qoʻying.
+- **Schema evolyutsiyasi**: event'lar — ommaviy shartnoma; ularni versiyalang, field'larni mos tarzda qoʻshing, qat'iy tiplangan pipeline'lar uchun schema registry ishlating.
+- **Saga'lar** koʻp servisli ish oqimlarini taqsimlangan tranzaksiyalar oʻrniga kompensatsiya amallari bilan muvofiqlashtiradi (masalan, zaxirani band qilish → yechib olish → muvaffaqiyatsizlikda zaxirani boʻshatish).
+- Consumer group'larning **rebalancing**'i iste'molni qisqa toʻxtatadi; har xabarga qayta ishlashni qisqa saqlang va offset'larni side effect'lardan keyin commit qiling.
+
+## Interview savollari
+
+<QA q="Message broker bilan exactly-once semantikasini qanday olasiz?" level="senior">
+Tarmoqlar faqat at-most-once yoki at-least-once yetkazishga imkon beradi. At-least-once'ni tanlang (qayta ishlashdan keyin ack/commit) va ta'sirni idempotent qiling: side effect bilan tranzaksion saqlanadigan noyob xabar ID boʻyicha dedupe qiling, upsert/shartli yozishlardan foydalaning yoki ikkalasi bitta tizimda yashasa, qayta ishlash va offset commit'larini bitta tranzaksiyada saqlang. Natija — takroriy yetkazishlarga qaramay exactly-once ta'sir.
+</QA>
+
+<QA q="Outbox pattern nima va nega u kerak?" level="mid">
+Servislar koʻpincha ma'lumotlar bazasini yangilashi va event e'lon qilishi kerak. Ikkalasini alohida qilish biri muvaffaqiyatsiz boʻlsa nomuvofiqlik xavfini tugʻdiradi. Outbox pattern event'ni state oʻzgarishi bilan bitta ma'lumotlar bazasi tranzaksiyasida outbox jadvaliga yozadi; relay keyinroq outbox yozuvlarini broker'ga e'lon qiladi (at-least-once), shuning uchun event faqat oʻzgarish commit boʻlgandagina e'lon qilinadi.
+</QA>
+
+<QA q="Consumer'larni masshtablagan holda har mijoz boʻyicha tartibni qanday saqlaysiz?" level="mid">
+Topic'ni mijoz ID boʻyicha partition qiling, shunda mijozning barcha event'lari bitta partition'ga tushadi, uni esa guruhdagi bir vaqtda bitta consumer iste'mol qiladi. Partition'larni oshirib masshtablang; tartib global emas, partition boʻyicha (mijoz boʻyicha) kafolatlanadi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Consumer qayta ishlaydi, ack'dan oldin qulaydi, xabar qayta yetkaziladi. Yetkazish semantikasi?", options: ["at-most-once", "at-least-once", "exactly-once", "hech biri"], answer: 1, explain: "Dublikatlar mumkin; qayta ishlashni idempotent qiling." },
+  { q: "Bitta buyurtma event'larini ketma-ketlikda saqlash uchun partition key qanday tanlanadi?", options: ["tasodifiy", "order_id", "timestamp", "event turi"], answer: 1, explain: "Bir xil key → bir xil partition → tartibli." },
+  { q: "Xabar abadiy muvaffaqiyatsiz qayta ishlanadi. Eng yaxshi amaliyot?", options: ["cheksiz retry", "jimgina tashlash", "cheklangan retry'lar, keyin dead-letter queue", "broker'ni qayta ishga tushirish"], answer: 2, explain: "Stream'ni bloklamang; uni tekshirish uchun saqlang." }
+]} />
+
+## Resurslar
+
+<Resources topic="system-design/message-queues" />

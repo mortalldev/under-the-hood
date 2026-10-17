@@ -1,0 +1,112 @@
+## TL;DR
+
+In Next.js 16 with Cache Components (the default for new apps), you don't pick "SSG vs SSR" per page. Every route is **prerendered into a static shell**, and each component decides what it contributes: **static** content goes in the shell, **cached** content (`'use cache'` + `cacheLife`) goes in the shell and revalidates, and **runtime/uncached** content (cookies, headers, uncached fetches) renders behind `<Suspense>` and **streams** into the same response. This is <Term id="ppr" />.
+
+## Visual model
+
+<DecisionTree title="How will this component render?" start="q1" nodes={[
+  { id: "q1", question: "Does it read request data (cookies(), headers(), searchParams) or unknown params?", options: [{ label: "Yes", next: "q1b" }, { label: "No", next: "q2" }] },
+  { id: "q1b", question: "Can the result be shared/cached for a while?", options: [{ label: "Yes — per user/session", next: "private" }, { label: "No — must be fresh per request", next: "stream" }] },
+  { id: "private", answer: "Extract the value and pass it to a 'use cache' function (or use 'use cache: private')", detail: "Cached per argument; can join prefetches. Still behind <Suspense> because the input is request data." },
+  { id: "stream", answer: "Wrap in <Suspense> — it streams at request time", detail: "The fallback is part of the static shell; the content streams into the same response." },
+  { id: "q2", question: "Does it fetch data or do other async I/O?", options: [{ label: "Yes", next: "q3" }, { label: "No — pure/synchronous", next: "static" }] },
+  { id: "static", answer: "Static — prerendered into the shell automatically", detail: "Module imports, readFileSync and pure computation complete at build time." },
+  { id: "q3", question: "Is it OK for everyone to see the same result for some time?", options: [{ label: "Yes", next: "cached" }, { label: "No", next: "stream" }] },
+  { id: "cached", answer: "'use cache' + cacheLife(…) (+ cacheTag for on-demand invalidation)", detail: "Included in the static shell unless the lifetime is short (e.g. 'seconds'), in which case it becomes a dynamic hole." }
+]} />
+
+## Mechanism
+
+**Prerendering at build time** walks the tree. Each component either completes (static or cached), suspends on request data behind a boundary (its fallback goes into the shell), or — if it does uncached async work *outside* any Suspense boundary — Next.js reports a **blocking-route** error in development so you fix the structure. The result per route: HTML for first loads plus an RSC payload for client navigations, servable from a CDN.
+
+**At request time** the server sends the shell immediately and continues rendering the dynamic holes; each `<Suspense>` boundary's content streams in as it resolves, in the same HTTP response.
+
+**Dynamic params**: values listed in `generateStaticParams` get fully prerendered pages. Unlisted values are served the route's **App Shell** (the URL-independent part) instantly, then the URL-specific render is completed and stored — ISR with Cache Components.
+
+**Random values and time** (`Math.random()`, `Date.now()`, `crypto.randomUUID()`) must be made explicit: `await connection()` + Suspense for per-request values, or `'use cache'` to fix one value until revalidation.
+
+## Code
+
+```tsx
+import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { cacheLife, cacheTag } from "next/cache";
+
+export default function ProductPage() {
+  return (
+    <>
+      <Header />                                 {/* static: in the shell */}
+      <ProductDetails />                         {/* cached: in the shell, revalidates hourly */}
+      <Suspense fallback={<CartSkeleton />}>     {/* fallback in the shell */}
+        <Cart />                                 {/* runtime: streams per request */}
+      </Suspense>
+    </>
+  );
+}
+
+async function ProductDetails() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("product");
+  const p = await db.product.findFirst();
+  return <h1>{p?.name}</h1>;
+}
+
+async function Cart() {
+  const session = (await cookies()).get("session")?.value;
+  const items = await getCart(session);
+  return <CartView items={items} />;
+}
+```
+
+## When to use / when not to
+
+| Content | Strategy |
+| --- | --- |
+| Marketing pages, docs, blog posts | static or `'use cache'` with long lifetime (`days`, `weeks`, `max`) |
+| Product catalog, prices updated by an admin | `'use cache'` + `cacheTag`, invalidate with `updateTag`/`revalidateTag` |
+| Personalized widgets (cart, greeting) | runtime data behind `<Suspense>` |
+| Search results by query string | Suspense + per-query cache (`'use cache'` keyed by the extracted param) |
+| Real-time dashboards | client-side data fetching / subscriptions inside client components |
+
+## Trade-offs
+
+| Approach | TTFB | Freshness | Server cost |
+| --- | --- | --- | --- |
+| Fully static | CDN-fast | build-time (or revalidated) | minimal |
+| Static shell + streaming holes (PPR) | CDN-fast shell, holes stream | per-request where needed | only for holes |
+| Fully request-time (no shell) | waits for server | always fresh | every request |
+| Client-side fetching | fast shell, data later | always fresh | API calls, more client JS |
+
+## Senior nuance
+
+- **Push dynamic access down the tree**: awaiting `params`, `cookies()` or a fetch at the top of a layout makes everything below it dynamic. Pass promises down and await inside small Suspense boundaries to maximise the shell.
+- **Short-lived caches** (`seconds` profile, `revalidate: 0`, or `expire` under 5 minutes) are excluded from prerendering and become dynamic holes — use them deliberately.
+- **Pair every cache with `cacheLife`**; without it the implicit `default` profile applies, which may be longer or shorter than you assume.
+- **The previous model** (`dynamic = 'force-static'`, `revalidate` exports, `fetch` cache options) still exists for apps without Cache Components — know which model a codebase uses before giving advice.
+
+## Interview questions
+
+<QA q="What is Partial Prerendering?" level="mid">
+Rendering a route so that everything that can be known ahead of time (static and cached components plus Suspense fallbacks) becomes a static shell served instantly, while request-dependent parts render at request time and stream into the same response through Suspense boundaries. It replaces the page-level choice between static and dynamic rendering.
+</QA>
+
+<QA q="A page reads cookies() at the top level. What happens with Cache Components, and how do you improve it?" level="senior">
+Reading request data outside a Suspense boundary blocks the route from producing a useful shell (development surfaces a blocking-route insight). Move the cookies() read into a child component wrapped in `<Suspense>`, so the rest of the page and the fallback are prerendered and only that part streams. If the derived data can be shared, pass the extracted value to a 'use cache' function.
+</QA>
+
+<QA q="How do you serve dynamic product pages instantly for products added after the build?" level="senior">
+List popular products in generateStaticParams for full prerenders; for others, Next.js serves the route's App Shell immediately (await params inside Suspense), renders the product-specific content, and stores it in the ISR cache so later visits get the full page. Tag the cached product data and call updateTag/revalidateTag when it changes.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "A component awaits an uncached fetch with no Suspense boundary above it. In dev…", options: ["it silently becomes dynamic", "Next.js reports a blocking-route insight", "it is cached forever", "the build ignores it"], answer: 1, explain: "Cache Components requires you to cache it or move it behind Suspense." },
+  { q: "cacheLife('seconds') content is…", options: ["in the static shell", "excluded from prerender — a dynamic hole", "cached on the client only", "invalid"], answer: 1, explain: "Short-lived caches don't belong in a long-lived shell." },
+  { q: "Where does a <Suspense> fallback end up?", options: ["only on the client", "in the static shell", "in the error boundary", "nowhere"], answer: 1, explain: "Fallbacks are prerendered; the content streams later." }
+]} />
+
+## Resources
+
+<Resources topic="nextjs/rendering-strategies" />

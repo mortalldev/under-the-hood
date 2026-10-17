@@ -1,0 +1,92 @@
+## TL;DR
+
+A system design interview is a **structured conversation about trade-offs**, not a quiz with one right diagram. Use a repeatable flow: **requirements** (functional + non-functional) → **estimation** (traffic, storage, bandwidth) → **API & data model** → **high-level design** → **deep dives** on the hardest parts → **trade-offs, failure modes and evolution**. Senior candidates drive the conversation, quantify, and say what they would *not* build.
+
+## Visual model
+
+<FlowDiagram height={42} nodes={[
+  { id: "req", label: "1. Requirements", sub: "functional + non-functional", x: 10, y: 10, w: 18 },
+  { id: "est", label: "2. Estimation", sub: "QPS, storage, bandwidth", x: 30, y: 10, w: 18 },
+  { id: "api", label: "3. API + data", sub: "endpoints, schema", x: 50, y: 10, w: 18 },
+  { id: "hld", label: "4. High-level", sub: "boxes and arrows", x: 70, y: 10, w: 18 },
+  { id: "deep", label: "5. Deep dives", sub: "bottlenecks, scaling", x: 90, y: 10, w: 18 },
+  { id: "trade", label: "6. Trade-offs & failures", sub: "what breaks, what next", x: 50, y: 30, w: 30, kind: "note" }
+]} edges={[
+  { from: "req", to: "est" }, { from: "est", to: "api" }, { from: "api", to: "hld" }, { from: "hld", to: "deep" }, { from: "deep", to: "trade" }
+]} caption="Roughly 45 minutes: 5–8 requirements, 3–5 estimation, 5 API/data, 10 high-level, 15 deep dives, rest trade-offs." />
+
+## Mechanism
+
+**1. Requirements.** Ask who the users are and what the 2–4 core use cases are; explicitly mark out-of-scope features. Pin down non-functional requirements as numbers: scale (DAU, read/write ratio), latency targets (p99), availability (99.9% ≈ 8.8 h of downtime a year; 99.99% ≈ 53 min), consistency needs, durability, geography, compliance.
+
+**2. Estimation** — orders of magnitude, out loud:
+- 1 day ≈ 86 400 s ≈ **10⁵ s**. 1 M requests/day ≈ 12 req/s average; plan for peak ≈ 2–10× average.
+- Storage = items/day × size × retention × replication factor.
+- Bandwidth = QPS × response size.
+- Useful latency orders (approximate): memory reference ~100 ns; SSD random read ~0.1 ms; same-datacenter round trip ~0.5 ms; cross-continent round trip ~100 ms.
+
+**3. API & data model.** Name the endpoints (or events) with key parameters, pagination and idempotency. Sketch the main entities and access patterns — the access pattern decides SQL vs key-value vs wide-column vs search index.
+
+**4. High-level design.** Clients → edge (DNS, CDN) → load balancer → stateless services → caches → databases/queues/object storage. Keep it simple first; every box must have a reason.
+
+**5. Deep dives.** Pick the 2–3 hardest parts (the interviewer often steers): hot keys, fan-out, ordering, consistency across services, the write path at peak, the data model for the biggest table.
+
+**6. Trade-offs & failures.** For each choice say what you gain and what you pay. Walk through failures: a node dies, a region dies, a dependency is slow, a traffic spike, a bad deploy. Mention monitoring/alerting and how the design evolves at 10× scale.
+
+## Code
+
+```text
+Example: "Design a news feed" — 2-minute estimation
+DAU 200 M, each opens feed 10×/day        → 2 × 10⁹ reads/day ≈ 2 × 10⁴ QPS avg, ~10⁵ peak
+Posts: 10% of users post 1×/day            → 2 × 10⁷ posts/day ≈ 230 writes/s avg
+Post metadata 1 KB → 20 GB/day → ~7 TB/year (before replication); media → object storage + CDN
+Read-heavy (100:1) → precompute feeds (fan-out on write) for most users,
+                     fan-out on read for celebrities (millions of followers) — hybrid
+```
+
+## When to use / when not to
+
+**Always** clarify before drawing; an elegant design for the wrong problem scores poorly. **Don't** jump to microservices, Kafka and sharding for 100 QPS — matching complexity to scale is itself a senior signal. **Don't** go silent while thinking; narrate the options you are weighing.
+
+## Trade-offs
+
+| Signal interviewers look for | What it looks like |
+| --- | --- |
+| Problem navigation | asks clarifying questions, scopes, prioritises |
+| Quantitative reasoning | estimates drive decisions (cache size, shard count) |
+| Technical depth | can go deep on storage, consistency, queues when pushed |
+| Trade-off articulation | "we choose X, which costs Y; acceptable because Z" |
+| Operational maturity | failure modes, monitoring, deploys, data migration |
+
+## Senior nuance
+
+- **Say the numbers that change the design**: a 10 KB/request × 50k QPS response is 500 MB/s — now bandwidth and CDN matter more than CPU.
+- **Prefer boring technology** and explain when you'd add complexity: "single Postgres with read replicas until writes exceed X, then shard by user_id".
+- **Data has gravity**: decisions about IDs, partition keys and schemas are the hardest to change later — spend time there.
+- **Close the loop**: summarise the design, its limits, and what you'd do with more time.
+
+## Interview questions
+
+<QA q="How do you start a system design interview?" level="mid">
+By clarifying: core use cases, users, scale, read/write patterns and non-functional requirements (latency, availability, consistency, durability). Then confirm scope with the interviewer and write the requirements down before estimating and drawing anything.
+</QA>
+
+<QA q="Why do back-of-the-envelope estimates matter?" level="mid">
+They decide the architecture: whether data fits on one machine, how many servers or shards you need, cache sizes, bandwidth and cost. They also show you can reason quantitatively and spot where a design will break first.
+</QA>
+
+<QA q="What distinguishes a senior answer from a mid-level one?" level="senior">
+Driving the conversation, scoping deliberately, quantifying, choosing simple solutions first and justifying added complexity, going deep on the hardest component, discussing failure modes, operability, data migration and evolution, and stating trade-offs explicitly instead of presenting one "correct" design.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "50 M requests/day is roughly how many requests per second on average?", options: ["~60", "~600", "~6 000", "~60 000"], answer: 1, explain: "5 × 10⁷ / 10⁵ s ≈ 500–600 req/s." },
+  { q: "99.99% availability allows about how much downtime per year?", options: ["8.8 hours", "53 minutes", "5 minutes", "1 day"], answer: 1, explain: "0.01% of 525 600 minutes ≈ 53 minutes." },
+  { q: "First thing to do when given 'Design Twitter'?", options: ["draw microservices", "pick a database", "clarify requirements and scope", "estimate storage"], answer: 2, explain: "Everything else depends on what you're building." }
+]} />
+
+## Resources
+
+<Resources topic="system-design/interview-framework" />

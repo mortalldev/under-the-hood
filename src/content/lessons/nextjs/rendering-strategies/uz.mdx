@@ -1,0 +1,112 @@
+## TL;DR
+
+Cache Components'li Next.js 16 da (yangi ilovalar uchun sukut boʻyicha) har bir sahifa uchun "SSG yoki SSR" tanlamaysiz. Har bir route **static shell'ga prerender qilinadi** va har bir komponent oʻz hissasini hal qiladi: **statik** kontent shell'ga tushadi, **cache'langan** kontent (`'use cache'` + `cacheLife`) shell'ga tushib, revalidate boʻladi, **runtime/cache'lanmagan** kontent (cookie'lar, header'lar, cache'lanmagan fetch'lar) esa `<Suspense>` ortida render boʻlib, oʻsha javobga **stream** qilinadi. Bu — <Term id="ppr" />.
+
+## Vizual model
+
+<DecisionTree title="Bu komponent qanday render boʻladi?" start="q1" nodes={[
+  { id: "q1", question: "U request ma'lumotini (cookies(), headers(), searchParams) yoki noma'lum params'ni oʻqiydimi?", options: [{ label: "Ha", next: "q1b" }, { label: "Yoʻq", next: "q2" }] },
+  { id: "q1b", question: "Natijani bir muddat ulashish/cache qilish mumkinmi?", options: [{ label: "Ha — foydalanuvchi/sessiya boʻyicha", next: "private" }, { label: "Yoʻq — har request'da yangi boʻlishi shart", next: "stream" }] },
+  { id: "private", answer: "Qiymatni ajratib, 'use cache' funksiyaga uzating (yoki 'use cache: private' ishlating)", detail: "Har argument boʻyicha cache'lanadi; prefetch'larga qoʻshila oladi. Input request ma'lumoti boʻlgani uchun baribir <Suspense> ortida." },
+  { id: "stream", answer: "<Suspense> ga oʻrang — u request vaqtida stream boʻladi", detail: "Fallback static shell'ning bir qismi; kontent oʻsha javobga oqib keladi." },
+  { id: "q2", question: "U ma'lumot fetch qiladimi yoki boshqa async I/O bajaradimi?", options: [{ label: "Ha", next: "q3" }, { label: "Yoʻq — sof/sinxron", next: "static" }] },
+  { id: "static", answer: "Statik — avtomatik shell'ga prerender qilinadi", detail: "Modul import'lari, readFileSync va sof hisoblash build vaqtida tugaydi." },
+  { id: "q3", question: "Hamma bir muddat bir xil natijani koʻrsa boʻladimi?", options: [{ label: "Ha", next: "cached" }, { label: "Yoʻq", next: "stream" }] },
+  { id: "cached", answer: "'use cache' + cacheLife(…) (+ talab boʻyicha invalidation uchun cacheTag)", detail: "Umri qisqa boʻlmasa static shell'ga kiradi (masalan 'seconds' boʻlsa, dynamic boʻshliqqa aylanadi)." }
+]} />
+
+## Mexanizm
+
+**Build vaqtida prerendering** daraxtni aylanadi. Har bir komponent yo tugaydi (statik yoki cache'langan), yo chegara ortida request ma'lumotida suspend boʻladi (fallback'i shell'ga tushadi), yo — har qanday Suspense chegarasidan *tashqarida* cache'lanmagan async ish bajarsa — Next.js development'da tuzilmani tuzatishingiz uchun **blocking-route** xatosini xabar qiladi. Har bir route uchun natija: birinchi yuklanishlar uchun HTML va client navigatsiyalari uchun RSC payload, CDN'dan xizmat qilish mumkin.
+
+**Request vaqtida** server shell'ni darhol yuboradi va dinamik boʻshliqlarni render qilishda davom etadi; har bir `<Suspense>` chegarasi kontenti resolve boʻlishi bilan oʻsha HTTP javobida oqib keladi.
+
+**Dinamik params**: `generateStaticParams`da sanalgan qiymatlar toʻliq prerender qilingan sahifalarni oladi. Sanalmagan qiymatlarga route'ning **App Shell**'i (URL'dan mustaqil qism) darhol beriladi, keyin URL'ga xos render tugatilib saqlanadi — Cache Components bilan ISR.
+
+**Tasodifiy qiymatlar va vaqt** (`Math.random()`, `Date.now()`, `crypto.randomUUID()`) aniq qilinishi shart: har request'ga qiymat uchun `await connection()` + Suspense yoki revalidation'gacha bitta qiymatni qotirish uchun `'use cache'`.
+
+## Kod
+
+```tsx
+import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { cacheLife, cacheTag } from "next/cache";
+
+export default function ProductPage() {
+  return (
+    <>
+      <Header />                                 {/* statik: shell'da */}
+      <ProductDetails />                         {/* cache'langan: shell'da, har soatda revalidate */}
+      <Suspense fallback={<CartSkeleton />}>     {/* fallback shell'da */}
+        <Cart />                                 {/* runtime: har request'da stream */}
+      </Suspense>
+    </>
+  );
+}
+
+async function ProductDetails() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("product");
+  const p = await db.product.findFirst();
+  return <h1>{p?.name}</h1>;
+}
+
+async function Cart() {
+  const session = (await cookies()).get("session")?.value;
+  const items = await getCart(session);
+  return <CartView items={items} />;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+| Kontent | Strategiya |
+| --- | --- |
+| Marketing sahifalari, hujjatlar, blog postlari | statik yoki uzoq umrli `'use cache'` (`days`, `weeks`, `max`) |
+| Admin yangilaydigan mahsulot katalogi, narxlar | `'use cache'` + `cacheTag`, `updateTag`/`revalidateTag` bilan invalidate |
+| Shaxsiylashtirilgan widget'lar (savat, salomlashish) | `<Suspense>` ortida runtime ma'lumot |
+| Query string boʻyicha qidiruv natijalari | Suspense + har query uchun cache (ajratilgan param bilan kalitlangan `'use cache'`) |
+| Real-time dashboard'lar | client komponentlar ichida client-side data fetching / subscription'lar |
+
+## Trade-off'lar
+
+| Yondashuv | TTFB | Yangilik | Server narxi |
+| --- | --- | --- | --- |
+| Toʻliq statik | CDN tezligida | build vaqtidagi (yoki revalidate) | minimal |
+| Static shell + stream boʻshliqlar (PPR) | CDN tezligidagi shell, boʻshliqlar stream | kerak joyda har request'da | faqat boʻshliqlar uchun |
+| Toʻliq request vaqtida (shell'siz) | serverni kutadi | doim yangi | har request |
+| Client-side fetching | tez shell, ma'lumot keyinroq | doim yangi | API chaqiruvlari, koʻproq client JS |
+
+## Senior nuance
+
+- **Dinamik murojaatni daraxtda pastga suring**: layout tepasida `params`, `cookies()` yoki fetch'ni await qilish undan pastdagi hamma narsani dinamik qiladi. Shell'ni maksimallashtirish uchun promise'larni pastga uzating va kichik Suspense chegaralari ichida await qiling.
+- **Qisqa umrli cache'lar** (`seconds` profili, `revalidate: 0` yoki 5 daqiqadan kam `expire`) prerendering'dan chiqariladi va dinamik boʻshliqqa aylanadi — ulardan ongli foydalaning.
+- **Har bir cache'ni `cacheLife` bilan juftlang**; usiz yashirin `default` profil qoʻllaniladi, u siz faraz qilgandan uzunroq yoki qisqaroq boʻlishi mumkin.
+- **Oldingi model** (`dynamic = 'force-static'`, `revalidate` export'lari, `fetch` cache opsiyalari) Cache Components'siz ilovalar uchun hali ham mavjud — maslahat berishdan oldin kod bazasi qaysi modelni ishlatishini biling.
+
+## Interview savollari
+
+<QA q="Partial Prerendering nima?" level="mid">
+Route'ni shunday render qilishki, oldindan ma'lum boʻlishi mumkin boʻlgan hamma narsa (statik va cache'langan komponentlar hamda Suspense fallback'lari) darhol xizmat qilinadigan static shell'ga aylanadi, request'ga bogʻliq qismlar esa request vaqtida render boʻlib, Suspense chegaralari orqali oʻsha javobga stream qilinadi. U sahifa darajasidagi statik va dinamik rendering orasidagi tanlovni almashtiradi.
+</QA>
+
+<QA q="Sahifa cookies()ni yuqori darajada oʻqiydi. Cache Components bilan nima boʻladi va uni qanday yaxshilaysiz?" level="senior">
+Request ma'lumotini Suspense chegarasidan tashqarida oʻqish route'ning foydali shell hosil qilishini bloklaydi (development blocking-route insight'ini koʻrsatadi). cookies() oʻqishini `<Suspense>` bilan oʻralgan bola komponentga koʻchiring, shunda sahifaning qolgan qismi va fallback prerender qilinadi va faqat oʻsha qism stream boʻladi. Chiqarilgan ma'lumotni ulashish mumkin boʻlsa, ajratilgan qiymatni 'use cache' funksiyaga uzating.
+</QA>
+
+<QA q="Build'dan keyin qoʻshilgan mahsulotlar uchun dinamik mahsulot sahifalarini darhol qanday berasiz?" level="senior">
+Mashhur mahsulotlarni toʻliq prerender uchun generateStaticParams'da sanab chiqing; boshqalari uchun Next.js route'ning App Shell'ini darhol beradi (params'ni Suspense ichida await qiling), mahsulotga xos kontentni render qiladi va keyingi tashriflar toʻliq sahifani olishi uchun ISR cache'ga saqlaydi. Cache'langan mahsulot ma'lumotini tag'lang va u oʻzgarganda updateTag/revalidateTag chaqiring.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Komponent tepasida Suspense chegarasi boʻlmagan holda cache'lanmagan fetch'ni await qiladi. Dev'da…", options: ["jimgina dinamik boʻladi", "Next.js blocking-route insight'ini xabar qiladi", "abadiy cache'lanadi", "build e'tiborsiz qoldiradi"], answer: 1, explain: "Cache Components uni cache qilishingizni yoki Suspense ortiga koʻchirishingizni talab qiladi." },
+  { q: "cacheLife('seconds') kontenti…", options: ["static shell'da", "prerender'dan chiqariladi — dinamik boʻshliq", "faqat client'da cache'lanadi", "notoʻgʻri"], answer: 1, explain: "Qisqa umrli cache'lar uzoq yashaydigan shell'ga tegishli emas." },
+  { q: "<Suspense> fallback'i qayerga tushadi?", options: ["faqat client'ga", "static shell'ga", "error boundary'ga", "hech qayerga"], answer: 1, explain: "Fallback'lar prerender qilinadi; kontent keyinroq stream boʻladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="nextjs/rendering-strategies" />

@@ -1,0 +1,109 @@
+## TL;DR
+
+Butun sonni bitlar vektori sifatida koʻring va bir nechta ayniyat superkuchga aylanadi: `x & (x − 1)` eng kichik 1-bitni tozalaydi, `x & −x` uni ajratib oladi, `a ^ a = 0` juftliklarni yoʻqotadi, n-bitli mask esa barcha 2ⁿ subset'ni sanab chiqadi. **Two's complement** va JavaScript'ning 32-bit xususiyatlarini biling — bit masalalari hiyladan fikrlashga aylanadi.
+
+## Vizual model
+
+```text
+ x      = 1011 0100      (180)
+ x − 1  = 1011 0011      1 ni ayirish eng kichik 1 ni va undan pastdagi har bir 0 ni almashtiradi
+ x & (x−1) = 1011 0000   → eng kichik 1-bit yoʻqoldi
+ x & −x    = 0000 0100   → faqat eng kichik 1-bit qoldi (−x = ~x + 1)
+```
+
+## Mexanizm
+
+Hiyla nega ishlashini kuzating — ikki qator eng kichik 1-bitdan yuqorida bir xil, undan pastda farq qiladi, shuning uchun AND aynan oʻsha bitni tozalaydi. Har bir iteratsiya bitta 1-bitni olib tashlaydi, shuning uchun bitlarni sanash bitlar soniga emas, birlar soniga teng qadam oladi.
+
+<PopcountViz />
+
+**Two's complement**: x ning manfiysi — `~x + 1`. Shuning uchun `x & −x` eng kichik 1-bitni ajratadi — undan yuqoridagi hamma narsa teskari (AND 0 beradi), bitning oʻzi saqlanadi.
+
+**XOR**: kommutativ, assotsiativ, `a ^ a = 0`, `a ^ 0 = a`. Barcha sonlarni XOR qilish har bir juftlikni yoʻqotadi — qolgani yagona juftsiz qiymat.
+
+## Kod
+
+```ts
+const isPowerOfTwo = (x: number) => x > 0 && (x & (x - 1)) === 0;
+const lowestBit = (x: number) => x & -x;
+const hasBit = (x: number, i: number) => ((x >>> i) & 1) === 1;
+const setBit = (x: number, i: number) => x | (1 << i);
+const clearBit = (x: number, i: number) => x & ~(1 << i);
+
+function singleNumber(nums: number[]): number {
+  return nums.reduce((acc, x) => acc ^ x, 0);            // juftliklar yoʻqoladi
+}
+
+function countBits(n: number): number[] {               // dp: bits(i) = bits(i >> 1) + (i & 1)
+  const res = new Array<number>(n + 1).fill(0);
+  for (let i = 1; i <= n; i++) res[i] = res[i >> 1] + (i & 1);
+  return res;
+}
+
+function subsetsByMask(nums: number[]): number[][] {
+  const out: number[][] = [];
+  for (let mask = 0; mask < 1 << nums.length; mask++) {
+    out.push(nums.filter((_, i) => mask & (1 << i)));
+  }
+  return out;
+}
+
+// Mask'ning barcha submask'larini aylanish (bitmask DP'da ishlatiladi): barcha mask'lar boʻyicha O(3ⁿ)
+// for (let s = mask; s > 0; s = (s - 1) & mask) { … }
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- "Bir / ikki / uch marta uchraydi", "yetishmayotgan son", "single number".
+- "Ikkining darajasi", "1-bitlarni sanash", "bitlarni teskari qilish", "Hamming masofasi".
+- Kichik universal toʻplam ustidagi set'lar (n ≤ 20–25): visited mask'lar, feature flag'lar, bitmask DP.
+- `+`siz arifmetika: XOR — carry'siz qoʻshish; `(a & b) << 1` — carry.
+
+**Qachon kerak emas**
+- Ilova kodida mikro-tezlikdan koʻra aniqlik muhimroq — `Set` koʻpincha mask'dan tushunarliroq.
+- JavaScript'da sonlar 32 bitdan oshadi — bitwise operatorlar qirqadi; `BigInt` ishlating (`1n << 40n`).
+
+## Trade-off'lar
+
+| Koʻrinish | A'zolik | Birlashma / kesishma | Universal toʻplam hajmi |
+| --- | --- | --- | --- |
+| `Set<number>` | oʻrtacha O(1) | O(n) | cheksiz |
+| 32-bit mask | O(1) | O(1) (OR, AND) | ≤ 32 |
+| `BigInt` mask | O(soʻzlar) | O(soʻzlar) | cheksiz, sekinroq |
+| `Uint32Array` bitset | O(1) | O(n/32) | katta, tez |
+
+## Senior nuance
+
+- **JavaScript bitwise operatorlari 32-bit ishorali butun sonlarda ishlaydi**: `1 << 31` manfiy, `2 ** 32 | 0 === 0`. Bitlarni oʻqish uchun `>>>` (ishorasiz oʻngga siljitish), natijani ishorasiz koʻrish uchun `>>> 0` ishlating.
+- **Single Number II** (qolgan har bir son uch marta uchraydi): har bir bit pozitsiyasini 3 ga modul boʻyicha sanang yoki `ones/twos` state-machine hiylasidan foydalaning.
+- **Bitmask DP** narxi O(2ⁿ · n) holatlar×oʻtishlar; n = 20 → ~2 × 10⁷, maqbul; n = 30 → juda katta.
+- Bit hiylalari real tizimlarda uchraydi: ruxsat flag'lari, Bloom filter'lar, ma'lumotlar bazalaridagi ixcham bitmap'lar (roaring bitmaps) va Fenwick tree'lar.
+
+## Interview savollari
+
+<QA q="0..n dagi yetishmayotgan sonni O(1) xotira bilan toping." level="mid">
+Barcha 0..n indekslarni barcha qiymatlar bilan XOR qiling; har bir mavjud son oʻz indeksi bilan yoʻqoladi va yetishmayotgani qoladi. Muqobil: n(n+1)/2 − sum, bu ham O(1) xotira (fixed-width tillarda overflow'ga ehtiyot boʻling).
+</QA>
+
+<QA q="Ikki butun sonni + yoki − siz qoʻshing." level="senior">
+Takrorlang: `sum = a ^ b` (carry'siz qoʻshish), `carry = (a & b) << 1`; carry 0 boʻlguncha `a = sum`, `b = carry` qiling. JavaScript'da bitwise operatorlar 32-bit butun sonlar ustida ishlaydi, shuning uchun manfiylar avtomatik ishlaydi va loop doim tugaydi (BigInt'da 32-bit oʻralish yoʻq, shuning uchun `& 0xffffffffn` bilan mask qilish kerak boʻlardi).
+</QA>
+
+<QA q="Ikki son bir marta, qolganlari ikki marta uchraydi. Ikkalasini toping." level="senior">
+Hammasini XOR qiling → x = a ^ b (a ≠ b boʻlgani uchun nol emas). x ning istalgan 1-bitini oling, masalan x & −x; u a va b orasida farq qiladi. Barcha sonlarni shu bit boʻyicha ajrating va har bir guruhni alohida XOR qiling: har bir guruh natijasi ikki sondan biri.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "x > 0 uchun x & (x − 1) === 0 nimani bildiradi?", options: ["x toq", "x ikkining darajasi", "x nol", "x manfiy"], answer: 1, explain: "Yagona 1-bitni tozalash nol qoldiradi." },
+  { q: "JavaScript'da 1 << 31 nimaga teng?", options: ["2147483648", "−2147483648", "0", "Infinity"], answer: 1, explain: "Bitwise operatorlar ishorali 32-bit butun son beradi." },
+  { q: "[4, 1, 2, 1, 2] ning XOR'i…", options: ["0", "4", "10", "1"], answer: 1, explain: "1 va 2 juft-juft yoʻqoladi; 4 qoladi." }
+]} />
+
+**Klassik masalalar:** Single Number (Easy) · Number of 1 Bits (Easy) · Counting Bits (Easy) · Reverse Bits (Easy) · Missing Number (Easy) · Sum of Two Integers (Medium) · Single Number II (Medium).
+
+## Resurslar
+
+<Resources topic="dsa/bit-manipulation" />

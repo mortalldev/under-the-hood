@@ -1,0 +1,114 @@
+## TL;DR
+
+Interval problems become linear after **sorting by start** (merge, insert) or by **end** (maximum non-overlapping set). When the question is "how many overlap at the busiest moment?", turn intervals into **events** (+1 at start, −1 at end) and sweep them in time order — the sweep line.
+
+## Visual model
+
+```text
+sorted by start:   [1───3]
+                     [2───────6]
+                                   [8──10]
+                                              [15────18]
+                                                  [17──20]
+merged:            [1─────────6]   [8──10]    [15────────20]
+```
+
+## Mechanism
+
+After sorting by start, an interval can only overlap the **most recently merged** one: every earlier merged interval ends before the last merged one starts… and therefore before the current one starts. So a single comparison with the last element of the output decides "extend or start new".
+
+<IntervalsViz />
+
+Note the `max` when extending: a contained interval (`[2, 3]` inside `[1, 10]`) must not shrink the end.
+
+**Sweep line** for "minimum meeting rooms": create events `(start, +1)` and `(end, −1)`, sort by time — with ends before starts at equal times if intervals are half-open — and track the running sum; its maximum is the answer.
+
+## Code
+
+```ts
+type Iv = [number, number];
+
+function merge(ivs: Iv[]): Iv[] {
+  ivs.sort((a, b) => a[0] - b[0]);
+  const out: Iv[] = [];
+  for (const [s, e] of ivs) {
+    const last = out[out.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+
+// Minimum number of rooms (intervals are [start, end): a meeting ending at 10 frees the room for one starting at 10)
+function minRooms(ivs: Iv[]): number {
+  const events: [number, number][] = [];
+  for (const [s, e] of ivs) events.push([s, +1], [e, -1]);
+  events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);   // at equal time, −1 before +1
+  let cur = 0, best = 0;
+  for (const [, d] of events) best = Math.max(best, (cur += d));
+  return best;
+}
+
+// Maximum number of non-overlapping intervals: greedy by earliest END
+function maxNonOverlapping(ivs: Iv[]): number {
+  ivs.sort((a, b) => a[1] - b[1]);
+  let count = 0, lastEnd = -Infinity;
+  for (const [s, e] of ivs) if (s >= lastEnd) { count++; lastEnd = e; }
+  return count;   // "erase overlap intervals" = n − count
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- Inputs are pairs `[start, end]`: meetings, bookings, ranges, segments on a line.
+- "Merge", "insert", "remove the minimum to make non-overlapping", "minimum rooms/platforms/arrows".
+- "At what time is the load highest?" → events + sweep.
+
+**When not to**
+- Dynamic intervals with frequent inserts and stabbing queries ("which intervals contain x?") → interval tree or segment tree.
+- Coordinates are small integers and you need counts per point → a difference array is simpler than sorting events.
+
+## Trade-offs
+
+| Problem | Sort key | Time | Space |
+| --- | --- | --- | --- |
+| Merge / insert | start | O(n log n) (O(n) if already sorted) | O(n) output |
+| Max non-overlapping | end | O(n log n) | O(1) |
+| Max concurrent (rooms) | events by time | O(n log n) | O(n) |
+| Counts on small integer coordinates | — | O(n + range) | O(range) difference array |
+
+## Senior nuance
+
+- **Open vs closed endpoints** change answers: does `[1, 3]` overlap `[3, 5]`? Ask. It determines `<` vs `<=` and the tie-break in the event sort.
+- **Why earliest end for the greedy?** Exchange argument: in any optimal schedule, replace its first interval with the one that ends earliest; it ends no later, so everything after still fits. Sorting by start (or by length) has easy counterexamples.
+- **Calendars and time zones**: production interval code fails on DST changes and inclusive/exclusive day boundaries, not on the algorithm. Store instants in UTC, ranges as half-open `[start, end)`.
+- **Insert Interval in O(n) without sorting**: copy all intervals ending before the new start, merge all that overlap, copy the rest.
+
+## Interview questions
+
+<QA q="Minimum arrows to burst all balloons — which greedy and why?" level="mid">
+Sort by end. Shoot the first arrow at the first balloon's end: that position hits every balloon that starts at or before it. Skip all such balloons, then shoot at the next unpopped balloon's end. Choosing the earliest end leaves the most room for later balloons (exchange argument).
+</QA>
+
+<QA q="Given many intervals and many point queries, how many intervals cover each point?" level="senior">
+Offline: sort interval starts and ends separately; for a point x, covered = (#starts ≤ x) − (#ends < x), two binary searches per query, O((n + q) log n). For small coordinate ranges, a difference array with one prefix sum answers each query in O(1).
+</QA>
+
+<QA q="Employee Free Time: given each employee's sorted busy intervals, return common free time." level="senior">
+Merge all intervals from all employees (heap of next interval per employee for O(N log k), or flatten and sort for O(N log N)); the gaps between consecutive merged intervals are the free times.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Merge intervals: [1,4] and [2,3] produce…", options: ["[1,3]", "[1,4]", "[2,4]", "both unchanged"], answer: 1, explain: "Use max(4, 3) = 4 — the contained interval cannot shrink the end." },
+  { q: "To maximise the number of non-overlapping intervals, sort by…", options: ["start", "length", "end", "start descending"], answer: 2, explain: "Earliest end leaves the most room; provable by exchange argument." },
+  { q: "Half-open meetings [1,10) and [10,20). With events sorted (time, delta), at time 10 process…", options: ["+1 first", "−1 first", "either", "neither"], answer: 1, explain: "The room frees before the next meeting takes it, so only one room is needed." }
+]} />
+
+**Classic problems:** Merge Intervals (Medium) · Insert Interval (Medium) · Non-overlapping Intervals (Medium) · Minimum Number of Arrows to Burst Balloons (Medium) · Meeting Rooms II (Medium) · Car Pooling (Medium).
+
+## Resources
+
+<Resources topic="dsa/intervals" />

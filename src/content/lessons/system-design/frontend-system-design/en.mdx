@@ -1,0 +1,112 @@
+## TL;DR
+
+Frontend system design interviews ask you to architect a client application (a news feed, chat, autocomplete, photo editor, design-system component) the way backend rounds ask for services. Cover five areas: **requirements**, **architecture** (rendering strategy, component boundaries, state), **data model & API** (shapes, pagination, caching, real-time), **interface** (component APIs, accessibility), and **optimizations** (performance budgets, network, rendering, offline, resilience). Senior answers quantify performance and treat accessibility and failure states as first-class.
+
+## Visual model
+
+<FlowDiagram height={60} nodes={[
+  { id: "ui", label: "UI components", sub: "presentational, accessible", x: 14, y: 10, w: 24, kind: "client" },
+  { id: "state", label: "state layer", sub: "server cache · URL · local UI", x: 46, y: 10, w: 26 },
+  { id: "net", label: "data layer", sub: "fetch, dedupe, retry, cursor paging", x: 80, y: 10, w: 26 },
+  { id: "rt", label: "real-time", sub: "WebSocket / SSE", x: 92.5, y: 32, w: 14, kind: "queue" },
+  { id: "sw", label: "service worker", sub: "offline cache, background sync", x: 46, y: 32, w: 26, kind: "edge" },
+  { id: "store", label: "IndexedDB", sub: "drafts, outbox", x: 46, y: 52, w: 20, kind: "store" },
+  { id: "api", label: "API / BFF", x: 80, y: 52, w: 18, kind: "service" }
+]} edges={[
+  { from: "ui", to: "state" }, { from: "state", to: "net" }, { from: "net", to: "api" }, { from: "rt", to: "state", dashed: true }, { from: "net", to: "sw" }, { from: "sw", to: "store" }
+]} caption="A typical client architecture: components read from a state layer that owns caching and synchronisation with the server." />
+
+## Mechanism
+
+**Rendering strategy**: content pages → server rendering/static with streaming; authenticated dashboards → server components for data + client islands for interaction; highly interactive tools (editors) → mostly client rendering with a fast shell. Justify with metrics: LCP, INP, CLS.
+
+**Data model & API**: normalise entities client-side (posts by ID, users by ID) to avoid duplicated, inconsistent copies; use **cursor-based pagination** for feeds (stable under inserts, unlike offsets); define optimistic update and rollback behaviour; choose real-time transport (WebSocket for bidirectional chat, SSE for server push, polling for low-frequency).
+
+**Performance budgets**: Google's <Term id="core-web-vitals" /> "good" thresholds at the 75th percentile are LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1. Budget JS per route, image weight, and number of requests; enforce in CI.
+
+**Rendering performance**: virtualise long lists, avoid layout thrashing (batch reads before writes), use CSS transforms for animations, defer non-critical work (`requestIdleCallback`, `scheduler.yield()` where available), move heavy computation to Web Workers.
+
+**Accessibility**: semantic HTML first, correct roles and names, keyboard operability (focus order, visible focus, no traps), live regions for async updates, colour contrast, reduced motion, and testing with screen readers.
+
+**Offline & resilience**: service worker caching strategies (cache-first for static assets, network-first or stale-while-revalidate for data), an outbox in IndexedDB for actions taken offline, retry with backoff, and explicit UI for loading, empty, error and offline states.
+
+## Code
+
+```ts
+// Cursor pagination + normalised cache (infinite feed)
+type Page = { items: Post[]; nextCursor: string | null };
+async function loadFeed(cursor: string | null): Promise<Page> {
+  const res = await fetch(`/api/feed?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+  if (!res.ok) throw new Error(`feed ${res.status}`);
+  return res.json();
+}
+
+// Optimistic like with rollback
+async function toggleLike(postId: string) {
+  const prev = store.posts[postId];
+  store.update(postId, { liked: !prev.liked, likes: prev.likes + (prev.liked ? -1 : 1) });  // instant feedback
+  try {
+    await fetch(`/api/posts/${postId}/like`, { method: prev.liked ? "DELETE" : "PUT" });
+  } catch {
+    store.update(postId, prev);                       // rollback on failure
+    toast("Couldn't update like. Check your connection.");
+  }
+}
+
+// Autocomplete: debounce input, cancel stale requests, cache by query
+let controller: AbortController | null = null;
+async function search(q: string) {
+  controller?.abort();                                // only the latest query wins (no out-of-order results)
+  controller = new AbortController();
+  return fetch(`/api/search?q=${encodeURIComponent(q)}`, { signal: controller.signal }).then((r) => r.json());
+}
+```
+
+## When to use / when not to
+
+Use this structure for any "design a frontend for X" prompt. Spend most time where the product is hard: for chat — real-time sync, ordering, offline outbox; for feeds — pagination, virtualisation, media loading; for autocomplete — latency, cancellation, keyboard UX and ARIA combobox semantics; for editors — state model, undo/redo, collaboration.
+
+Don't spend the interview on CSS frameworks or folder names unless asked.
+
+## Trade-offs
+
+| Decision | Option A | Option B |
+| --- | --- | --- |
+| Pagination | offset (simple, unstable under inserts) | cursor (stable, can't jump to page N) |
+| Real-time | WebSocket (bidirectional, stateful servers) | SSE (simple, server→client, HTTP-friendly) |
+| Updates | optimistic (fast UX, needs rollback) | pessimistic (simpler, feels slower) |
+| Rendering | SSR/streaming (fast first paint) | CSR (simpler hosting, slower first paint) |
+| State | normalised store (consistent) | per-component fetch (simple, duplicated data) |
+
+## Senior nuance
+
+- **Measure real users** (RUM) — lab tests on a fast laptop hide the experience of the 75th percentile on mid-range phones and slow networks.
+- **Race conditions in UI**: out-of-order responses, double submits, stale closures in effects — design cancellation, idempotency keys and disabled states.
+- **Security on the client**: XSS (never inject unsanitised HTML), CSP, token storage (HttpOnly cookies vs localStorage trade-offs), CSRF for cookie-authenticated mutations.
+- **Internationalisation**: text expansion, RTL layouts, locale-aware formatting, pluralisation — plan for them in the component API.
+
+## Interview questions
+
+<QA q="Design an infinite-scrolling news feed." level="senior">
+Requirements: posts with media, likes/comments, real-time new-post indicator, mobile-first. Architecture: server-render the first page for fast LCP, hydrate a client feed component; data via cursor-based pagination, normalised post/user cache, optimistic likes with rollback; real-time "N new posts" via SSE without reflowing the list. Rendering: virtualised list with measured item heights, lazy-loaded responsive images with reserved space (no CLS), prefetch the next page near the end. Accessibility: feed role/article semantics, keyboard navigation, announcements for new content. Offline: cached last feed, queued interactions. Metrics: LCP, INP, scroll jank, error rates.
+</QA>
+
+<QA q="Offset vs cursor pagination for a feed?" level="mid">
+Offset pagination re-counts rows: when new items are inserted at the top, the next page shifts and users see duplicates or miss items, and deep offsets are slow in databases. Cursor pagination returns items after an opaque position (e.g. last item's sort key), stable under inserts and efficient with indexes, at the cost of not jumping to arbitrary pages.
+</QA>
+
+<QA q="How do you make an autocomplete accessible and fast?" level="senior">
+Use the ARIA combobox pattern: input with role combobox, aria-expanded, aria-controls pointing to a listbox, aria-activedescendant for the highlighted option, keyboard arrows/Enter/Escape, and announce result counts politely. For speed: debounce input slightly, cancel stale requests with AbortController, cache results per query, show cached or local results immediately, and keep the list small and virtualised if large.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Core Web Vitals 'good' INP threshold (p75) is…", options: ["≤ 100 ms", "≤ 200 ms", "≤ 500 ms", "≤ 2.5 s"], answer: 1, explain: "LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1." },
+  { q: "New posts are inserted at the top while the user scrolls. Which pagination avoids duplicates?", options: ["offset", "cursor", "page numbers", "none"], answer: 1, explain: "Cursors anchor on a stable position." },
+  { q: "Typing quickly causes older search results to overwrite newer ones. Fix?", options: ["more debounce", "abort previous requests / ignore stale responses", "bigger cache", "SSR"], answer: 1, explain: "Ensure only the latest request's result is applied." }
+]} />
+
+## Resources
+
+<Resources topic="system-design/frontend-system-design" />

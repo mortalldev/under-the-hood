@@ -1,0 +1,121 @@
+## TL;DR
+
+Concurrent rendering React'ga yangi UI'ni **fonda** tayyorlash va shoshilinchroq narsa kelsa undan voz kechish imkonini beradi. Siz buni har bir yangilanish uchun yoqasiz: `startTransition`/`useTransition` state yangilanishlarini shoshilinch boʻlmagan <Term id="transition">transition</Term>'lar deb belgilaydi, `useDeferredValue` qiymatning kechikkan nusxasi bilan render qiladi, <Term id="suspense" /> chegaralari esa kod yoki ma'lumot tayyor boʻlmaganda loading fallback qayerda paydo boʻlishi mumkinligini e'lon qiladi. Natija: yozish sezgir qoladi va loading holatlari tasodifiy emas, loyihalangan boʻladi.
+
+## Vizual model
+
+```text
+shoshilinch lane:  keystroke ─▶ input'ni render ─▶ commit (tez, har safar)
+transition lane:   10 000 qatorni filtrlash ─▶ ▒▒▒▒ keyingi keystroke bilan toʻxtatildi ▒▒ ─▶ qayta boshlash ─▶ tayyor boʻlganda commit
+
+<Suspense fallback={<Spinner/>}>        <Comments/> ma'lumot kutayotganda:
+  <Comments />                            <Spinner/>ni koʻrsatish, qolgan hamma narsani render/stream qilish
+</Suspense>
+```
+
+## Mexanizm
+
+**Transition'lar**: `startTransition` ichidagi yangilanishlar transition lane oladi. React ularni toʻxtatiladigan tarzda render qiladi; shoshilinch yangilanish (yozish, bosish) transition render'ini oldinga oʻtib ketadi va u keyinroq yangi state bilan qayta boshlanadi. Shu orada allaqachon koʻrsatilgan kontent ekranda qoladi — transition **allaqachon koʻrinib turgan kontent uchun Suspense fallback'larini koʻrsatmaydi**; yangisi tayyor boʻlguncha eski UI'ni saqlaydi (`isPending` sizga nozik indikator koʻrsatishni bildiradi).
+
+**useDeferredValue(value)**: shoshilinch render paytida u oldingi qiymatni qaytaradi; keyin React yangi qiymat bilan fon re-render'ini rejalashtiradi. Sekin bolada `memo` bilan birgalikda input darhol yangilanadi va qimmat roʻyxat orqasidan yetib keladi.
+
+**Suspense**: chegara ichidagi komponent tayyor boʻlmasa (lazy komponent kodi, `use` bilan oʻqilgan promise, framework ma'lumoti), u **suspend** boʻladi; React shu subtree uchun eng yaqin chegara fallback'ini koʻrsatib, qolganini davom ettiradi. Serverda Suspense chegaralari **streaming** birliklari: avval HTML shell yuboriladi va har bir chegara kontenti tayyor boʻlganda oqib keladi.
+
+**`<Activity mode="hidden">`** (React 19.2) yashirin subtree state'ini saqlaydi va uning yangilanishlarini past ustuvorlikda render qiladi — state'ni yoʻqotmasdan tab'lar va orqaga navigatsiya uchun foydali.
+
+## Kod
+
+```tsx
+import { Suspense, lazy, use, useDeferredValue, useState, useTransition, memo } from "react";
+
+const Settings = lazy(() => import("./Settings"));      // code-split; yuklanayotganda suspend boʻladi
+
+function TabBar() {
+  const [tab, setTab] = useState("home");
+  const [isPending, startTransition] = useTransition();
+  return (
+    <>
+      <button onClick={() => startTransition(() => setTab("settings"))}>Settings</button>
+      {isPending && <small aria-live="polite">Loading…</small>}
+      <Suspense fallback={<p>Loading settings…</p>}>
+        {tab === "settings" ? <Settings /> : <Home />}
+      </Suspense>
+    </>
+  );
+}
+
+function SearchPage({ items }: { items: string[] }) {
+  const [q, setQ] = useState("");
+  const deferredQ = useDeferredValue(q);
+  const stale = q !== deferredQ;
+  return (
+    <>
+      <input value={q} onChange={(e) => setQ(e.target.value)} />
+      <div style={{ opacity: stale ? 0.6 : 1 }}>
+        <Results q={deferredQ} items={items} />
+      </div>
+    </>
+  );
+}
+const Results = memo(function Results({ q, items }: { q: string; items: string[] }) {
+  return <ul>{items.filter((i) => i.includes(q)).map((i) => <li key={i}>{i}</li>)}</ul>;
+});
+
+// Promise'ni `use` bilan oʻqish (promise cache'dan yoki otadan kelishi kerak — render paytida yaratilmasligi kerak)
+function Comments({ commentsPromise }: { commentsPromise: Promise<string[]> }) {
+  const comments = use(commentsPromise);
+  return <ul>{comments.map((c) => <li key={c}>{c}</li>)}</ul>;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Transition'lar** navigatsiyaga oʻxshash yangilanishlar uchun (tab'lar, filtrlar, route oʻzgarishlari), bunda eski UI'ni qisqa koʻrsatish spinner'dan yaxshiroq. Controlled input qiymatlarining **oʻzi uchun emas** — input shoshilinch yangilanishi shart.
+
+**useDeferredValue** state yangilanishiga ega boʻlmaganingizda (prop keladi) yoki bitta qiymat qimmat subtree'ni boshqarganda.
+
+Mustaqil yuklanadigan hududlar atrofida **Suspense chegaralari**; ularni loading holati foydalanuvchi uchun maqbul va allaqachon koʻrinib turgan kontentni yashirmaydigan joylarga qoʻying.
+
+Concurrency sekin kodni tezlashtirmaydi — u ishni qayta tartiblaydi. Bitta komponent 300 ms olsa, virtualizatsiya, memoize qiling yoki ishni main thread'dan chiqaring.
+
+## Trade-off'lar
+
+| Vosita | UI'ni sezgir saqlash usuli | Narx / ogohlantirish |
+| --- | --- | --- |
+| `startTransition` | shoshilinch boʻlmagan render'larni toʻxtatish | setter'ga murojaat kerak; shu orada eski UI koʻrsatiladi |
+| `useDeferredValue` | kechikkan qiymatni fonda render qilish | yordam berishi uchun memo qilingan sekin bola kerak |
+| Suspense | loading holatlarini lokallashtirish, streaming'ni yoqish | chegara/ma'lumot yomon ichma-ich boʻlsa waterfall'lar |
+| Debounce/throttle | kamroq ish qilish | tez qurilmalarda ham kechikish qoʻshadi |
+
+## Senior nuance
+
+- **Waterfall'lar**: faqat otasi render boʻlgandan keyin fetch qiladigan komponentlar ketma-ket tarmoq aylanishlarini yaratadi. Fetch'larni yuqoriroqda boshlang (route loader'lar, server komponentlar, prefetch) va promise'larni pastga uzating.
+- **Render paytida yaratilgan promise'lar** har render'da qayta yaratiladi, shuning uchun `use` hech qachon barqaror resolve boʻlmaydi — ularni cache qiling (framework, `cache()` yoki state).
+- **Fallback miltillashi**: ma'lumot 50 ms da kelsa, spinner miltillashi qisqa kechikishdan yomonroq koʻrinadi; transition'lar koʻrinib turgan kontentni fallback bilan almashtirishdan qochadi, framework'lar esa minimal kechikish strategiyasini qoʻshadi.
+- **Error boundary'lar Suspense bilan juftlashadi**: rad etilgan promise eng yaqin error boundary'ga tashlanadi — ikkalasini birga loyihalang.
+
+## Interview savollari
+
+<QA q="startTransition aslida nimani oʻzgartiradi?" level="mid">
+U ichida rejalashtirilgan state yangilanishlarini shoshilinch emas deb belgilaydi. React ularni shoshilinch yangilanishlar toʻxtata oladigan past ustuvorlikdagi lane'da render qiladi, yangi UI tayyor boʻlguncha joriy koʻrinib turgan UI'ni saqlaydi (allaqachon koʻrsatilgan kontent uchun Suspense fallback yoʻq) va useTransition orqali isPending'ni beradi.
+</QA>
+
+<QA q="useDeferredValue va debounce?" level="senior">
+Debounce har bir qurilmada yangilanishni qat'iy vaqtga kechiktiradi. useDeferredValue darhol eski qiymat bilan render qiladi, keyin yangi qiymat bilan fon render'ini boshlaydi, qiymat yana oʻzgarsa u toʻxtatiladi — tez qurilmalar deyarli darhol yangilanadi, sekinlari silliq yomonlashadi va render oʻrtasida almashtirilgan oraliq qiymatlarga ish isrof qilinmaydi.
+</QA>
+
+<QA q="Suspense streaming SSR'ni qanday yoqadi?" level="senior">
+Serverda React suspend boʻlgan chegaraga yetguncha render qiladi, u uchun fallback HTML'ni chiqaradi va davom etadi. Shell erta yuboriladi; suspend boʻlgan ma'lumot resolve boʻlganda React chegara HTML'ini uni almashtiradigan kichik skript bilan stream qiladi. Selective hydration client'ga chegaralarni mustaqil hydrate qilishga, foydalanuvchi bilan oʻzaro ta'sir qilayotganlariga ustuvorlik berishga imkon beradi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Controlled input'ning oʻz qiymati yangilanishini startTransition'ga oʻrash kerakmi?", options: ["ha", "yoʻq — u shoshilinch boʻlishi shart", "faqat mobil'da", "faqat Strict Mode'da"], answer: 1, explain: "Input'lar keystroke'larni darhol aks ettirishi shart; buning oʻrniga qimmat oqibatni kechiktiring." },
+  { q: "Transition paytida yana suspend boʻladigan Suspense chegarasi ichidagi allaqachon koʻrinib turgan kontent…", options: ["fallback bilan almashtiriladi", "yangi kontent tayyor boʻlguncha koʻrinib turadi", "unmount boʻladi", "xato tashlaydi"], answer: 1, explain: "Transition'lar koʻrinib turgan kontentni yashirishdan qochadi." },
+  { q: "useDeferredValue sekin bola qanday boʻlganda eng koʻp yordam beradi?", options: ["memo qilingan", "class komponent", "effect ichida", "lazy"], answer: 0, explain: "Memo'siz bola baribir shoshilinch yangilanish bilan re-render boʻladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="react/concurrent-suspense" />

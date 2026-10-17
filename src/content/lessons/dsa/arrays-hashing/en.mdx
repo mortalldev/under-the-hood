@@ -1,0 +1,111 @@
+## TL;DR
+
+A hash map trades memory for time: it turns "have I seen X?" and "how many X?" from an O(n) scan into an expected O(1) lookup. Most array problems that look O(n²) — pairs, duplicates, groupings — collapse to O(n) once you ask *what do I need to remember about the elements I have already passed?*
+
+## Visual model
+
+Picture an array of **buckets**. A key is hashed to an integer, reduced modulo the bucket count, and stored in that bucket. Lookup recomputes the same bucket and checks only the few entries there.
+
+<FlowDiagram height={42} nodes={[
+  { id: "k", label: "key \"apple\"", x: 12, y: 21, w: 18, kind: "client" },
+  { id: "h", label: "hash(key)", sub: "→ 2 806 211 137", x: 38, y: 21, w: 20 },
+  { id: "m", label: "mod buckets", sub: "→ bucket 1", x: 62, y: 21, w: 18 },
+  { id: "b0", label: "bucket 0", sub: "∅", x: 88, y: 7, w: 18, kind: "store" },
+  { id: "b1", label: "bucket 1", sub: "apple → 3", x: 88, y: 21, w: 18, kind: "store" },
+  { id: "b2", label: "bucket 2", sub: "kiwi → 1, fig → 9", x: 88, y: 35, w: 18, kind: "store" }
+]} edges={[
+  { from: "k", to: "h" }, { from: "h", to: "m" }, { from: "m", to: "b1" }
+]} caption="Bucket 2 holds a collision: two keys landed in the same bucket and are stored together (chaining)." />
+
+## Mechanism
+
+1. **Hash.** A hash function maps the key to a fixed-size integer. Equal keys must give equal hashes; good functions spread different keys evenly.
+2. **Index.** `hash mod capacity` picks a bucket.
+3. **Resolve <Term id="collision">collisions</Term>.** Either *chaining* (each bucket holds a small list) or *open addressing* (probe the next slots).
+4. **Resize.** When the <Term id="load-factor" /> crosses a threshold, allocate ~2× buckets and rehash everything. Like a dynamic array, this is O(n) occasionally and O(1) <Term id="amortized" />.
+
+JavaScript specifics worth knowing: `Map` keeps **insertion order**, accepts any key (objects by identity), and has O(1) `size`. Plain objects coerce keys to strings (`obj[1]` and `obj["1"]` are the same key) and inherit from `Object.prototype` — prefer `Map` for dictionaries of untrusted keys.
+
+## Code
+
+The complement trick (Two Sum) and frequency counting cover a large share of "Arrays & Hashing" problems:
+
+```ts
+function twoSum(nums: number[], target: number): [number, number] | null {
+  const seen = new Map<number, number>();      // value → index
+  for (let i = 0; i < nums.length; i++) {
+    const j = seen.get(target - nums[i]);      // the partner we need
+    if (j !== undefined) return [j, i];
+    seen.set(nums[i], i);                      // store AFTER the check: no self-pairing
+  }
+  return null;
+}
+
+function groupAnagrams(words: string[]): string[][] {
+  const groups = new Map<string, string[]>();
+  for (const w of words) {
+    const counts = new Array(26).fill(0);
+    for (const ch of w) counts[ch.charCodeAt(0) - 97]++;
+    const key = counts.join("#");              // O(L) key instead of O(L log L) sort
+    const g = groups.get(key);
+    if (g) g.push(w); else groups.set(key, [w]);
+  }
+  return [...groups.values()];
+}
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- "Find a pair / complement", "has duplicate", "first unique", "count occurrences", "group by some signature".
+- You keep writing a nested loop whose inner loop only *searches* — replace the search with a lookup.
+- You need to remember something about the prefix you have already scanned.
+
+**When not to**
+- The input is sorted and you need pairs → two pointers is O(1) extra space.
+- Keys are small integers in a known range → a plain array of counts is faster and simpler than a hash map.
+- You need order statistics (k-th smallest, range queries) → a heap, sorted array or balanced tree.
+
+## Trade-offs
+
+| Approach | Time | Extra space | Notes |
+| --- | --- | --- | --- |
+| Nested loops | O(n²) | O(1) | fine for n ≤ ~5 000 |
+| Sort + scan | O(n log n) | O(1)–O(n) | destroys original order |
+| Hash map | O(n) expected | O(n) | worst case O(n²) with adversarial collisions |
+| Counting array | O(n + k) | O(k) | only for small key ranges |
+
+## Senior nuance
+
+- **Order of insert vs. check matters.** In Two Sum, checking before inserting prevents pairing an element with itself; in "contains duplicate within k" you also delete old entries — an implicit sliding window.
+- **Keys for composite signatures** (anagram counts, coordinates) should be canonical strings or packed integers; `[1,2]` arrays as `Map` keys compare by identity and silently never match.
+- **Hash flooding**: if attackers control keys and the hash is predictable, they can force all keys into one bucket and turn lookups into O(n) — a known DoS vector. Many runtimes seed string hashes randomly for this reason.
+- **Memory**: a `Map` entry costs several machine words; 10⁷ numeric entries can mean hundreds of MB. A typed array of counts may be 10× smaller.
+
+## Interview questions
+
+<QA q="Walk me through how a hash map handles collisions and resizing." level="mid">
+Keys hash to a bucket index. Collisions are resolved by chaining (list per bucket) or open addressing (probing). Lookups stay O(1) expected while the load factor (entries / buckets) is bounded; once it exceeds a threshold the table allocates more buckets and rehashes every entry — O(n) for that insert, O(1) amortized overall, exactly like a doubling array.
+</QA>
+
+<QA q="Find the longest consecutive sequence in an unsorted array in O(n)." level="mid">
+Put everything in a Set. For each x, only start counting if x − 1 is NOT in the set (x is a sequence start); then walk x + 1, x + 2 … while present. Each number is visited by at most one walk, so total work is O(n) even though there is a nested loop.
+</QA>
+
+<QA q="Why might Map be preferable to a plain object as a dictionary in JavaScript?" level="senior">
+Map accepts any key type without string coercion, preserves insertion order explicitly, exposes size in O(1), is optimized for frequent additions/removals, and has no prototype — so keys like "__proto__" or "constructor" from user input cannot collide with inherited properties or cause prototype pollution.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "In Two Sum, why store nums[i] after checking for its complement?", options: ["It is faster", "To avoid using the same element twice", "To keep the map sorted", "To handle negative numbers"], answer: 1, explain: "If x + x = target, inserting first would let x match itself." },
+  { q: "Best structure for counting lowercase letters in a string?", options: ["Map<string, number>", "Array(26)", "Set<string>", "Sorted array"], answer: 1, explain: "A fixed range of 26 keys fits a small array: no hashing, contiguous memory." },
+  { q: "Using [x, y] arrays as Map keys…", options: ["Works: arrays compare by value", "Never matches a new [x, y] literal", "Is O(log n)", "Throws"], answer: 1, explain: "Objects are compared by identity. Use a string like `${x},${y}` or a packed number." }
+]} />
+
+**Classic problems:** Two Sum (Easy) · Contains Duplicate (Easy) · Valid Anagram (Easy) · Group Anagrams (Medium) · Top K Frequent Elements (Medium) · Product of Array Except Self (Medium) · Longest Consecutive Sequence (Medium).
+
+## Resources
+
+<Resources topic="dsa/arrays-hashing" />

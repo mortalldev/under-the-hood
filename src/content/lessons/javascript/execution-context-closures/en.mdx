@@ -1,0 +1,108 @@
+## TL;DR
+
+Every time code runs, the engine creates an <Term id="execution-context" /> whose <Term id="lexical-environment" /> holds the bindings of that scope plus a pointer to the **outer** environment. A function object remembers where it was **created** in a hidden <Term id="environment-slot" /> slot. A <Term id="closure" /> is nothing more than that saved pointer: calling the function later builds a new environment whose outer link is the saved one, so the function can still read and write the old variables — and keeps them alive for the <Term id="garbage-collection">garbage collector</Term>.
+
+## Visual model
+
+```text
+Global env  ──────────────────────────────────────────── outer: null
+  makeCounter: ƒ        a: increment#1      b: increment#2
+        ▲                      │                    │
+        │ outer                │ [[Environment]]    │ [[Environment]]
+makeCounter#1 env  ◀───────────┘                    │
+  count: 2                                          │
+makeCounter#2 env  ◀────────────────────────────────┘
+  count: 1
+```
+
+## Mechanism
+
+Step through `makeCounter`. Watch three things: (1) the environment record created per **call**, (2) the `[[Environment]]` slot set when the inner function object is **created**, (3) that returning from `makeCounter` pops the stack frame but does **not** destroy its environment.
+
+<ClosureViz />
+
+**Creation phase** (why <Term id="hoisting" /> happens): before a scope's code runs, the engine instantiates its bindings. Function declarations get their function value; `var` gets `undefined`; `let`, `const` and `class` are created but **uninitialized**. Reading them before the declaration line throws a ReferenceError — the <Term id="tdz" />. Hoisting is not "moving code up"; it is the consequence of bindings existing from the start of the scope.
+
+**Name resolution** walks the <Term id="scope-chain" />: current environment → its outer → … → global. It is decided by where code is **written** (lexical scope), never by who calls it.
+
+## Code
+
+```js
+// Classic loop bug: one shared `var i`, all callbacks see the final value
+for (var i = 0; i < 3; i++) setTimeout(() => console.log(i)); // 3 3 3
+// `let` creates a NEW binding per iteration (the spec copies it into a fresh environment)
+for (let j = 0; j < 3; j++) setTimeout(() => console.log(j)); // 0 1 2
+
+// TDZ
+function f() {
+  console.log(typeof x); // ReferenceError — x is in the TDZ, even for typeof
+  let x = 1;
+}
+
+// Private state via closure (module pattern / factory)
+function createStore(initial) {
+  let state = initial;
+  const listeners = new Set();
+  return {
+    get: () => state,
+    set(next) { state = next; listeners.forEach((l) => l(state)); },
+    subscribe(l) { listeners.add(l); return () => listeners.delete(l); }, // unsubscribe = no leak
+  };
+}
+
+// Memoize with a closure-held cache
+function memoize(fn) {
+  const cache = new Map();
+  return (arg) => (cache.has(arg) ? cache.get(arg) : (cache.set(arg, fn(arg)), cache.get(arg)));
+}
+```
+
+## When to use / when not to
+
+**Closures are the right tool for**: private state (factories, modules), partial application and currying, callbacks that need context (event handlers, timers), memoization, React hooks (each render's handlers close over that render's props and state).
+
+**Be careful when**:
+- A long-lived callback (listener, interval, cache entry) closes over something large — it keeps it alive.
+- Many instances are created in a hot path — each closure allocates a function object and possibly a context; methods on a prototype/class share one function.
+- Stale values: a closure captures the *binding*, but if the binding belongs to an old call (an old React render), you read old data.
+
+## Trade-offs
+
+| Technique | Privacy | Memory per instance | Notes |
+| --- | --- | --- | --- |
+| Closure factory | true privacy | one function object per method per instance | flexible, simple |
+| Class with `#private` fields | true privacy (engine-enforced) | methods shared via prototype | brand checks, inheritance |
+| Class with `_convention` | none | shared methods | relies on discipline |
+
+## Senior nuance
+
+- **Engines only keep what is referenced** — mostly. V8 allocates a heap "context" only for variables that some inner function actually uses; but all closures created in the same scope **share** one context, so a small closure can retain a large variable used by a sibling closure. This is a known leak pattern.
+- **`eval` and `with`** defeat these optimisations because the engine cannot know statically which variables are referenced.
+- **`let` per-iteration bindings** are a spec-level copy: each loop iteration gets a fresh environment initialised from the previous one, which is why closures in a `for (let…)` loop see different values.
+- **Arrow functions do not have their own `this`, `arguments` or `super`** — they resolve them lexically like any other variable, through the scope chain.
+
+## Interview questions
+
+<QA q="What exactly is a closure?" level="mid">
+A function object together with the lexical environment it was created in, referenced by its internal [[Environment]] slot. When the function runs, its new environment's outer reference is that saved environment, so identifiers resolve to the variables of the scope where the function was defined, even after that scope's call has returned. The captured thing is the binding (variable), not a snapshot of its value.
+</QA>
+
+<QA q="Why does var in a for loop with setTimeout print the last value?" level="mid">
+var is function-scoped: there is one binding i for the whole loop. Each callback closes over that same binding and runs after the loop finished, when i equals its final value. let creates a fresh binding per iteration, so each callback captures its own.
+</QA>
+
+<QA q="How can closures cause memory leaks, and how do you find them?" level="senior">
+Anything reachable from a live closure stays alive: an event listener never removed, an interval never cleared, a cache map that grows forever, or a small closure sharing a context with a sibling that references a big object. Find them with heap snapshots: compare two snapshots, sort by retained size, and follow the retainer chain — you will see "(closure)" / "context" entries pointing to the retained objects. Fix by unsubscribing, clearing timers, bounding caches, or using WeakMap.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "typeof x before `let x = 1` in the same scope…", options: ["'undefined'", "ReferenceError", "'number'", "null"], answer: 1, explain: "x is in the TDZ; even typeof throws." },
+  { q: "A function's [[Environment]] is set when the function is…", options: ["called", "created (evaluated)", "returned", "garbage-collected"], answer: 1, explain: "Lexical scope: captured at creation time." },
+  { q: "Two counters from makeCounter() share count?", options: ["yes", "no — each call creates a new environment", "only in strict mode", "only with var"], answer: 1, explain: "Every call to makeCounter creates a separate environment record." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/execution-context-closures" />

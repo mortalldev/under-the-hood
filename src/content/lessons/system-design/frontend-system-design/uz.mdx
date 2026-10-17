@@ -1,0 +1,112 @@
+## TL;DR
+
+Frontend system design interview'lari backend raundlari servislarni soʻragani kabi client ilovasini (news feed, chat, autocomplete, foto muharrir, design-system komponenti) loyihalashni soʻraydi. Beshta sohani qamrab oling: **talablar**, **arxitektura** (rendering strategiyasi, komponent chegaralari, state), **ma'lumot modeli va API** (shakllar, sahifalash, caching, real-time), **interfeys** (komponent API'lari, accessibility) va **optimizatsiyalar** (performance budget'lar, tarmoq, rendering, offline, chidamlilik). Senior javoblar performance'ni miqdoriy ifodalaydi va accessibility hamda nosozlik holatlarini birinchi darajali deb biladi.
+
+## Vizual model
+
+<FlowDiagram height={60} nodes={[
+  { id: "ui", label: "UI komponentlar", sub: "taqdimot, accessible", x: 14, y: 10, w: 24, kind: "client" },
+  { id: "state", label: "state qatlami", sub: "server cache · URL · lokal UI", x: 46, y: 10, w: 26 },
+  { id: "net", label: "ma'lumot qatlami", sub: "fetch, dedupe, retry, cursor sahifalash", x: 80, y: 10, w: 26 },
+  { id: "rt", label: "real-time", sub: "WebSocket / SSE", x: 92.5, y: 32, w: 14, kind: "queue" },
+  { id: "sw", label: "service worker", sub: "offline cache, background sync", x: 46, y: 32, w: 26, kind: "edge" },
+  { id: "store", label: "IndexedDB", sub: "qoralamalar, outbox", x: 46, y: 52, w: 20, kind: "store" },
+  { id: "api", label: "API / BFF", x: 80, y: 52, w: 18, kind: "service" }
+]} edges={[
+  { from: "ui", to: "state" }, { from: "state", to: "net" }, { from: "net", to: "api" }, { from: "rt", to: "state", dashed: true }, { from: "net", to: "sw" }, { from: "sw", to: "store" }
+]} caption="Odatiy client arxitekturasi: komponentlar server bilan caching va sinxronlashga egalik qiladigan state qatlamidan oʻqiydi." />
+
+## Mexanizm
+
+**Rendering strategiyasi**: kontent sahifalari → streaming'li server rendering/statik; autentifikatsiyali dashboard'lar → ma'lumot uchun server komponentlar + oʻzaro ta'sir uchun client orollar; yuqori interaktiv vositalar (muharrirlar) → tez shell'li asosan client rendering. Metrikalar bilan asoslang: LCP, INP, CLS.
+
+**Ma'lumot modeli va API**: takrorlangan, nomuvofiq nusxalardan qochish uchun entity'larni client'da normallashtiring (ID boʻyicha postlar, ID boʻyicha foydalanuvchilar); feed'lar uchun **cursor asosidagi sahifalash** ishlating (offset'lardan farqli, qoʻshishlar ostida barqaror); optimistik yangilash va orqaga qaytarish xatti-harakatini aniqlang; real-time transport tanlang (ikki tomonlama chat uchun WebSocket, server push uchun SSE, past chastota uchun polling).
+
+**Performance budget'lar**: Google'ning <Term id="core-web-vitals" /> "yaxshi" chegaralari 75-persentilda: LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1. Har route uchun JS, rasm vazni va request'lar sonini budget qiling; CI'da majburlang.
+
+**Rendering performance'i**: uzun roʻyxatlarni virtualizatsiya qiling, layout thrashing'dan qoching (yozishlardan oldin oʻqishlarni birlashtiring), animatsiyalar uchun CSS transform ishlating, muhim boʻlmagan ishni kechiktiring (`requestIdleCallback`, mavjud boʻlsa `scheduler.yield()`), ogʻir hisoblashni Web Worker'larga koʻchiring.
+
+**Accessibility**: avval semantik HTML, toʻgʻri rol va nomlar, klaviatura bilan boshqarish (focus tartibi, koʻrinadigan focus, tuzoqsiz), asinxron yangilanishlar uchun live region'lar, rang kontrasti, kamaytirilgan harakat va screen reader'lar bilan test qilish.
+
+**Offline va chidamlilik**: service worker caching strategiyalari (statik aktivlar uchun cache-first, ma'lumot uchun network-first yoki stale-while-revalidate), offline bajarilgan amallar uchun IndexedDB'dagi outbox, backoff bilan retry hamda yuklanish, boʻsh, xato va offline holatlari uchun aniq UI.
+
+## Kod
+
+```ts
+// Cursor sahifalash + normallashtirilgan cache (cheksiz feed)
+type Page = { items: Post[]; nextCursor: string | null };
+async function loadFeed(cursor: string | null): Promise<Page> {
+  const res = await fetch(`/api/feed?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+  if (!res.ok) throw new Error(`feed ${res.status}`);
+  return res.json();
+}
+
+// Orqaga qaytariladigan optimistik like
+async function toggleLike(postId: string) {
+  const prev = store.posts[postId];
+  store.update(postId, { liked: !prev.liked, likes: prev.likes + (prev.liked ? -1 : 1) });  // darhol fikr-mulohaza
+  try {
+    await fetch(`/api/posts/${postId}/like`, { method: prev.liked ? "DELETE" : "PUT" });
+  } catch {
+    store.update(postId, prev);                       // muvaffaqiyatsizlikda orqaga qaytarish
+    toast("Couldn't update like. Check your connection.");
+  }
+}
+
+// Autocomplete: input'ni debounce qilish, eskirgan request'larni bekor qilish, query boʻyicha cache
+let controller: AbortController | null = null;
+async function search(q: string) {
+  controller?.abort();                                // faqat oxirgi query yutadi (tartibsiz natijalar yoʻq)
+  controller = new AbortController();
+  return fetch(`/api/search?q=${encodeURIComponent(q)}`, { signal: controller.signal }).then((r) => r.json());
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+Bu tuzilmani har qanday "X uchun frontend loyihalang" topshirigʻi uchun ishlating. Koʻp vaqtni mahsulot qiyin boʻlgan joyga sarflang: chat uchun — real-time sinxronlash, tartib, offline outbox; feed'lar uchun — sahifalash, virtualizatsiya, media yuklash; autocomplete uchun — latency, bekor qilish, klaviatura UX va ARIA combobox semantikasi; muharrirlar uchun — state modeli, undo/redo, hamkorlik.
+
+Soʻralmasa, interview'ni CSS framework'lari yoki papka nomlariga sarflamang.
+
+## Trade-off'lar
+
+| Qaror | A variant | B variant |
+| --- | --- | --- |
+| Sahifalash | offset (sodda, qoʻshishlar ostida beqaror) | cursor (barqaror, N-sahifaga sakray olmaydi) |
+| Real-time | WebSocket (ikki tomonlama, stateful serverlar) | SSE (sodda, server→client, HTTP'ga qulay) |
+| Yangilanishlar | optimistik (tez UX, orqaga qaytarish kerak) | pessimistik (soddaroq, sekinroq his qilinadi) |
+| Rendering | SSR/streaming (tez birinchi paint) | CSR (soddaroq hosting, sekinroq birinchi paint) |
+| State | normallashtirilgan store (izchil) | har komponentda fetch (sodda, takrorlangan ma'lumot) |
+
+## Senior nuance
+
+- **Real foydalanuvchilarni oʻlchang** (RUM) — tez noutbukdagi laboratoriya testlari oʻrta darajadagi telefonlar va sekin tarmoqlardagi 75-persentil tajribasini yashiradi.
+- **UI'dagi race condition'lar**: tartibsiz javoblar, ikki marta yuborish, effect'lardagi stale closure'lar — bekor qilish, idempotency key'lar va oʻchirilgan holatlarni loyihalang.
+- **Client'dagi xavfsizlik**: XSS (tozalanmagan HTML'ni hech qachon qoʻymang), CSP, token saqlash (HttpOnly cookie va localStorage trade-off'lari), cookie bilan autentifikatsiya qilingan mutatsiyalar uchun CSRF.
+- **Internatsionalizatsiya**: matn kengayishi, RTL layout'lar, locale'ga mos formatlash, koʻplik shakllari — ularni komponent API'sida rejalashtiring.
+
+## Interview savollari
+
+<QA q="Cheksiz aylantiriladigan news feed'ni loyihalang." level="senior">
+Talablar: media'li postlar, like/izohlar, real-time yangi post indikatori, mobile-first. Arxitektura: tez LCP uchun birinchi sahifani server'da render qilish, client feed komponentini hydrate qilish; ma'lumot cursor asosidagi sahifalash, normallashtirilgan post/foydalanuvchi cache, orqaga qaytariladigan optimistik like'lar orqali; roʻyxatni qayta joylashtirmasdan SSE orqali real-time "N ta yangi post". Rendering: oʻlchangan element balandliklari bilan virtualizatsiya qilingan roʻyxat, joyi oldindan ajratilgan lazy-load responsive rasmlar (CLS yoʻq), oxiriga yaqinlashganda keyingi sahifani prefetch. Accessibility: feed rol/article semantikasi, klaviatura navigatsiyasi, yangi kontent e'lonlari. Offline: cache'langan oxirgi feed, navbatga qoʻyilgan oʻzaro ta'sirlar. Metrikalar: LCP, INP, scroll jank, xato darajasi.
+</QA>
+
+<QA q="Feed uchun offset yoki cursor sahifalash?" level="mid">
+Offset sahifalash qatorlarni qayta sanaydi: tepaga yangi elementlar qoʻshilganda keyingi sahifa siljiydi va foydalanuvchilar dublikatlarni koʻradi yoki elementlarni oʻtkazib yuboradi, chuqur offset'lar esa ma'lumotlar bazalarida sekin. Cursor sahifalash noaniq pozitsiyadan (masalan, oxirgi elementning saralash key'i) keyingi elementlarni qaytaradi, qoʻshishlar ostida barqaror va indekslar bilan samarali, ixtiyoriy sahifalarga sakray olmaslik evaziga.
+</QA>
+
+<QA q="Autocomplete'ni qanday accessible va tez qilasiz?" level="senior">
+ARIA combobox pattern'idan foydalaning: role combobox, aria-expanded, listbox'ga koʻrsatadigan aria-controls'li input, belgilangan variant uchun aria-activedescendant, strelkalar/Enter/Escape klaviatura boshqaruvi va natijalar sonini polite e'lon qilish. Tezlik uchun: input'ni biroz debounce qiling, eskirgan request'larni AbortController bilan bekor qiling, natijalarni query boʻyicha cache qiling, cache'langan yoki lokal natijalarni darhol koʻrsating va roʻyxat katta boʻlsa uni kichik va virtualizatsiya qilingan saqlang.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Core Web Vitals 'yaxshi' INP chegarasi (p75)…", options: ["≤ 100 ms", "≤ 200 ms", "≤ 500 ms", "≤ 2.5 s"], answer: 1, explain: "LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1." },
+  { q: "Foydalanuvchi aylantirayotganda yangi postlar tepaga qoʻshiladi. Qaysi sahifalash dublikatlardan qochadi?", options: ["offset", "cursor", "sahifa raqamlari", "hech biri"], answer: 1, explain: "Cursor'lar barqaror pozitsiyaga bogʻlanadi." },
+  { q: "Tez yozish eski qidiruv natijalarining yangilarini ustidan yozishiga olib keladi. Tuzatish?", options: ["koʻproq debounce", "oldingi request'larni abort qilish / eskirgan javoblarni e'tiborsiz qoldirish", "kattaroq cache", "SSR"], answer: 1, explain: "Faqat oxirgi request natijasi qoʻllanilishini ta'minlang." }
+]} />
+
+## Resurslar
+
+<Resources topic="system-design/frontend-system-design" />

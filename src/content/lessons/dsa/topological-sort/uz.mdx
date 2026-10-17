@@ -1,0 +1,106 @@
+## TL;DR
+
+<Term id="topological-sort" /> vazifalarni shunday tartiblaydiki, har bir bogʻliqlik unga bogʻliq narsadan oldin keladi. U **yoʻnalgan graph'da cycle boʻlmagandagina** mavjud. Kahn algoritmi takror-takror in-degree 0 boʻlgan node'ni oladi ("kutadigan narsa qolmagan"); DFS esa node'larni teskari tugash tartibida chiqaradi. Ikkalasi O(V + E) va ikkalasi cycle'ni tekinga aniqlaydi.
+
+## Vizual model
+
+Kiyinish: paypoq oyoq kiyimdan oldin, shim oyoq kiyim va kamardan oldin, koʻylak galstukdan oldin, galstuk va kamar kurtkadan oldin. Har bir strelkani hurmat qiladigan har qanday tartib toʻgʻri — odatda ular koʻp.
+
+## Mexanizm
+
+Kahn algoritmi har bir node'ning in-degree'sini (nechta shart qolgani) saqlaydi. In-degree 0 boʻlgan node'lar tayyor. Bittasini olish uning chiquvchi edge'larini "olib tashlaydi" va vorislarining in-degree'sini kamaytiradi; 0 ga yetgan har bir voris tayyor boʻladi.
+
+<TopoSortViz />
+
+**Cycle** misolini sinab koʻring: cycle ustidagi (yoki uning ortidagi) node'lar hech qachon in-degree 0 ga yetmaydi, queue erta boʻshaydi va natija V dan qisqa boʻladi — bu cycle tekshiruvi.
+
+**DFS versiyasi**: DFS ishga tushiring; node tugaganda (barcha avlodlari tugagach) uni roʻyxatga qoʻshing. Roʻyxatni teskari qiling. Node undan yetib boriladigan hamma narsadan keyingina tugaydi, shuning uchun teskari roʻyxatda u ulardan oldin keladi.
+
+## Kod
+
+```ts
+function topoOrder(n: number, edges: [number, number][]): number[] | null {
+  const adj: number[][] = Array.from({ length: n }, () => []);
+  const indeg = new Array<number>(n).fill(0);
+  for (const [a, b] of edges) { adj[a].push(b); indeg[b]++; }
+  const q: number[] = [];
+  for (let i = 0; i < n; i++) if (indeg[i] === 0) q.push(i);
+  for (let h = 0; h < q.length; h++) {
+    for (const v of adj[q[h]]) if (--indeg[v] === 0) q.push(v);
+  }
+  return q.length === n ? q : null;     // q bir vaqtda natija tartibi ham
+}
+
+// Ranglar bilan DFS (0 = yangi, 1 = stack'da, 2 = tugagan)
+function topoDfs(n: number, adj: number[][]): number[] | null {
+  const color = new Array<number>(n).fill(0);
+  const out: number[] = [];
+  const visit = (u: number): boolean => {
+    color[u] = 1;
+    for (const v of adj[u]) {
+      if (color[v] === 1) return false;              // back edge ⇒ cycle
+      if (color[v] === 0 && !visit(v)) return false;
+    }
+    color[u] = 2;
+    out.push(u);                                     // post-order
+    return true;
+  };
+  for (let i = 0; i < n; i++) if (color[i] === 0 && !visit(i)) return null;
+  return out.reverse();
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- "Prerequisite'lar", "bogʻliqliklar", "build tartibi", "kurslar jadvali", "kompilyatsiya tartibi", "barcha vazifalar tugay oladimi?".
+- Juftliklar orasidagi tartib cheklovlari: "a b dan oldin kelishi shart" — shu jumladan ma'lumotdan **kelib chiqadiganlari** (Alien Dictionary: qoʻshni soʻzlar harflar tartibini ochib beradi).
+- DAG'dagi eng uzun yoʻl / eng erta tugash vaqti → topological tartibda DP.
+
+**Qachon kerak emas**
+- Graph yoʻnalishsiz → "tartib" ma'nosiz; sizga ehtimol component'lar yoki spanning tree kerak.
+- Siklik bogʻliqliklarga ruxsat bor va ularni hal qilish kerak → strongly connected component'larni toping (Tarjan/Kosaraju), siqing, keyin component'lar DAG'ini topo-sort qiling.
+
+## Trade-off'lar
+
+| | Kahn (BFS) | DFS post-order |
+| --- | --- | --- |
+| Cycle aniqlash | natija V dan qisqa | kulrang node'ga back edge |
+| Recursion | yoʻq | chuqurlik V gacha (stack xavfi) |
+| Leksikografik eng kichik tartib | queue oʻrniga min-heap | qiyin |
+| Parallel "darajalar" (nima birga ishlashi mumkin) | tabiiy: queue'ni daraja-daraja qayta ishlang | noqulay |
+
+## Senior nuance
+
+- **Build tizimlari va paket menejerlari** — caching'li topological sort; Kahn algoritmidagi "darajalar" maksimal parallelizmni beradi (darajadagi barcha vazifalar bir vaqtda ishlashi mumkin).
+- **Alien Dictionary tuzoqlari**: faqat qoʻshni soʻzlarni, faqat birinchi farq qiluvchi harfni solishtiring va "uzunroq soʻz qisqaroq prefiksidan oldin" (`abc` `ab` dan oldin) holatini notoʻgʻri input deb hisoblang.
+- **Yagonalik**: tartib yagona, faqat har qadamda queue'da aynan bitta node boʻlsa (DAG'da Hamilton yoʻli bor).
+- **DAG'lardagi DP** (eng uzun yoʻl, yoʻllar soni, loyiha jadvalidagi kritik yoʻl) — "edge'larni topological tartibda relax qilish" — vaznlar bilan ham priority queue kerak emas.
+
+## Interview savollari
+
+<QA q="Course Schedule: barcha kurslarni tugata olasizmi?" level="mid">
+prerequisite → kurs yoʻnalgan graph'ini quring va Kahn algoritmini ishga tushiring. Har bir kurs qayta ishlansa — ha; ba'zilari hech qachon in-degree 0 ga yetmasa, ular cycle ustida yoki ortida va javob — yoʻq. O(V + E).
+</QA>
+
+<QA q="Qaysi vazifalar parallel ishlay olishini qanday topasiz?" level="senior">
+Kahn algoritmini daraja-daraja ishga tushiring: hozir queue'dagi barcha node'larning qolgan shartlari yoʻq va bir-biridan mustaqil, shuning uchun ular bitta parallel bosqichni tashkil qiladi. Bosqichlar soni — eng uzun bogʻliqlik zanjiri uzunligi, cheksiz ishchilar bilan minimal makespan.
+</QA>
+
+<QA q="Nega DFS tugash tartibini teskari qilish topological tartib beradi?" level="senior">
+DAG'dagi har qanday u → v edge uchun DFS uni oʻrganganda v yoki koʻrilmagan (u holda u toʻliq oʻrganiladi va u tugashidan oldin tugaydi), yoki allaqachon tugagan (kulrang boʻla olmaydi, aks holda cycle boʻlardi). Har ikki holatda v u dan oldin tugaydi, demak teskari tugash tartibida u v dan oldin keladi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Kahn algoritmi 7 ta node'dan 5 tasini qayta ishladi. Xulosa?", options: ["Graph bogʻlanmagan", "Cycle bor", "Tartib yagona", "Bug"], answer: 1, explain: "Qayta ishlanmagan node'lar hech qachon in-degree 0 ga yetmadi — ular cycle'ga bogʻliq." },
+  { q: "Leksikografik eng kichik topological tartib: queue'ni nima bilan almashtirasiz?", options: ["stack", "min-heap", "deque", "recursion"], answer: 1, explain: "Doim eng kichik tayyor node'ni oling." },
+  { q: "DFS topo sort'da 'stack'dagi' node'ga edge nimani bildiradi?", options: ["cross edge", "back edge → cycle", "tree edge", "hech narsa"], answer: 1, explain: "Kulrang node'lar joriy yoʻldagi ajdodlar; ulardan biriga yetish cycle'ni yopadi." }
+]} />
+
+**Klassik masalalar:** Course Schedule (Medium) · Course Schedule II (Medium) · Find Eventual Safe States (Medium) · Minimum Height Trees (Medium) · Alien Dictionary (Hard) · Parallel Courses (Medium).
+
+## Resurslar
+
+<Resources topic="dsa/topological-sort" />

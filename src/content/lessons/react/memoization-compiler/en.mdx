@@ -1,0 +1,96 @@
+## TL;DR
+
+<Term id="memoization" /> in React means skipping work when inputs are unchanged: `memo` skips **re-rendering a component** when its props are shallow-equal, `useMemo` caches **a computed value**, `useCallback` caches **a function identity**. They only help when (a) the skipped work is expensive or (b) a stable identity prevents a downstream re-render or effect. The **React Compiler** (stable since v1.0) inserts this memoization automatically at build time, so in compiled code manual `useMemo`/`useCallback` is mostly unnecessary.
+
+## Visual model
+
+```text
+Parent renders
+  ├─ <Chart data={rows} onSelect={handleSelect} />     memo(Chart)
+  │      rows: same array reference?    handleSelect: same function reference?
+  │      both yes → skip Chart render   either no → Chart renders (memo did nothing, cost paid)
+  └─ useMemo(() => expensive(rows), [rows])   recompute only when rows changes (Object.is)
+```
+
+## Mechanism
+
+**`memo(Component)`** wraps a component; before rendering it, React compares old and new props with `Object.is` per key. All equal → reuse the previous result (and skip the subtree unless something inside has its own pending update or context change).
+
+**`useMemo(fn, deps)`** stores `[value, deps]` in the hook node; on re-render, if every dep is `Object.is`-equal, it returns the cached value without calling `fn`.
+
+**`useCallback(fn, deps)`** is `useMemo(() => fn, deps)` — it does not make the function faster; it keeps the **same reference** so that `memo` children or effect dependencies see "unchanged".
+
+**The compiler** analyses each component and hook, figures out which values depend on which props/state, and caches JSX and values at a fine granularity (often finer than you would by hand). It assumes your code follows the Rules of React (pure render, no mutation of props/state, hooks rules); code that breaks them is skipped, and its ESLint integration reports why.
+
+## Code
+
+```tsx
+// Where manual memoization actually pays (without the compiler)
+const Chart = memo(function Chart({ data, onSelect }: { data: Row[]; onSelect: (id: string) => void }) {
+  /* expensive SVG rendering */
+  return null;
+});
+
+function Dashboard({ rows, filter }: { rows: Row[]; filter: string }) {
+  const visible = useMemo(() => rows.filter((r) => r.name.includes(filter)), [rows, filter]); // stable ref + avoids recompute
+  const onSelect = useCallback((id: string) => console.log(id), []);                         // stable ref for memo(Chart)
+  return <Chart data={visible} onSelect={onSelect} />;
+}
+
+// ✗ Useless: memo child receives a new object literal every render
+<Chart data={rows} options={{ animate: true }} />    // options !== previous options → re-renders anyway
+
+// ✗ Useless: memoizing something cheap
+const fullName = useMemo(() => `${first} ${last}`, [first, last]);   // cost of the hook > cost of the work
+```
+
+## When to use / when not to
+
+**Worth it** (without the compiler): a component that is measurably slow to render and re-renders often with equal props; values passed to memoized children; values used as effect dependencies; expensive pure computations (filtering/sorting thousands of rows) measured with the Profiler.
+
+**Not worth it**: cheap computations, components that always receive new props anyway, or "just in case" everywhere — each memo costs memory and comparisons, and it makes code harder to read.
+
+**With the React Compiler enabled**: write plain code; keep `useMemo`/`useCallback` only as escape hatches where you need a guaranteed stable identity for an effect, and follow its lint rules.
+
+## Trade-offs
+
+| Tool | Saves | Costs | Pitfall |
+| --- | --- | --- | --- |
+| `memo` | child render | prop comparison on every parent render | broken by unstable props |
+| `useMemo` | recomputation | memory + deps comparison | wrong deps → stale values |
+| `useCallback` | nothing by itself | same as useMemo | only useful paired with memo/effects |
+| React Compiler | most manual memo | build step, requires Rules-of-React-compliant code | non-compliant components are skipped |
+| Restructuring (colocate state, children-as-props) | renders entirely | refactor | — usually the best first step |
+
+## Senior nuance
+
+- **Context bypasses `memo`**: a memoized component that reads a context re-renders when the context value changes. Split contexts or pass selectors.
+- **`useMemo` is a performance hint, not a semantic guarantee** in React's docs: React may discard cached values (e.g. offscreen). Don't rely on it for correctness (like keeping a single instance) — use a ref or state for that.
+- **Measure first**: React DevTools Profiler ("why did this render?") and the browser Performance panel tell you whether renders are the bottleneck; often it is layout, network or a huge list (virtualise it).
+- **Compiler adoption** is incremental: it can be enabled per directory or opted out per component (`"use no memo"`), which makes rolling it out in a large codebase safe.
+
+## Interview questions
+
+<QA q="When does useCallback improve performance?" level="mid">
+Only when the function's identity matters: it is passed to a memoized child (so memo's shallow comparison sees the same reference) or used in a dependency array of an effect/memo. On its own it doesn't speed anything up — it still allocates the new function each render; it just returns the old one when deps are equal.
+</QA>
+
+<QA q="Why might memo not prevent a re-render?" level="mid">
+Because a prop is a new reference every render (inline object, array or arrow function), because the component consumes a context whose value changed, or because it has its own state update. memo only short-circuits renders caused by the parent with shallow-equal props.
+</QA>
+
+<QA q="How does the React Compiler change memoization practice?" level="senior">
+It statically analyses components and hooks and inserts fine-grained caching of values and JSX automatically, so manual useMemo/useCallback/memo become largely unnecessary. It relies on code following the Rules of React (pure renders, immutable props/state); its lint rules flag violations, and non-compliant components are skipped rather than miscompiled. Manual memo remains as an escape hatch, e.g. for effect dependencies that must be stable.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "memo(Child) with prop style={{ color: 'red' }} written inline. Child re-renders when the parent renders?", options: ["no", "yes", "only first time", "only in dev"], answer: 1, explain: "A new object each render fails Object.is." },
+  { q: "useCallback on its own (child not memoized, not used in deps) gives…", options: ["faster renders", "no benefit", "fewer allocations", "stable state"], answer: 1, explain: "Identity only matters to memo or deps." },
+  { q: "A memoized component consuming a changed context…", options: ["skips", "re-renders", "throws", "keeps stale context"], answer: 1, explain: "Context changes propagate regardless of memo." }
+]} />
+
+## Resources
+
+<Resources topic="react/memoization-compiler" />

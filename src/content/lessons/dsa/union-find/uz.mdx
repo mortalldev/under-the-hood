@@ -1,0 +1,111 @@
+## TL;DR
+
+<Term id="union-find" /> (disjoint set union) elementlarning guruhlarga boʻlinishini ikki amal ostida saqlaydi: `find(x)` → guruh vakili, `union(a, b)` → ikki guruhni birlashtirish. <Term id="path-compression" /> va union by rank bilan ikkalasi amortized O(α(n)) da ishlaydi — α — teskari Ackermann funksiyasi, koinotga sigʻadigan har qanday input uchun koʻpi bilan 4. Bu edge'lar faqat qoʻshiladigan holatda **dinamik bogʻlanganlik** vositasi.
+
+## Vizual model
+
+Har bir guruh — daraxt; har bir node otasiga koʻrsatadi, root esa oʻziga. Ikki element bogʻlangan, faqat root'lari bir xil boʻlsa.
+
+```text
+parent: 1→1  2→1  3→1  4→3      find(4): 4 → 3 → 1 (root)
+        5→5  6→5                siqishdan keyin: 4 → 1 toʻgʻridan-toʻgʻri
+```
+
+## Mexanizm
+
+- `find` ota-pointer'lar boʻylab root'gacha yuradi va qaytishda **har bir tashrif buyurilgan node'ni toʻgʻridan-toʻgʻri root'ga ulaydi**. Shu yoʻldagi keyingi find'lar bitta sakrash.
+- `union` ikkala root'ni topadi; teng boʻlsa, edge cycle yaratadi (Kruskal va "redundant connection" testi aynan shu). Aks holda u **pastroq** daraxtni balandroq daraxt ostiga osadi (rank ≈ balandlikning yuqori chegarasi), siqishdan oldin ham daraxtlarni O(log n) balandlikda saqlaydi.
+
+<UnionFindViz />
+
+## Kod
+
+```ts
+class DSU {
+  parent: number[];
+  rank: number[];
+  count: number;                                  // component'lar soni
+  constructor(n: number) {
+    this.parent = Array.from({ length: n }, (_, i) => i);
+    this.rank = new Array(n).fill(0);
+    this.count = n;
+  }
+  find(x: number): number {
+    let root = x;
+    while (this.parent[root] !== root) root = this.parent[root];
+    while (this.parent[x] !== root) {             // iterative path compression
+      const next = this.parent[x];
+      this.parent[x] = root;
+      x = next;
+    }
+    return root;
+  }
+  union(a: number, b: number): boolean {
+    let ra = this.find(a), rb = this.find(b);
+    if (ra === rb) return false;
+    if (this.rank[ra] < this.rank[rb]) [ra, rb] = [rb, ra];
+    this.parent[rb] = ra;
+    if (this.rank[ra] === this.rank[rb]) this.rank[ra]++;
+    this.count--;
+    return true;
+  }
+}
+
+// Accounts Merge, Number of Provinces, Redundant Connection: edge'lar boʻylab union, keyin find() boʻyicha guruhlash
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- Edge'lar **qoʻshilib** borayotganda takror-takror soʻraladigan "x va y bogʻlanganmi?".
+- Component'larni sanash, cycle'ni yopuvchi edge'ni aniqlash, akkaunt/email'larni birlashtirish, ekvivalent elementlarni guruhlash ("a == b" cheklovlari).
+- Kruskal MST.
+
+**Qachon kerak emas**
+- Edge'lar **oʻchiriladi** → union-find ajrata olmaydi; offline teskari usul (oʻchirishlarni orqadan qoʻshish sifatida qayta ishlash) yoki dinamik bogʻlanganlik tuzilmalarini ishlating.
+- Yoʻllar, masofalar yoki aniq marshrut kerak → BFS/DFS.
+- Statik graph'da bir martalik bogʻlanganlik savoli → bitta BFS/DFS xuddi shunday yaxshi va soddaroq.
+
+## Trade-off'lar
+
+| Variant | find / union | Izoh |
+| --- | --- | --- |
+| Sodda ota-pointer'lar | eng yomon O(n) | zanjirlar oson hosil boʻladi |
+| Faqat union by rank/size | O(log n) | daraxtlar sayoz qoladi |
+| Faqat path compression | amortized O(log n) | sodda, odatda yetarli |
+| Ikkalasi | amortized O(α(n)) | amalda konstanta |
+
+## Senior nuance
+
+- **Siqishli recursive `find`** bir qatorlik, lekin dushmanona input'da birinchi siqishdan oldin recursion chuqurligi n ga yetishi mumkin; yuqoridagi iterative ikki-oʻtishli versiya bundan saqlaydi.
+- **Weighted union-find** har bir edge'da otaga nisbatan munosabatni (nisbat, juft-toqlik, siljish) saqlaydi. Path compression vaznlarni birlashtirishi shart. U "Evaluate Division" va cheklovli bipartite masalalarini yechadi.
+- **Union by size** (component hajmlarini kuzatish) rank kabi yaxshi va hajmlarni tekinga beradi — "eng katta component" savollari uchun foydali.
+- **Ixtiyoriy key'larni** (email'lar, koordinatalar) avval butun son id'larga aylantiring; `Map<string, number>` DSU'ni array asosida va tez saqlaydi.
+
+## Interview savollari
+
+<QA q="Nega union by rank daraxtlarni O(log n) balandlikda saqlaydi?" level="senior">
+Root rank'i faqat teng rank'li ikki daraxt birlashganda oshadi, shuning uchun r rank'li daraxtda kamida 2^r node bor (induksiya). n node bilan r ≤ log₂ n, balandlik esa ≤ rank. Path compression balandliklarni yanada qisqartiradi va amortized α(n) chegarasini beradi.
+</QA>
+
+<QA q="Redundant Connection: olib tashlansa daraxt qoladigan edge'ni qaytaring." level="mid">
+Edge'larni tartib bilan union-find orqali qayta ishlang. Uchlari allaqachon bir root'ga ega boʻlgan birinchi edge cycle'ni yopadi — uni qaytaring. O(n α(n)).
+</QA>
+
+<QA q="Tenglik tenglamalarining bajarilishi (a==b, b!=c, …)." level="mid">
+Avval barcha `==` juftliklarini union qiling, keyin har bir `!=` juftligini tekshiring: ikkala tomon bir root'ga ega boʻlsa, tizim bajarilmaydi. Tartib muhim: har qanday tengsizlik tekshiruvidan oldin barcha union'lar.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "union(a, b) false qaytardi. Bu nimani bildiradi?", options: ["a yoki b mavjud emas", "a va b allaqachon bogʻlangan edi", "rank overflow", "DSU toʻla"], answer: 1, explain: "Bir xil root ⇒ bir xil component; edge qoʻshilsa cycle hosil boʻladi." },
+  { q: "Union-find qaysi amalni samarali qoʻllab-quvvatlay OLMAYDI?", options: ["ikki guruhni birlashtirish", "bir guruhdami tekshirish", "guruhni ajratish (edge'ni oʻchirish)", "guruhlarni sanash"], answer: 2, explain: "Ota-pointer'larda qaysi edge nimani birlashtirgani yozilmaydi." },
+  { q: "Har qanday amaliy n uchun α(n)…", options: ["taxminan log n", "koʻpi bilan 4", "taxminan √n", "chegaralanmagan"], answer: 1, explain: "Teskari Ackermann funksiyasi shunchalik sekin oʻsadiki, har qanday realistik hajm uchun ≤ 4." }
+]} />
+
+**Klassik masalalar:** Number of Provinces (Medium) · Redundant Connection (Medium) · Accounts Merge (Medium) · Satisfiability of Equality Equations (Medium) · Graph Valid Tree (Medium) · Number of Connected Components in an Undirected Graph (Medium).
+
+## Resurslar
+
+<Resources topic="dsa/union-find" />

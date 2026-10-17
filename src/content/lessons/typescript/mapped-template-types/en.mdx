@@ -1,0 +1,100 @@
+## TL;DR
+
+A <Term id="mapped-type" /> `{ [K in Keys]: … }` builds an object type by looping over a union of keys — that is how `Partial`, `Readonly`, `Pick` and `Record` are written. Modifiers (`?`, `readonly`, and their removals `-?`, `-readonly`) and **key remapping** with `as` let you rename or filter keys. **Template literal types** do the same for strings: they concatenate, split and pattern-match string literal types, which is how typed routes, event names and CSS-like APIs are built.
+
+## Visual model
+
+```text
+type User = { id: string; name: string; age?: number };
+
+{ [K in keyof User]: User[K] }                 → same as User (homomorphic: keeps ? and readonly)
+{ readonly [K in keyof User]-?: User[K] }      → all readonly, all required
+{ [K in keyof User as `get${Capitalize<K>}`]: () => User[K] }
+                                               → { getId(): string; getName(): string; getAge(): number | undefined }
+
+`on${Capitalize<"click" | "focus">}`           → "onClick" | "onFocus"      (distributes over unions)
+```
+
+## Mechanism
+
+**Homomorphic mapped types** — those iterating `keyof T` of some T — preserve the optional and readonly modifiers of the original properties, and when T is an array or tuple they produce an array/tuple. Non-homomorphic ones (`[K in "a" | "b"]`) start fresh.
+
+**Key remapping** (`as NewKey`) runs per key. Mapping a key to `never` **removes** it, which is how you filter properties by their value type.
+
+**Template literal types** concatenate literal types and distribute over unions (cartesian product). In `extends` clauses they become patterns: `` S extends `${infer Head}/${infer Rest}` `` splits a string. Intrinsic helpers `Uppercase`, `Lowercase`, `Capitalize`, `Uncapitalize` transform them.
+
+## Code
+
+```ts
+// Writing the built-ins
+type MyPartial<T> = { [K in keyof T]?: T[K] };
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+type MyRecord<K extends PropertyKey, V> = { [P in K]: V };
+
+// Filter keys by value type (remap to never to drop)
+type PickByValue<T, V> = { [K in keyof T as T[K] extends V ? K : never]: T[K] };
+type StringFields = PickByValue<{ a: string; b: number; c: string }, string>; // { a: string; c: string }
+
+// Typed event emitter from a map of event payloads
+type Events = { click: { x: number; y: number }; close: undefined };
+type Handlers = { [E in keyof Events as `on${Capitalize<string & E>}`]: (payload: Events[E]) => void };
+// { onClick: (p: { x: number; y: number }) => void; onClose: (p: undefined) => void }
+
+// Dot-paths of a nested object: "user" | "user.name" | "user.address" | "user.address.city"
+type Paths<T> = T extends object
+  ? { [K in keyof T & string]: K | `${K}.${Paths<T[K]>}` }[keyof T & string]
+  : never;
+```
+
+<TypePuzzle id="template-literal-routes" />
+
+## When to use / when not to
+
+**Use mapped types** to derive variants of a model (form state, patches, read-only views, API DTOs) from one source of truth, so a new field shows up everywhere.
+
+**Use template literal types** for finite, structured string sets: event names, CSS units, route params, i18n keys, environment variable names.
+
+**Avoid** generating huge unions (a template literal over three 100-member unions is 1 000 000 members — the compiler will refuse or slow down), and avoid deep recursive path types on large objects in hot editor paths.
+
+## Trade-offs
+
+| Need | Tool |
+| --- | --- |
+| Same keys, different value types | homomorphic mapped type |
+| Rename/filter keys | `as` remapping (`never` drops a key) |
+| Structured string unions | template literal types |
+| Parse strings at type level | `infer` inside template literal patterns |
+| Arbitrary user strings | just `string` — types cannot validate runtime data |
+
+## Senior nuance
+
+- **`keyof T & string`** is needed when using keys in template literals because `keyof` may include `number` and `symbol`.
+- **Indexed access over a mapped type** (`{ … }[keyof T]`) turns an object of results into a union of its values — the standard trick for "union of all paths".
+- **Mapped types over arrays** keep array-ness only when homomorphic over a type parameter; mapping over a concrete array type with `keyof` produces an object with all array methods — a common mistake.
+- **Template literal union explosion** has a hard limit (about 100 000 members); design types so the cartesian product stays small.
+
+## Interview questions
+
+<QA q="What does 'homomorphic' mean for mapped types?" level="senior">
+A mapped type of the form `{ [K in keyof T]: … }` where T is a type parameter (or keyof of a type). TypeScript treats it as transforming T's properties, so it preserves each property's optional and readonly modifiers and maps arrays/tuples to arrays/tuples. Non-homomorphic mapped types over an arbitrary key union don't carry modifiers over.
+</QA>
+
+<QA q="How do you remove keys whose values are functions?" level="mid">
+`type NonFunctionProps<T> = { [K in keyof T as T[K] extends (...args: never[]) => unknown ? never : K]: T[K] };` — remapping a key to never omits it.
+</QA>
+
+<QA q="How would you type a route like '/users/:id' so params are checked?" level="senior">
+Parse the string literal with recursive template literal conditionals to extract param names into a union, then map that union to an object type: `{ [P in Params<Path>]: string }`. A router function `link<P extends string>(path: P, params: { [K in Params<P>]: string })` then rejects missing or misspelled params at compile time.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "`${'a' | 'b'}-${'x' | 'y'}` has how many members?", options: ["2", "4", "1", "it is string"], answer: 1, explain: "Template literals distribute: a-x, a-y, b-x, b-y." },
+  { q: "In key remapping, `as never` for a key…", options: ["makes it optional", "removes it", "makes it never-typed", "errors"], answer: 1, explain: "Keys remapped to never are filtered out." },
+  { q: "Which modifier makes properties required?", options: ["+?", "-?", "!", "required"], answer: 1, explain: "-? removes optionality." }
+]} />
+
+## Resources
+
+<Resources topic="typescript/mapped-template-types" />

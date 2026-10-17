@@ -1,0 +1,116 @@
+## TL;DR
+
+<Term id="proxy" /> target obyektni oʻraydi va uning **fundamental amallarini** — `get`, `set`, `has`, `deleteProperty`, `ownKeys`, `apply`, `construct` va boshqalarni — handler "trap"lari orqali ushlab oladi. `Reflect` har bir amalning sukut boʻyicha xatti-harakatini ochib beradi, shuning uchun trap oʻz qoʻshimcha ishini bajarib, keyin toʻgʻri uzatishi mumkin. **Weak** kolleksiyalar (`WeakMap`, `WeakSet`) va `WeakRef` <Term id="weak-reference">weak reference</Term>'lar saqlaydi: ular hech qachon target'ni garbage collector uchun tirik ushlab turmaydi.
+
+## Vizual model
+
+```text
+kod: proxy.user.name = "Ada"
+        │
+        ▼
+  handler.get(target, "user", receiver)  ── sizning mantiqingiz (log, validate, track) ──▶ Reflect.get(...)
+        │
+        ▼
+  target.user  (haqiqiy obyekt)
+
+WeakMap:  key ─(weak)─▶ yozuv ─(strong)─▶ value     key boshqa joyda yetib boʻlmasa ⇒ yozuv yoʻqoladi
+Map:      key ─(strong)─▶ value                      Map tirik ekan key ham tirik qoladi
+```
+
+## Mexanizm
+
+JavaScript'dagi har bir property murojaati ichki metodlar (`[[Get]]`, `[[Set]]`, `[[HasProperty]]`, …) bilan aniqlanadi. Proxy oʻsha ichki metodlarni sizning trap'laringiz bilan almashtiradi. Shuning uchun Proxy getter'lar qila olmaydigan narsalarni qila oladi: **istalgan** key'ni (hali mavjud boʻlmaganlarini ham), `in` tekshiruvlarini, oʻchirishlarni, sanab chiqishni va funksiya chaqiruvlarini ushlash.
+
+**Invariant'lar**: engine trap'lar target'ning non-configurable yoki non-extensible holati haqida yolgʻon gapirmasligini tekshiradi (masalan, `get` trap non-writable, non-configurable property uchun boshqa qiymat qaytara olmaydi). Invariant'ni buzish TypeError beradi.
+
+**Nega `Reflect` + `receiver`**: getter'lar va meros bilan getter ichidagi `this` xom target emas, proxy (receiver) boʻlishi kerak. `Reflect.get(target, key, receiver)` buni saqlaydi; `target[key]` saqlamaydi.
+
+**Weak reference'lar va GC**: WeakMap yozuvini uning key'i ushlab turadi. Key faqat WeakMap orqali yetib boriladigan boʻlsa, collector yozuvni olib tashlashi mumkin. Shuning uchun WeakMap'lar **iterable emas** va `size`'i yoʻq — ularning tarkibi GC vaqtiga bogʻliq.
+
+## Kod
+
+```js
+// Validatsiya
+const user = new Proxy({}, {
+  set(target, key, value, receiver) {
+    if (key === "age" && !Number.isInteger(value)) throw new TypeError("age must be an integer");
+    return Reflect.set(target, key, value, receiver);   // muvaffaqiyatda true qaytarishi shart (strict mode)
+  },
+});
+
+// Bogʻliqliklarni kuzatish — Vue 3 reactivity va MobX uslubidagi store'lar ortidagi asosiy gʻoya
+function reactive(obj, onChange) {
+  return new Proxy(obj, {
+    get(t, k, r) {
+      const v = Reflect.get(t, k, r);
+      return typeof v === "object" && v !== null ? reactive(v, onChange) : v; // lazy chuqur oʻrash
+    },
+    set(t, k, v, r) { const ok = Reflect.set(t, k, v, r); onChange(k, v); return ok; },
+  });
+}
+
+// Obyektlarni tirik saqlamasdan har obyektga yopiq ma'lumot
+const privateData = new WeakMap();
+class Account {
+  constructor(balance) { privateData.set(this, { balance }); }
+  get balance() { return privateData.get(this).balance; }
+}
+
+// DOM node'lar / request obyektlari bilan kalitlangan, ular bilan birga yoʻqoladigan cache
+const layoutCache = new WeakMap();
+function measure(el) {
+  if (!layoutCache.has(el)) layoutCache.set(el, el.getBoundingClientRect());
+  return layoutCache.get(el);
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Proxy mos keladi**: reactivity/observability, validatsiya qatlamlari, development'da log/tracing, virtual obyektlar (lazy yuklanadigan config'lar, `api.users.get()` URL quradigan API client'lar), manfiy array indekslari, bekor qilinadigan murojaat (`Proxy.revocable`).
+
+**Proxy'dan qoching**: hot path'larda (har bir murojaat trap orqali oʻtadi — oddiy property'dan ancha sekin), getter/setter yoki class ishni bajarsa, va identity'ga sezgir kodda (`proxy !== target`; class'ning yopiq `#field`'lari proxy orqali **ishlamaydi**, chunki brand check nusxani emas, proxy'ni koʻradi).
+
+**Weak kolleksiyalar mos keladi**: oʻzingizga tegishli boʻlmagan obyektlar bilan bogʻliq metadata yoki cache'lar (DOM node'lar, framework nusxalari), har nusxaga yopiq ma'lumot. Mos emas: primitiv key'lar (ruxsat yoʻq), sanab chiqish kerak boʻlgan har narsa, eviction siyosati kerak boʻlgan cache'lar (LRU ishlating).
+
+## Trade-off'lar
+
+| Vosita | Key'ni kuchli ushlaydimi? | Iterable / size | Odatiy qoʻllanish |
+| --- | --- | --- | --- |
+| `Map` | ha | ha | umumiy lugʻat, LRU |
+| `WeakMap` | yoʻq (key'lar: obyektlar, roʻyxatdan oʻtmagan symbol'lar) | yoʻq | obyekt boʻyicha metadata, yopiq ma'lumot |
+| `WeakSet` | yoʻq | yoʻq | leak'siz "bu obyektni koʻrganmanmi?" |
+| `WeakRef` | yoʻq | — | katta obyektlarning ixtiyoriy cache'lari; `deref()`ni tekshiring |
+| `FinalizationRegistry` | yoʻq | — | eng yaxshi harakat bilan tozalash xabarlari — hech qachon toʻgʻrilik uchun emas |
+
+## Senior nuance
+
+- **Proxy performance**: trap'lar koʻp engine tez yoʻllarini oʻchiradi (inline cache'lar handler orqali koʻra olmaydi). Framework'lar lazy oʻraydi va proxy'larni har target uchun cache qiladi (koʻpincha WeakMap'da), takroriy oʻrashdan qochish uchun.
+- **Proxy'larda chaqirilgan metodlardagi `this`** — proxy, shuning uchun ichki slotlarga tegadigan metodlar (Map, Set, Date, class `#private`) `get` trap'da target'ga bind qilinmasa buziladi.
+- **GC deterministik emas**: `WeakRef.deref()` obyekt yetib boʻlmaydigan boʻlgandan ancha keyin ham obyektni yoki kutganingizdan oldin `undefined` qaytarishi mumkin. Kod ikkala holatda ham toʻgʻri boʻlishi shart.
+- **WeakMap ≠ vaqtinchalik cache**: value key'ga reference qilsa ham yozuv yigʻilishi mumkin (WeakMap'lar ephemeron — value key'ni tirik saqlamaydi).
+
+## Interview savollari
+
+<QA q="Proxy getter/setter'lar qila olmaydigan nimani qila oladi?" level="mid">
+Hali mavjud boʻlmagan key'lardagi amallarni, `in` tekshiruvlarini, `delete`ni, `Object.keys`/sanab chiqishni, funksiya chaqiruvlarini (`apply`) va `new`ni (`construct`) ushlash — va buni har bir property'ni oldindan e'lon qilmasdan har bir key uchun umumiy tarzda bajarish.
+</QA>
+
+<QA q="Nega trap'lar ichida target[key] oʻrniga Reflect ishlatiladi?" level="senior">
+Reflect metodlari ichki amallarni aniq aks ettiradi, amal muvaffaqiyatsiz boʻlishi mumkin boʻlgan joyda (set, defineProperty) muvaffaqiyat uchun boolean qaytaradi va receiver'ni qabul qiladi, shuning uchun prototype zanjiri yuqorisida aniqlangan getter/setter'lar `this` sifatida proxy'ni koʻradi. target[key] receiver'ni chetlab oʻtadi va meros hamda reactivity kuzatuvini buzishi mumkin.
+</QA>
+
+<QA q="Qachon Map oʻrniga WeakMap tanlaysiz?" level="mid">
+Key'lar umrini siz boshqarmaydigan obyektlar boʻlganda va bogʻliq ma'lumot ular bilan birga oʻlishi kerak boʻlganda — DOM node metadata'si, har request konteksti, yopiq field'larni taqlid qilish. Map oʻsha key'larni tirik saqlab leak qiladi; WeakMap key boshqa joyda yetib boʻlmaydigan boʻlgach GC'ga yozuvlarni qaytarib olishga imkon beradi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Strict-mode kodda set trap false qaytaradi. Natija?", options: ["jimgina e'tiborsiz qoldiriladi", "TypeError", "qiymat baribir oʻrnatiladi", "undefined"], answer: 1, explain: "Strict mode'da muvaffaqiyatsizlik haqida xabar beruvchi [[Set]] xato tashlaydi." },
+  { q: "Nega WeakMap iterable emas?", options: ["performance", "tarkibi GC vaqtiga bogʻliq", "spec xatosi", "key'lar symbol"], answer: 1, explain: "Iteratsiya deterministik boʻlmagan yigʻishni ochib berardi." },
+  { q: "Class'ning #private field'iga nusxaning Proxy'si orqali murojaat qilish…", options: ["ishlaydi", "TypeError tashlaydi", "undefined qaytaradi", "proxy'ni qaytaradi"], answer: 1, explain: "Brand check yopiq slotga ega boʻlmagan proxy obyektni koʻradi." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/proxy-reflect-weak" />

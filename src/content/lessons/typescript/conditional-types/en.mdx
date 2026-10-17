@@ -1,0 +1,99 @@
+## TL;DR
+
+A <Term id="conditional-type" /> `T extends U ? X : Y` is an `if` evaluated by the type checker. With <Term id="infer" /> it becomes **pattern matching**: "if T looks like `Promise<something>`, give me that something". When T is a naked type parameter and receives a union, the conditional **distributes** over each member — the single rule behind `Exclude`, `Extract` and `NonNullable`.
+
+## Visual model
+
+```text
+type Unwrap<T> = T extends Promise<infer V> ? V : T;
+
+Unwrap<Promise<number>>          → number
+Unwrap<string>                    → string
+
+distribution (T is naked):
+Unwrap<Promise<1> | 2>  =  Unwrap<Promise<1>> | Unwrap<2>  =  1 | 2
+
+Exclude<"a" | "b" | "c", "a">  =  ("a" extends "a" ? never : "a") | ("b" …) | ("c" …)  =  "b" | "c"
+```
+
+## Mechanism
+
+**`extends` means assignability**, the same relation used everywhere else in TypeScript. The check asks "is T assignable to U?".
+
+**`infer X`** introduces a type variable inside the `extends` clause. The checker tries to match T against the pattern and, if it succeeds, binds X to the corresponding part. You can infer from function parameters and returns, tuple positions, template literals, and generic arguments.
+
+**Distribution** happens when the checked type is a *naked* type parameter instantiated with a union: the conditional is applied to each member and the results are unioned. `never` is the empty union, so distributing over it yields `never` — a frequent surprise. Wrapping both sides in a tuple, `[T] extends [U]`, turns distribution off.
+
+**Deferred evaluation**: if T is still generic (unknown at the definition site), the conditional stays unresolved until T is known — which is why errors sometimes appear only at call sites.
+
+## Code
+
+```ts
+type ElementOf<T> = T extends readonly (infer E)[] ? E : never;
+type Params<F> = F extends (...args: infer P) => unknown ? P : never;
+type Ret<F> = F extends (...args: never[]) => infer R ? R : never;
+
+type Awaited2<T> = T extends PromiseLike<infer V> ? Awaited2<V> : T;   // recursive unwrap
+
+// Distribution in action
+type NonNull<T> = T extends null | undefined ? never : T;
+type A = NonNull<string | null | undefined>;   // string
+
+// Turning distribution off
+type IsNever<T> = [T] extends [never] ? true : false;
+type B = IsNever<never>;                        // true (the naked version would give never)
+
+// Infer with constraints (TS 4.7+): only match numeric-looking strings
+type ToNumber<S> = S extends `${infer N extends number}` ? N : never;
+type C = ToNumber<"42">;                        // 42
+```
+
+<TypePuzzle id="tuple-to-union" />
+
+## When to use / when not to
+
+**Use conditional types** to derive types from other types — the return type of a handler, the element of an array, the payload of an event by name — so changes propagate automatically. Library code (data-fetching hooks, routers, ORMs) relies on them to give precise types to users.
+
+**Avoid them** in application code when a simple explicit type works, and when the logic could live in a runtime function with overloads. Deeply nested conditionals are hard to read and produce cryptic errors.
+
+## Trade-offs
+
+| Tool | Good for | Cost |
+| --- | --- | --- |
+| Overloads | a few fixed input→output pairs | verbose, no generic relation |
+| Conditional types | derived types, pattern matching | readability, error messages |
+| Generics + indexed access `T[K]` | property lookups | simple, preferred when enough |
+| Distributive conditionals | union filtering/mapping | surprising with `never` and `boolean` (= true \| false) |
+
+## Senior nuance
+
+- **`boolean` is a union** (`true | false`), so a distributive conditional over `boolean` returns a union of two results.
+- **`any` distributes to both branches**: `any extends X ? A : B` produces `A | B`.
+- **Variance of infer positions**: inferring from multiple contravariant positions (function parameters) yields an *intersection*; from covariant positions, a *union*. `UnionToIntersection` exploits exactly this.
+- **Recursion limits**: recursive conditional types are allowed but bounded (tail-recursive ones get a higher limit). Hitting "Type instantiation is excessively deep" is a design smell.
+
+## Interview questions
+
+<QA q="What is a distributive conditional type?" level="mid">
+When the type being checked is a naked type parameter and it is instantiated with a union, the conditional applies to each member separately and unions the results. Exclude&lt;T, U&gt; = T extends U ? never : T removes members this way. Wrapping in a tuple ([T] extends [U]) prevents distribution.
+</QA>
+
+<QA q="Implement ReturnType yourself." level="mid">
+`type MyReturnType<F> = F extends (...args: never[]) => infer R ? R : never;` — infer captures the return position. Using never[] for args makes any function assignable regardless of its parameter types (parameters are contravariant, and never is assignable to everything).
+</QA>
+
+<QA q="Why does IsNever&lt;never&gt; return never with a naive implementation?" level="senior">
+`type IsNever<T> = T extends never ? true : false` distributes over T; never is the empty union, so there are no members to map and the result is never. Wrapping both sides in tuples disables distribution: `[T] extends [never] ? true : false` returns true.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "type F<T> = T extends string ? 'S' : 'N'; F<string | number> is…", options: ["'S'", "'N'", "'S' | 'N'", "never"], answer: 2, explain: "Distribution maps each member: string → 'S', number → 'N'." },
+  { q: "To prevent distribution, write…", options: ["T extends U", "[T] extends [U]", "T & U", "keyof T"], answer: 1, explain: "A non-naked check type does not distribute." },
+  { q: "Inferring the same variable from two function-parameter positions yields…", options: ["a union", "an intersection", "never", "unknown"], answer: 1, explain: "Contravariant inference candidates are intersected." }
+]} />
+
+## Resources
+
+<Resources topic="typescript/conditional-types" />

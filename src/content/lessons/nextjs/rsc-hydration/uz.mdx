@@ -1,0 +1,104 @@
+## TL;DR
+
+Next.js'da birinchi sahifa yuklanishi uchta narsa yetkazadi: **HTML** (kontentni darhol koʻrsatish uchun), **<Term id="rsc-payload" />** (Server Component daraxtining serialize qilingan tavsifi, Client Component'lar va ularning props'iga reference qiluvchi "boʻshliqlar" bilan) va Client Component'lar uchun **JavaScript**. <Term id="hydration" /> — brauzerdagi React payload'dan komponent daraxtini qayta qurishi, uni mavjud HTML bilan moslashtirishi va event handler'larni biriktirishi — u DOM'ni qayta yaratmaydi. Keyingi client navigatsiyalari faqat RSC payload'ni oladi.
+
+## Vizual model
+
+<FlowDiagram height={60} nodes={[
+  { id: "req", label: "GET /product/42", x: 10, y: 8, w: 18, kind: "client" },
+  { id: "rsc", label: "Server Component'larni render", sub: "→ RSC payload", x: 38, y: 8, w: 28 },
+  { id: "ssr", label: "HTML render", sub: "server + client komp.", x: 72, y: 8, w: 24 },
+  { id: "html", label: "1. HTML", sub: "kontent koʻrinadi", x: 20, y: 34, w: 18, kind: "note" },
+  { id: "payload", label: "2. RSC payload", sub: "HTML stream ichida", x: 46, y: 34, w: 22, kind: "queue" },
+  { id: "js", label: "3. JS chunk'lar", sub: "client komponentlar", x: 74, y: 34, w: 20, kind: "note" },
+  { id: "hydrate", label: "hydrateRoot", sub: "reconcile + handler'lar", x: 46, y: 52, w: 28, kind: "client" }
+]} edges={[
+  { from: "req", to: "rsc" }, { from: "rsc", to: "ssr" }, { from: "ssr", to: "html" }, { from: "rsc", to: "payload" }, { from: "html", to: "hydrate" }, { from: "payload", to: "hydrate" }, { from: "js", to: "hydrate" }
+]} caption="Server Component'lar hydrate qilinmaydi — ularda client kodi yoʻq. Faqat Client Component'larga handler biriktiriladi." />
+
+## Mexanizm
+
+**RSC payload** — stream qilinadigan, qatorlarga asoslangan format ("Flight"). Har bir qator daraxtning bir qismini tasvirlaydi: props'li host elementlar, matn, client component modullariga reference'lar (`id`, chunk nomlari, export nomi) va ularga uzatilgan serialize qilingan props, hamda ma'lumot resolve boʻlganda keyingi qatorlarda toʻldiriladigan promise'larga reference'lar. U stream qilingani uchun Suspense chegaralari istalgan tartibda resolve boʻlishi mumkin.
+
+**Avval HTML**: xuddi shu render HTML hosil qiladi, shunda brauzer JavaScript kelishidan oldin paint qila oladi (LCP va sekin qurilmalardagi foydalanuvchilar uchun yaxshi). Payload HTML stream'iga script teg'larida joylashtiriladi, shuning uchun client'ga ikkinchi request kerak emas.
+
+**Hydration**: `hydrateRoot` payload tasvirlagan daraxtni aylanadi, Client Component'larning render funksiyalarini ishga tushiradi va natija server HTML'iga node-ba-node mos kelishini kutadi. Mosliklar qabul qilinadi (DOM ishi yoʻq); event handler'lar biriktiriladi. Streaming SSR va Suspense bilan hydration **selektiv**: chegaralar mustaqil hydrate boʻladi va foydalanuvchi oʻzaro ta'sir qilayotgan chegaraga ustuvorlik beriladi.
+
+**Hydration mismatch**: client'ning birinchi render'i boshqa markup hosil qilsa (vaqt, tasodifiy qiymatlar, `window` tekshiruvlari, locale formatlash, `p` ichida `div` kabi notoʻgʻri HTML ichma-ichligi, brauzer kengaytmalari), React xato xabar qiladi va oʻsha qismni client'da qayta render qiladi — foyda yoʻqoladi va ba'zan miltillaydi.
+
+**Client navigatsiya**: router maqsadli route uchun RSC payload'ni oladi (koʻpincha prefetch cache'dan) va React uni mavjud daraxtga reconcile qiladi, umumiy layout'lardagi client state'ni saqlaydi — HTML ishtirok etmaydi.
+
+## Kod
+
+```tsx
+// ✗ Mismatch: server va client har xil matn hosil qiladi
+function Now() {
+  return <span>{new Date().toLocaleTimeString()}</span>;
+}
+
+// ✓ Serverda barqaror qiymatni render qiling; client'da mount'dan keyin yangilang
+"use client";
+import { useEffect, useState } from "react";
+function Now() {
+  const [time, setTime] = useState<string | null>(null);
+  useEffect(() => setTime(new Date().toLocaleTimeString()), []);
+  return <span>{time ?? "—"}</span>;
+}
+
+// ✓ Yoki subtree faqat brauzerda ma'noli boʻlsa, uni SSR'dan chiqaring
+import dynamic from "next/dynamic";
+const Map = dynamic(() => import("./Map"), { ssr: false });   // Client Component'dan ishlatilishi shart
+
+// Bitta elementdagi ataylab, muqarrar farqlar:
+<time suppressHydrationWarning>{new Date().toISOString()}</time>   // faqat bir daraja chuqurlikda
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Komponentlarni faqat server'da saqlang**, interaktivlik kerak boʻlmasa — ularni hydrate qilish hech narsa turmaydi.
+
+**Hydrate qilinadigan sirtni kichik qiling**: interaktiv orollar (tugmalar, formalar, menyular) client component, qolgani server component. Daraxt tepasidagi katta client component'lar butun subtree'ni hydrate qiladi.
+
+**SSR'ni oʻtkazib yuboring (`ssr: false`)** faqat serverda ma'noli render qila olmaydigan komponentlar uchun (canvas xaritalar, `window` oʻlchamlariga tayanadigan komponentlar). JS yuklanguncha boʻsh hudud bilan toʻlanadi.
+
+## Trade-off'lar
+
+| Yondashuv | Birinchi paint | Interaktiv (TTI/INP) | Yuboriladigan JS |
+| --- | --- | --- | --- |
+| Faqat client rendering (SPA) | JS yuklangandan keyin | render'dan keyin | hammasi |
+| SSR + toʻliq hydration | erta | barcha JS hydrate boʻlgach | hammasi |
+| RSC + selektiv hydration | erta | client orollar mustaqil hydrate boʻladi | faqat client komponentlar |
+| Statik HTML, JS'siz | erta | interaktivlik yoʻq | yoʻq |
+
+## Senior nuance
+
+- **Payload takrorlanishi**: client komponentlarga props sifatida uzatilgan ma'lumot HTML'da *ham*, payload'da ham paydo boʻladi. Katta props = kattaroq hujjatlar; ID'lar yoki minimal shakllarni uzating.
+- **`useId`** server va client render'lari orasida mos keladigan ID'lar yaratadi — tasodifiy ID'lar oʻrniga `aria-*`/`htmlFor` juftlari uchun ishlating.
+- **Theme miltillashi**: `localStorage`dan oʻqiladigan theme serverda noma'lum; paint'dan oldin class'ni oʻrnatadigan kichik bloklovchi script qoʻshing (`next-themes` kabi) va `<html>`da `suppressHydrationWarning` ishlating.
+- **Brauzer kengaytmalari** (tarjimonlar, parol menejerlari) hydration'dan oldin DOM'ni oʻzgartiradi va kodda tuzatib boʻlmaydigan mismatch ogohlantirishlarini keltirib chiqaradi; arvohlarni quvishdan oldin ularni taniy biling.
+
+## Interview savollari
+
+<QA q="RSC payload nima va nega HTML'dan tashqari u kerak?" level="mid">
+Bu Server Component'larning serialize qilingan natijasi: render qilingan elementlar, Client Component'larga reference qiluvchi placeholder'lar (modul ID'lari va serialize qilingan props) va stream qilinadigan promise natijalari. HTML brauzerga faqat paint qilish uchun narsa beradi; React'ga Client Component'larni hydrate qilish va keyingi navigatsiyalarda client state'ni saqlagan holda toʻliq sahifa yuklamasdan UI'ni yangilash uchun komponent daraxtini bilish — payload kerak.
+</QA>
+
+<QA q="Hydration mismatch'larga nima sabab boʻladi va ularni qanday tuzatasiz?" level="mid">
+Server va birinchi client render'i orasidagi har qanday farq: Date/Math.random, render paytida window/localStorage oʻqish, locale/vaqt zonasiga bogʻliq formatlash, notoʻgʻri HTML ichma-ichligi yoki DOM'ni oʻzgartiradigan kengaytmalar. Serverda deterministik natija render qilib, mount'dan keyin yangilash (useEffect), ID'lar uchun useId, faqat brauzer komponentlarini ssr: false ortiga koʻchirish yoki — yagona muqarrar holatlar uchun — suppressHydrationWarning bilan tuzating.
+</QA>
+
+<QA q="Selektiv hydration nima?" level="senior">
+Streaming SSR bilan har bir Suspense chegarasi butun sahifani bitta bloklovchi oʻtishda hydrate qilish oʻrniga, uning kodi va ma'lumoti kelishi bilan mustaqil hydrate qilinishi mumkin. Foydalanuvchi hali hydrate boʻlmagan chegara bilan oʻzaro ta'sir qilsa, React uni hydrate qilishga ustuvorlik beradi (va event'ni qayta oʻynaydi), katta sahifalarda sezgirlikni yaxshilaydi.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Server Component'lar hydrate qilinadimi?", options: ["ha, har qanday komponent kabi", "yoʻq — ularda client kodi yoʻq", "faqat dev'da", "faqat 'use client' bilan"], answer: 1, explain: "Faqat Client Component'lar hydrate qilinadi; server natijasi statik markup va payload." },
+  { q: "JSX'da <p> ichidagi <div> nimaga olib keladi?", options: ["hech narsa", "hydration mismatch (brauzer notoʻgʻri HTML'ni tuzatadi)", "build xatosi", "SSR oʻtkaziladi"], answer: 1, explain: "Parser <p>ni erta yopadi, shuning uchun DOM React kutganidan farq qiladi." },
+  { q: "Client-side navigatsiyada router nimani oladi?", options: ["toʻliq HTML", "RSC payload", "faqat API route'dan JSON", "hech narsa"], answer: 1, explain: "Payload mavjud daraxtga reconcile qilinadi." }
+]} />
+
+## Resurslar
+
+<Resources topic="nextjs/rsc-hydration" />

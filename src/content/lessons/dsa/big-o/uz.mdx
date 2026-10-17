@@ -1,0 +1,99 @@
+## TL;DR
+
+<Term id="big-o" /> kod qanchalik tez ekanini emas, narx qanday **oʻsishini** tasvirlaydi. Interview'da u ikki marta ishlatiladi: avval constraint'larni oʻqib maqsadli complexity'ni tanlash uchun, keyin yechimingizni asoslash uchun. <Term id="amortized" /> tahlil nega ba'zi tuzilmalar (dynamic array, hash map) bitta amal O(n) boʻlishi mumkin boʻlsa ham, "ketma-ketlik boʻyicha oʻrtacha" O(1) ekanini tushuntiradi.
+
+## Vizual model
+
+`n` ni suring va oilalar qanday ajralishini kuzating. Gap aniq sonlarda emas, **shaklda**: n = 10⁵ da O(n²) algoritm ~10¹⁰ amal bajaradi — daqiqalar yoki soatlar — O(n log n) esa ~1.7 × 10⁶.
+
+<ComplexityChart />
+
+## Mexanizm
+
+### Nega constant'lar yoʻqoladi
+
+`3n + 20` ham, `n` ham O(n), chunki n oʻsganda n ni ikki baravar oshirish ikkalasini ham ikki baravar oshiradi. Big-O — cost(2n)/cost(n) *nisbati* haqidagi da'vo: O(n) → 2×, O(n²) → 4×, O(log n) → +1 qadam, O(2ⁿ) → kvadratga koʻtariladi. Yechim 10 baravar katta input'dan omon chiqishini aynan shu nisbat hal qiladi.
+
+### log n qayerdan keladi
+
+Har bir qadam **masalani constant'ga boʻlganda** log paydo boʻladi. Binary search oraliqni ikkiga boʻladi: k qadamdan keyin n/2ᵏ element qoladi, bu k = log₂ n da 1 ga yetadi. n node'li balanslangan daraxt balandligi log n, shuning uchun heap push yoki BST qidiruvi log n darajadan oʻtadi.
+
+### Nega n log n — saralash chegarasi
+
+Taqqoslash orqali saralash barcha n! tartibni bir-biridan ajrata olishi kerak. Har bir taqqoslashning ikki natijasi bor, shuning uchun k ta taqqoslashli qaror daraxtida koʻpi bilan 2ᵏ barg boʻladi. 2ᵏ ≥ n! kerak, ya'ni k ≥ log₂(n!) ≈ n log₂ n. Bu **taqqoslashga asoslangan** saralashlar uchun quyi chegara — counting sort va radix sort taqqoslamasdan (cheklangan key oraligʻidan foydalanib) undan oshib ketadi.
+
+### Amortized O(1): ikki baravar oʻsuvchi array
+
+Toʻla array'ga push qilish hamma narsani nusxalashga tushadi. Agar sigʻim har safar ikki baravar oshsa, nusxalash 1, 2, 4, 8 … oʻlchamlarda boʻladi va jami 2n dan kam. n ta push uchun jami ish < 3n, demak har bir push **amortized** O(1). Qadamma-qadam yuring — oʻrtacha qiymat 3 dan pastda qolishini kuzating:
+
+<DynamicArrayViz />
+
+Agar array ×2 emas, constant'ga (+10) oʻssa, nusxalar ~n²/20 ni tashkil qiladi — har bir push O(n). Amortizatsiyani aynan geometrik oʻsish ishlatadi.
+
+## Kod
+
+Constraint'larni maqsadli complexity'ga aylantirish (soniyasiga ~10⁸ oddiy amal deb olingan taxminiy qoida):
+
+```ts
+// n ≤ 10          → O(n!) / O(2ⁿ · n) — brute force, permutation'lar, bitmask
+// n ≤ 20          → O(2ⁿ)             — subset'lar, bitmask DP
+// n ≤ 500         → O(n³)             — interval DP, Floyd–Warshall
+// n ≤ 5 000       → O(n²)             — 2D DP, barcha juftliklar
+// n ≤ 10⁶         → O(n log n)        — saralash, heap'lar, binary search
+// n ≤ 10⁸         → O(n)              — bitta oʻtish, two pointers, prefix sum
+// n > 10⁸         → O(log n) / O(1)   — matematika, binary search on answer
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Bu nazardan foydalaning**, agar interviewer constraint'lar bersa, "yaxshiroq qila olasizmi?" deb soʻrasa yoki ikki yondashuv orasida tanlayotgan boʻlsangiz.
+
+**Haddan tashqari qoʻllamang:**
+- Big-O constant'larni yashiradi. Linked list ustida O(n) oʻtish cache miss'lar sababli uzluksiz array'ni O(n log n) saralashdan yutqazishi mumkin.
+- Kichik n uchun "yomonroq" algoritm koʻpincha tezroq (koʻp kutubxona saralashlari kichik qismlar uchun insertion sort ishlatadi).
+- Oʻrtacha va eng yomon holat muhim: hash map qidiruvi oʻrtacha O(1), lekin dushmanona key'lar bilan eng yomon holatda O(n).
+
+## Trade-off'lar
+
+| Belgilash | Ma'nosi | Odatiy manba |
+| --- | --- | --- |
+| O(1) | constant | array indeksi, hash qidiruv (oʻrtacha) |
+| O(log n) | ikkiga boʻlish | binary search, balanslangan daraxt, heap amali |
+| O(n) | bitta oʻtish | skanerlash, two pointers, sliding window |
+| O(n log n) | boʻlish + chiziqli birlashtirish yoki n ta heap amali | saralash, heap'ga n ta push |
+| O(n²) | barcha juftliklar | ichma-ich loop'lar, 2D DP |
+| O(2ⁿ) | barcha subset'lar | pruning'siz backtracking |
+
+## Senior nuance
+
+- **Xotira ham hisobga olinadi**, shu jumladan recursion stack: 10⁵ chuqurlikdagi yoʻlda recursive DFS "O(n)" boʻlsa ham stack'ni toʻldirib yuborishi mumkin.
+- **Amortized ≠ oʻrtacha.** Amortized — ketma-ketlik boʻyicha eng yomon holat kafolati; average-case — input'lar boʻyicha kutilma. Latency'ga sezgir tizim bitta O(n) resize haqida ham qaygʻurishi mumkin (incremental rehashing aynan shuning uchun mavjud).
+- **Output-sensitive chegaralar**: barcha subset'larni generatsiya qilish Ω(2ⁿ), chunki natijaning oʻzi shuncha katta. Buning uchun uzr soʻramang — shuni ayting.
+- `Array.prototype.shift()` umuman olganda O(n) — uni queue sifatida ishlatish BFS'ni jimgina O(n²) ga aylantiradi. Head indeks ishlating.
+- Loop ichida string birlashtirish va loop ichida `arr.includes` — klassik yashirin O(n²).
+
+## Interview savollari
+
+<QA q="Yechimingiz O(n log n). Uni O(n) qilish mumkinmi?" level="mid">
+Avval log'ni nima majburlayotganini aniqlang: odatda saralash yoki heap. Agar saralash boʻlsa, key'lar cheklanganmi (counting/bucket sort), sizga faqat k-element kerakmi (quickselect, oʻrtacha O(n)) yoki tartib ahamiyatsiz va hash map yetarlimi — tekshiring. Hech biri mos kelmasa, quyi chegarani asoslang: taqqoslashga asoslangan saralash uchun Ω(n log n) aniq.
+</QA>
+
+<QA q="Resize hamma narsani nusxalasa, nega dynamic array'ga push O(1)?" level="mid">
+Chunki resize'lar geometrik. Ikki baravar oʻsishda n ta push davomidagi nusxalar 1 + 2 + 4 + … < 2n, demak jami ish < 3n va har bir push amortized O(1). Interviewer yoqtiradigan follow-up: constant miqdorga oʻsish har push'ni O(n) qiladi; 1 dan katta har qanday koeffitsiyent (masalan 1.5×) boshqa constant va kamroq behuda xotira bilan amortized O(1) ni saqlaydi.
+</QA>
+
+<QA q="Hash map qidiruvi O(1) mi?" level="senior">
+Yaxshi hash funksiya va cheklangan load factor bilan kutilgan O(1); koʻp key'lar collision qilsa, eng yomon holat O(n). Haqiqiy implementatsiyalar buni yumshatadi (Java 8 HashMap uzun bucket'larni balanslangan daraxtga aylantiradi — bucket boʻyicha eng yomon holat O(log n)). Ba'zi tillar string hash seed'ini tasodifiylashtirishining sababi — hash flooding hujumlari.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "n ≤ 2 × 10⁵. Qaysi maqsadli complexity realistik?", options: ["O(n²)", "O(n log n)", "O(2ⁿ)", "O(n³)"], answer: 1, explain: "n² uchun 4 × 10¹⁰ amal juda sekin; n log n ≈ 3.5 × 10⁶." },
+  { q: "Loop while (n > 1) n = n / 3 bajariladi. Uning complexity'si…", options: ["O(n)", "O(n/3)", "O(log n)", "O(√n)"], answer: 2, explain: "Har qadamda constant'ga boʻlish n ning 3 asosli logarifmini beradi, bu O(log n)." },
+  { q: "BFS JS array'da queue.shift() ishlatadi. V ta node uchun eng yomon complexity?", options: ["O(V + E)", "O(V² + E)", "O(E log V)", "O(V)"], answer: 1, explain: "shift() array'ni qayta indekslaydi: har dequeue O(V), demak V ta dequeue O(V²)." }
+]} />
+
+## Resurslar
+
+<Resources topic="dsa/big-o" />

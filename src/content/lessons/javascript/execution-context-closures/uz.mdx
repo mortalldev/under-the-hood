@@ -1,0 +1,108 @@
+## TL;DR
+
+Kod har safar ishlaganda engine <Term id="execution-context" /> yaratadi, uning <Term id="lexical-environment" />'i shu scope binding'larini va **tashqi** environment'ga pointer'ni saqlaydi. Function object oʻzi **yaratilgan** joyni yashirin <Term id="environment-slot" /> slotida eslab qoladi. <Term id="closure" /> — shu saqlangan pointer'dan boshqa narsa emas: funksiyani keyinroq chaqirish outer havolasi saqlangan environment boʻlgan yangi environment quradi, shuning uchun funksiya eski oʻzgaruvchilarni hali ham oʻqiy va yoza oladi — va ularni <Term id="garbage-collection">garbage collector</Term> uchun tirik saqlaydi.
+
+## Vizual model
+
+```text
+Global env  ──────────────────────────────────────────── outer: null
+  makeCounter: ƒ        a: increment#1      b: increment#2
+        ▲                      │                    │
+        │ outer                │ [[Environment]]    │ [[Environment]]
+makeCounter#1 env  ◀───────────┘                    │
+  count: 2                                          │
+makeCounter#2 env  ◀────────────────────────────────┘
+  count: 1
+```
+
+## Mexanizm
+
+`makeCounter` boʻyicha qadamma-qadam yuring. Uch narsani kuzating: (1) har bir **chaqiruv**da yaratiladigan environment record, (2) ichki function object **yaratilganda** oʻrnatiladigan `[[Environment]]` sloti, (3) `makeCounter`'dan qaytish stack frame'ni pop qiladi, lekin uning environment'ini **yoʻq qilmaydi**.
+
+<ClosureViz />
+
+**Yaratilish bosqichi** (nega <Term id="hoisting" /> sodir boʻladi): scope kodi ishlashidan oldin engine uning binding'larini yaratadi. Function declaration'lar funksiya qiymatini oladi; `var` `undefined` oladi; `let`, `const` va `class` yaratiladi, lekin **initsializatsiya qilinmaydi**. Ularni e'lon qatoridan oldin oʻqish ReferenceError beradi — bu <Term id="tdz" />. Hoisting — "kodni yuqoriga koʻchirish" emas; bu binding'lar scope boshidan mavjud boʻlishining natijasi.
+
+**Nom aniqlash** <Term id="scope-chain" /> boʻylab yuradi: joriy environment → uning outer'i → … → global. Bu kod qayerda **yozilgani** bilan belgilanadi (lexical scope), uni kim chaqirgani bilan hech qachon emas.
+
+## Kod
+
+```js
+// Klassik loop bug'i: bitta umumiy `var i`, barcha callback'lar oxirgi qiymatni koʻradi
+for (var i = 0; i < 3; i++) setTimeout(() => console.log(i)); // 3 3 3
+// `let` har iteratsiyada YANGI binding yaratadi (spec uni yangi environment'ga nusxalaydi)
+for (let j = 0; j < 3; j++) setTimeout(() => console.log(j)); // 0 1 2
+
+// TDZ
+function f() {
+  console.log(typeof x); // ReferenceError — x TDZ'da, hatto typeof uchun ham
+  let x = 1;
+}
+
+// Closure orqali yopiq state (module pattern / factory)
+function createStore(initial) {
+  let state = initial;
+  const listeners = new Set();
+  return {
+    get: () => state,
+    set(next) { state = next; listeners.forEach((l) => l(state)); },
+    subscribe(l) { listeners.add(l); return () => listeners.delete(l); }, // unsubscribe = leak yoʻq
+  };
+}
+
+// Closure'da saqlanadigan cache bilan memoize
+function memoize(fn) {
+  const cache = new Map();
+  return (arg) => (cache.has(arg) ? cache.get(arg) : (cache.set(arg, fn(arg)), cache.get(arg)));
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Closure'lar quyidagilar uchun toʻgʻri vosita**: yopiq state (factory'lar, modullar), partial application va currying, kontekst kerak boʻlgan callback'lar (event handler'lar, timer'lar), memoization, React hook'lari (har bir render handler'lari oʻsha render'ning props va state'ini closure qiladi).
+
+**Ehtiyot boʻling**:
+- Uzoq yashaydigan callback (listener, interval, cache yozuvi) katta narsani closure qiladi — uni tirik saqlaydi.
+- Hot path'da koʻp nusxa yaratiladi — har bir closure function object va ehtimol context ajratadi; prototype/class metodlari bitta funksiyani boʻlishadi.
+- Eskirgan qiymatlar: closure *binding*'ni ushlaydi, lekin binding eski chaqiruvga (eski React render'iga) tegishli boʻlsa, eski ma'lumotni oʻqiysiz.
+
+## Trade-off'lar
+
+| Usul | Yopiqlik | Har nusxaga xotira | Izoh |
+| --- | --- | --- | --- |
+| Closure factory | haqiqiy yopiqlik | har nusxada har metodga bitta function object | moslashuvchan, sodda |
+| `#private` field'li class | haqiqiy yopiqlik (engine ta'minlaydi) | metodlar prototype orqali umumiy | brand check'lar, meros |
+| `_convention`li class | yoʻq | umumiy metodlar | intizomga tayanadi |
+
+## Senior nuance
+
+- **Engine'lar faqat reference qilinganini saqlaydi** — asosan. V8 heap "context"ni faqat biror ichki funksiya haqiqatan ishlatadigan oʻzgaruvchilar uchun ajratadi; lekin bitta scope'da yaratilgan barcha closure'lar bitta context'ni **boʻlishadi**, shuning uchun kichik closure qoʻshni closure ishlatadigan katta oʻzgaruvchini ushlab qolishi mumkin. Bu ma'lum leak pattern'i.
+- **`eval` va `with`** bu optimizatsiyalarni buzadi, chunki engine qaysi oʻzgaruvchilar ishlatilishini statik bila olmaydi.
+- **Har iteratsiyalik `let` binding'lar** — spec darajasidagi nusxa: loop'ning har bir iteratsiyasi oldingisidan initsializatsiya qilingan yangi environment oladi, shuning uchun `for (let…)` loop'idagi closure'lar har xil qiymatlarni koʻradi.
+- **Arrow function'larning oʻz `this`, `arguments` yoki `super`i yoʻq** — ular ularni boshqa har qanday oʻzgaruvchi kabi scope chain orqali lexical aniqlaydi.
+
+## Interview savollari
+
+<QA q="Closure aniq nima?" level="mid">
+Function object va u yaratilgan lexical environment birgalikda, ichki [[Environment]] sloti orqali reference qilinadi. Funksiya ishlaganda uning yangi environment'ining outer reference'i — oʻsha saqlangan environment, shuning uchun identifier'lar funksiya aniqlangan scope oʻzgaruvchilariga aniqlanadi, hatto oʻsha scope chaqiruvi qaytgandan keyin ham. Ushlab qolinadigan narsa — qiymat snapshot'i emas, binding (oʻzgaruvchi).
+</QA>
+
+<QA q="Nega setTimeout'li for loop'dagi var oxirgi qiymatni chiqaradi?" level="mid">
+var funksiya scope'iga ega: butun loop uchun bitta i binding bor. Har bir callback oʻsha binding'ni closure qiladi va loop tugagandan keyin, i oxirgi qiymatga teng boʻlganda ishlaydi. let har iteratsiyada yangi binding yaratadi, shuning uchun har bir callback oʻzinikini ushlaydi.
+</QA>
+
+<QA q="Closure'lar qanday qilib memory leak keltirib chiqarishi mumkin va ularni qanday topasiz?" level="senior">
+Tirik closure'dan yetib boriladigan har narsa tirik qoladi: hech qachon olib tashlanmagan event listener, hech qachon tozalanmagan interval, cheksiz oʻsuvchi cache map yoki katta obyektni reference qiladigan qoʻshni bilan context'ni boʻlishadigan kichik closure. Ularni heap snapshot'lar bilan toping: ikki snapshot'ni solishtiring, retained size boʻyicha saralang va retainer zanjiri boʻylab yuring — ushlab qolingan obyektlarga koʻrsatuvchi "(closure)" / "context" yozuvlarini koʻrasiz. Unsubscribe, timer'larni tozalash, cache'larni cheklash yoki WeakMap ishlatish bilan tuzating.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Bir scope'da `let x = 1` dan oldin typeof x…", options: ["'undefined'", "ReferenceError", "'number'", "null"], answer: 1, explain: "x TDZ'da; hatto typeof ham xato tashlaydi." },
+  { q: "Funksiyaning [[Environment]]'i funksiya qachon oʻrnatiladi?", options: ["chaqirilganda", "yaratilganda (baholanganda)", "qaytganda", "garbage collection'da"], answer: 1, explain: "Lexical scope: yaratilish paytida ushlanadi." },
+  { q: "makeCounter()'dan ikki hisoblagich count'ni boʻlishadimi?", options: ["ha", "yoʻq — har bir chaqiruv yangi environment yaratadi", "faqat strict mode'da", "faqat var bilan"], answer: 1, explain: "makeCounter'ga har bir chaqiruv alohida environment record yaratadi." }
+]} />
+
+## Resurslar
+
+<Resources topic="javascript/execution-context-closures" />

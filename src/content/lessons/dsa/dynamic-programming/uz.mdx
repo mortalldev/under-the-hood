@@ -1,0 +1,128 @@
+## TL;DR
+
+Dynamic programming = recursion + caching; masalada <Term id="optimal-substructure" /> va <Term id="overlapping-subproblems" /> boʻlganda qoʻllaniladi. Butun mahorat — **holatni** (javobning qolganini qanday minimal ma'lumot belgilaydi?) va **oʻtishni** (holat javobi kichikroq holatlarni qanday birlashtiradi?) tanlash. Ular toʻgʻri boʻlgach, jadval oʻzi toʻladi; loop'larni har bir bogʻliqlik avval hisoblanadigan qilib tartiblang.
+
+## Vizual model
+
+```text
+fib(5) recursion daraxti                 DP uni holatlar chizigʻiga siqadi
+           f5                            f0 → f1 → f2 → f3 → f4 → f5
+        /      \                         har biri bir marta hisoblanadi: O(φⁿ) oʻrniga O(n)
+      f4        f3
+     /  \      /  \
+   f3   f2   f2   f1     ← f3, f2 qayta-qayta hisoblanadi
+```
+
+## Mexanizm
+
+### 1D: har bir holat bir nechta oldingi holatni oʻqiydi
+
+House Robber: `dp[i]` = birinchi i ta uydan foydalangan eng yaxshi jami. i − 1-uy uchun yo uni oʻtkazasiz (`dp[i − 1]`), yo olasiz (`dp[i − 2] + nums[i − 1]`). Holat *qaysi* uylar olinganini eslab qolishi shart emas — faqat hozirgacha eng yaxshisini — aynan shu uni chiziqli qiladi.
+
+<HouseRobberViz />
+
+### 2D: ikki prefix bilan indekslangan holatlar
+
+Longest common subsequence: `dp[i][j]` = `a[0..i)` va `b[0..j)` ning LCS'i. Oxirgi belgilar mos kelsa, ular diagonalni davom ettiradi; aks holda ulardan birini tashlang. Har bir katak yuqori, chap va yuqori-chap qoʻshnilariga bogʻliq, shuning uchun qator-qator toʻldirish ishlaydi. Oxirida qarorlar boʻylab orqaga yurish haqiqiy subsequence'ni tiklaydi.
+
+<LcsViz />
+
+## Kod
+
+```ts
+// 0/1 knapsack: dp[c] = c sigʻim bilan eng yaxshi qiymat; har bir item bir marta ishlatilishi uchun sigʻimni PASTGA aylantiring
+function knapsack(weights: number[], values: number[], cap: number): number {
+  const dp = new Array<number>(cap + 1).fill(0);
+  for (let i = 0; i < weights.length; i++) {
+    for (let c = cap; c >= weights[i]; c--) dp[c] = Math.max(dp[c], dp[c - weights[i]] + values[i]);
+  }
+  return dp[cap];
+}
+// Unbounded knapsack / coin change (kombinatsiyalar): sigʻimni YUQORIGA aylantiring
+
+// Coin Change (minimal tangalar)
+function coinChange(coins: number[], amount: number): number {
+  const dp = new Array<number>(amount + 1).fill(Infinity);
+  dp[0] = 0;
+  for (let a = 1; a <= amount; a++) for (const c of coins) if (c <= a) dp[a] = Math.min(dp[a], dp[a - c] + 1);
+  return dp[amount] === Infinity ? -1 : dp[amount];
+}
+
+// O(n log n) da LIS: tails[k] = k + 1 uzunlikdagi oʻsuvchi subsequence'ning eng kichik dumi
+function lis(nums: number[]): number {
+  const tails: number[] = [];
+  for (const x of nums) {
+    let lo = 0, hi = tails.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (tails[m] < x) lo = m + 1; else hi = m; }
+    tails[lo] = x;
+  }
+  return tails.length;
+}
+
+// Interval DP (burst balloons, matrix chain): oʻsuvchi interval uzunligi boʻyicha dp[l][r]
+// Bitmask DP (TSP'ga oʻxshash, n ≤ 20): dp[mask][last] = aynan `mask`ga tashrif buyurib, `last`da tugaydigan eng yaxshi narx
+// State machine DP (cooldown'li aksiya): hold / sold / rest holatlari, har kunga oʻtishlar
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- "Usullar soni", "minimal/maksimal narx", "mumkinmi", "eng uzun/eng qisqa … subsequence".
+- Har qadamdagi tanlovlar, ularning kelajakka ta'sirini bir nechta son bilan ifodalash mumkin.
+- Brute force eksponensial, lekin har xil holatlar soni polinomial.
+
+| Oila | Holat | Misol |
+| --- | --- | --- |
+| 1D chiziqli | dp[i] | Climbing Stairs, House Robber, Decode Ways |
+| 2D grid / ikki string | dp[i][j] | Unique Paths, LCS, Edit Distance |
+| Knapsack | dp[i][sigʻim] → 1D | Partition Equal Subset Sum, Coin Change |
+| LIS | dp[i] yoki patience tails | Longest Increasing Subsequence, Russian Doll Envelopes |
+| Interval | dp[l][r] | Burst Balloons, Palindrome Partitioning II |
+| Bitmask | dp[mask][…] | Shortest Path Visiting All Nodes |
+| State machine | dp[i][holat] | Best Time to Buy and Sell Stock with Cooldown |
+
+**Qachon kerak emas**: isbotli xavfsiz greedy bor (u soddaroq va tezroq); holat butun tarixni talab qiladi (unda bu DP emas, qidiruv); n kichik va barcha yechimlar kerak (backtracking).
+
+## Trade-off'lar
+
+| Uslub | Afzalliklari | Kamchiliklari |
+| --- | --- | --- |
+| Top-down (<Term id="memoization" />) | recursion'dan tabiiy; faqat yetib boriladigan holatlarni hisoblaydi | recursion chuqurligi; cache xarajati |
+| Bottom-up (tabulation) | recursion'siz; xotirani optimallashtirish oson | toʻgʻri toʻldirish tartibini topish kerak; barcha holatlarni hisoblaydi |
+| Rolling array'lar | O(kenglik) xotira | javobni tiklash uchun kerakli jadvalni yoʻqotadi |
+
+## Senior nuance
+
+- **Kod yozishdan oldin holatni soʻz bilan aniqlang**: "dp[i][j] — a[0..i) ni b[0..j) ga aylantirish uchun minimal tahrirlar". DP bug'larining koʻpi — noaniq ta'rif.
+- **Base case'lar boʻsh prefix'dan keladi**: dp[0] yoki dp[0][*] odatda "hali hech narsa olinmagan"ni bildiradi, bu chegara holatlari tarmoqlarini yoʻq qiladi.
+- **Loop yoʻnalishi knapsack'da ma'noni kodlaydi**: pastga = har bir item bir marta (0/1); yuqoriga = cheksiz qayta ishlatish. Loop'larni almashtirish (tashqarida tangalar yoki tashqarida summa) kombinatsiyalar va permutation'lar sanashini almashtiradi.
+- **Javobni tiklash** toʻliq jadval yoki saqlangan ota-tanlovlarni talab qiladi — xotirani optimallashtirganda buni ayting.
+- **Complexity = holatlar soni × oʻtish narxi.** Oʻtish k ta variantni aylansa, ayting: Burst Balloons — O(n³).
+
+## Interview savollari
+
+<QA q="Edit Distance: holat va oʻtishni aniqlang." level="mid">
+dp[i][j] = a[0..i) ni b[0..j) ga aylantirish uchun minimal amallar. a[i−1] = b[j−1] boʻlsa, dp[i][j] = dp[i−1][j−1]. Aks holda 1 + min(dp[i−1][j] (oʻchirish), dp[i][j−1] (qoʻshish), dp[i−1][j−1] (almashtirish)). Base'lar: dp[i][0] = i, dp[0][j] = j. O(nm) vaqt, ikki qator bilan O(min(n, m)) xotira.
+</QA>
+
+<QA q="Coin Change II kombinatsiyalarni sanaydi. Nega loop tartibi muhim?" level="senior">
+Tangalar tashqi loop'da boʻlsa, har bir tanga qat'iy tartibda bir marta koʻriladi, shuning uchun {1, 2} va {2, 1} bitta kombinatsiya sifatida bir marta sanaladi. Summa tashqi loop'da boʻlsa, tangalarning har bir tartibi alohida yoʻl boʻladi va permutation'lar sanaladi (bu Combination Sum IV).
+</QA>
+
+<QA q="O(n log n) LIS'ni tushuntiring." level="senior">
+tails[k] = k + 1 uzunlikdagi har qanday oʻsuvchi subsequence'ning mumkin boʻlgan eng kichik dumini saqlang; bu array qat'iy oʻsuvchi. Har bir x uchun ≥ x boʻlgan birinchi tail'ni binary search bilan toping va almashtiring (yoʻq boʻlsa oxiriga qoʻshing). Almashtirish bir xil uzunlikni kichikroq dum bilan saqlaydi, bu faqat kelajakdagi davomlarga yordam beradi. tails uzunligi — LIS uzunligi (tails'ning oʻzi toʻgʻri subsequence boʻlishi shart emas).
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "1D array'li 0/1 knapsack: sigʻim loop'i yoʻnalishi?", options: ["yuqoriga", "pastga", "farqi yoʻq", "tasodifiy"], answer: 1, explain: "Pastga yurish dp[c − w] ni oldingi item qatoridan oʻqiydi, shuning uchun item koʻpi bilan bir marta ishlatiladi." },
+  { q: "a[i−1] ≠ b[j−1] boʻlganda LCS katagi dp[i][j]?", options: ["dp[i−1][j−1] + 1", "max(dp[i−1][j], dp[i][j−1])", "0", "dp[i−1][j−1]"], answer: 1, explain: "Ikki oxirgi belgidan kamida bittasi LCS'da yoʻq; istalganini tashlang." },
+  { q: "Burst Balloons'da O(n²) ta holat bor. Nega u O(n³)?", options: ["recursion", "har bir holat (l, r) dagi har bir oxirgi shar k ni sinaydi", "saralash", "memoization xarajati"], answer: 1, explain: "Narx = holatlar × oʻtish narxi = n² × n." }
+]} />
+
+**Klassik masalalar:** Climbing Stairs (Easy) · House Robber (Medium) · Coin Change (Medium) · Longest Increasing Subsequence (Medium) · Longest Common Subsequence (Medium) · Edit Distance (Medium) · Partition Equal Subset Sum (Medium) · Word Break (Medium) · Best Time to Buy and Sell Stock with Cooldown (Medium) · Burst Balloons (Hard) · Shortest Path Visiting All Nodes (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/dynamic-programming" />

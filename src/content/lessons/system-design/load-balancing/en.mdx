@@ -1,0 +1,106 @@
+## TL;DR
+
+A <Term id="load-balancer" /> spreads requests across a pool of servers, removes unhealthy ones via **health checks**, and makes the pool look like one endpoint. **L4** balancers route TCP/UDP connections by address and port (fast, protocol-agnostic); **L7** balancers understand HTTP (route by path/host/header, terminate TLS, retry, rate-limit). The algorithm matters when requests are uneven: **round-robin** ignores load; **least-connections** adapts to it.
+
+## Visual model
+
+<FlowDiagram height={56} nodes={[
+  { id: "dns", label: "DNS / Anycast", sub: "region selection", x: 12, y: 8, w: 20, kind: "edge" },
+  { id: "l4", label: "L4 LB", sub: "TCP, very high throughput", x: 38, y: 8, w: 22 },
+  { id: "l7a", label: "L7 LB / proxy", sub: "TLS, routing, retries", x: 30, y: 28, w: 22 },
+  { id: "l7b", label: "L7 LB / proxy", sub: "(redundant pair)", x: 56, y: 28, w: 22 },
+  { id: "s1", label: "api-1", x: 20, y: 48, w: 14, kind: "service" },
+  { id: "s2", label: "api-2", x: 43, y: 48, w: 14, kind: "service" },
+  { id: "s3", label: "api-3 ✗", sub: "failed health check", x: 66, y: 48, w: 16, kind: "note" }
+]} edges={[
+  { from: "dns", to: "l4" }, { from: "l4", to: "l7a" }, { from: "l4", to: "l7b" }, { from: "l7a", to: "s1" }, { from: "l7a", to: "s2" }, { from: "l7b", to: "s3", dashed: true }
+]} caption="Layered balancing: DNS picks a region, L4 spreads connections, L7 routes requests; unhealthy backends are taken out of rotation." />
+
+## Mechanism
+
+Run the same uneven workload (long and short requests alternating) through both policies. Round-robin assigns by turn and piles the long requests onto the same server; least-connections sends each request to the server with the fewest in-flight requests.
+
+<LoadBalancerViz policy="round-robin" />
+
+<LoadBalancerViz policy="least-connections" />
+
+**Algorithms**:
+- **Round-robin / weighted round-robin** — simple, good when requests and servers are uniform (weights for bigger machines).
+- **Least connections / least outstanding requests** — adapts to slow requests and heterogeneous servers.
+- **Power of two choices** — pick two random servers, send to the less loaded: near-least-connections quality with no global state, ideal for many LB instances.
+- **Consistent hashing** (by user/session/key) — keeps a client on the same backend (cache locality, sticky sessions) and minimises reshuffling when servers change.
+
+**Health checks**: active (LB probes `/healthz` periodically) and passive (count errors/timeouts on real traffic and eject outliers). Use separate **liveness** and **readiness** semantics so a starting or draining server receives no traffic.
+
+**Avoiding a single point of failure**: run LBs in redundant pairs or as a managed, horizontally scaled service; use DNS or anycast across regions; keep backends stateless so any server can handle any request.
+
+## Code
+
+```ts
+// Power of two choices — no shared state needed between LB instances
+function pick(servers: { id: string; inFlight: number; healthy: boolean }[]) {
+  const live = servers.filter((s) => s.healthy);
+  const a = live[Math.floor(Math.random() * live.length)];
+  const b = live[Math.floor(Math.random() * live.length)];
+  return a.inFlight <= b.inFlight ? a : b;
+}
+
+// Retries at the LB/client must be bounded and only for safe/idempotent requests
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let i = 0; ; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (i === attempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, 2 ** i * 100 * (0.5 + Math.random())));  // backoff + jitter
+    }
+  }
+}
+```
+
+## When to use / when not to
+
+**L4** for raw TCP services (databases, MQTT, game servers), extreme throughput, or when you don't want TLS terminated at the balancer. **L7** for HTTP APIs: path-based routing to services, canary releases by header/percentage, auth offload, compression, observability per route.
+
+**Sticky sessions** only when you can't externalise session state — they unbalance load and lose sessions when a server dies; prefer storing sessions in Redis/DB or in signed tokens.
+
+## Trade-offs
+
+| Algorithm | Needs state | Handles uneven requests | Cache affinity |
+| --- | --- | --- | --- |
+| Round-robin | counter | no | no |
+| Least connections | live counts per backend | yes | no |
+| Power of two choices | local counts | mostly | no |
+| Consistent hashing | ring | no (hot keys!) | yes |
+
+## Senior nuance
+
+- **Retry storms**: if every layer retries 3×, one failing backend can see 27× traffic. Retry at one layer, with budgets (e.g. at most 10% extra requests) and jitter.
+- **Slow start**: a newly added server with an empty cache should receive traffic gradually.
+- **Connection draining**: on deploys, stop sending new requests to an instance and let existing ones finish (ties to graceful shutdown).
+- **Global load balancing** routes users to the nearest healthy region; failover must account for capacity — the surviving region needs headroom for the failed one's traffic.
+
+## Interview questions
+
+<QA q="L4 vs L7 load balancing?" level="mid">
+L4 works on transport-level information (IP, port) and forwards connections without understanding the protocol: very fast, works for any TCP/UDP service, but can't route by URL or inspect headers. L7 parses application protocols like HTTP: it can terminate TLS, route by host/path/header, rewrite, retry, rate-limit and collect per-route metrics, at the cost of more CPU and complexity.
+</QA>
+
+<QA q="Why might round-robin overload one server?" level="mid">
+It distributes requests by count, not by cost. If request durations vary (or servers differ in capacity), a server can accumulate many long-running requests while others are idle. Least-connections, least-outstanding-requests or power-of-two-choices route based on current load.
+</QA>
+
+<QA q="How do you avoid the load balancer being a single point of failure?" level="senior">
+Run it as a redundant pair with failover (VRRP/floating IP) or as a horizontally scaled managed service; put multiple LB IPs behind DNS or anycast; spread across availability zones; keep backends stateless; and test failover regularly. At global scale, use DNS/anycast-based global load balancing with health-aware region failover.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Requests alternate between 6 s and 1 s on 2 servers. Which policy keeps peaks lower?", options: ["round-robin", "least connections", "random", "both equal"], answer: 1, explain: "Least connections avoids piling long requests onto one server." },
+  { q: "Routing /api/* and /static/* to different backends needs…", options: ["L4", "L7", "DNS only", "consistent hashing"], answer: 1, explain: "Path-based routing requires parsing HTTP." },
+  { q: "Each of 3 layers retries 3 times. Worst-case amplification on a failing backend?", options: ["3×", "9×", "27×", "1×"], answer: 2, explain: "3 × 3 × 3 — retry at one layer with a budget." }
+]} />
+
+## Resources
+
+<Resources topic="system-design/load-balancing" />

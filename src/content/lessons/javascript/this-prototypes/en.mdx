@@ -1,0 +1,108 @@
+## TL;DR
+
+Two separate mechanisms are often confused. **`this`** is decided at **call time** by *how* a function is called (four rules plus arrow functions). **Property lookup** follows the object's hidden <Term id="prototype" /> chain until it finds the key or reaches `null`. Classes are syntax over exactly these two mechanisms: methods live on `Class.prototype`, and `new` creates an object linked to it and calls the constructor with `this` bound to that object.
+
+## Visual model
+
+```text
+this binding — check in order:
+1. new F()                         → the newly created object
+2. f.call(o) / f.apply(o) / bind   → o
+3. o.f()                           → o (the object left of the dot at call time)
+4. f()                             → undefined (strict / modules / classes) or globalThis (sloppy)
+arrow functions                    → no own this: take it from the enclosing scope
+
+lookup of rex.speak:  rex → Dog.prototype → Animal.prototype → Object.prototype → null
+```
+
+## Mechanism
+
+Change the key and step through the lookup. Note that finding a method on a prototype does **not** change `this`: `rex.speak()` finds `speak` two hops up, but `this` is still `rex` (rule 3).
+
+<PrototypeViz />
+
+What `new Dog("Rex")` does:
+1. Create an empty object whose `[[Prototype]]` is `Dog.prototype`.
+2. For derived classes, run the parent constructor first (`super(...)`), which is where `this` becomes initialised — that is why touching `this` before `super()` throws.
+3. Run the constructor body with `this` = the new object.
+4. Return the object (unless the constructor explicitly returns another object).
+
+**Writes are different from reads**: `rex.toString = …` creates an **own** property that *shadows* the inherited one; it never modifies `Object.prototype`. (Exception: if the inherited property is a setter or non-writable, assignment goes through the setter or fails.)
+
+## Code
+
+```js
+const obj = {
+  name: "obj",
+  regular() { return this?.name; },
+  arrow: () => this?.name,              // `this` of the module/outer scope, not obj
+};
+obj.regular();            // "obj"   (rule 3)
+const f = obj.regular;
+f();                      // undefined in strict mode — the method was detached (rule 4)
+f.call({ name: "x" });    // "x"     (rule 2)
+
+class Button {
+  label = "OK";
+  handleClick = () => console.log(this.label);  // class field arrow: bound per instance
+  handleClickMethod() { console.log(this.label); }
+}
+const b = new Button();
+setTimeout(b.handleClickMethod);   // undefined — detached
+setTimeout(b.handleClick);         // "OK"
+
+// What class syntax is built on
+function Animal(name) { this.name = name; }
+Animal.prototype.speak = function () { return `${this.name} makes a sound`; };
+function Dog(name) { Animal.call(this, name); }
+Object.setPrototypeOf(Dog.prototype, Animal.prototype);   // Dog.prototype → Animal.prototype
+```
+
+## When to use / when not to
+
+**Prototypes/classes fit** when many instances share behaviour (methods stored once), when you need `instanceof`, or when a framework expects classes (custom elements, some ORMs).
+
+**Prefer plain functions/closures/objects** when there is no shared mutable state to model, or when you would otherwise build deep inheritance chains — composition is usually easier to change.
+
+**Arrow functions as methods**: great for callbacks that must keep the outer `this`; wrong for object-literal methods that need the object as `this`, and they cannot be used with `new`.
+
+## Trade-offs
+
+| Approach | Method memory | `this` pitfalls | Privacy |
+| --- | --- | --- | --- |
+| Prototype/class methods | shared once | detaching loses `this` | `#private` fields |
+| Class field arrow functions | one per instance | none (lexically bound) | `#private` fields |
+| Closure factories | one per instance | none (no `this`) | closure scope |
+
+## Senior nuance
+
+- **`Object.create(null)`** creates an object with no prototype — useful for dictionaries (no `toString`, `__proto__` keys are ordinary), though `Map` is usually better.
+- **Changing prototypes at runtime** (`Object.setPrototypeOf` on existing objects) deoptimises property access in engines; set the prototype at creation time.
+- **`instanceof` checks the prototype chain**, not the constructor name — it fails across realms (iframes) and can be customised with `Symbol.hasInstance`. Use duck typing or `Array.isArray` for cross-realm checks.
+- **`super.method()`** uses the method's home object ([[HomeObject]]) to find the parent's prototype — it does not depend on `this`, which is why copying a method that uses `super` to another object still calls the original parent.
+
+## Interview questions
+
+<QA q="What are the rules for this?" level="mid">
+In priority order: `new` binds the new object; `call`/`apply`/`bind` bind the given object (bind wins over later call); a method call `o.f()` binds `o`; a plain call binds `undefined` in strict mode (or globalThis in sloppy mode). Arrow functions ignore all of these and use the `this` of their enclosing scope.
+</QA>
+
+<QA q="What does `new` do step by step?" level="mid">
+Creates an object linked to Constructor.prototype, calls the constructor with this bound to it (for derived classes after super() initialises this), and returns that object unless the constructor returns a different object.
+</QA>
+
+<QA q="Implement Function.prototype.bind." level="senior">
+Return a function that calls the original with the bound `this` and the concatenated arguments. A complete answer handles `new` on the bound function: when called with new, ignore the bound `this` and construct normally (e.g. check `new.target`), and preserve the prototype so instanceof works.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "const f = obj.method; f() in a module returns this as…", options: ["obj", "undefined", "globalThis", "f"], answer: 1, explain: "Modules are strict; a plain call binds undefined." },
+  { q: "rex.speak() finds speak on Animal.prototype. Inside speak, this is…", options: ["Animal.prototype", "Dog.prototype", "rex", "undefined"], answer: 2, explain: "Lookup location and this binding are independent; the call site o.f() binds o." },
+  { q: "Assigning rex.toString = fn…", options: ["modifies Object.prototype", "creates an own property that shadows the inherited one", "throws", "modifies Dog.prototype"], answer: 1, explain: "Writes create own properties unless an inherited setter or non-writable property intervenes." }
+]} />
+
+## Resources
+
+<Resources topic="javascript/this-prototypes" />

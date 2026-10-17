@@ -1,0 +1,90 @@
+## TL;DR
+
+At senior level the same interview questions are scored on a different rubric. Interviewers look for **scope** (problems bigger than one ticket), **judgment** (choosing trade-offs deliberately and saying what you're giving up), **ownership** (production, quality, outcomes — not just code), **communication** (driving the conversation, writing, aligning people) and **multiplying others** (mentoring, raising standards). Every round — coding, system design, behavioral — is a chance to show these signals explicitly.
+
+## Visual model
+
+```text
+                 mid-level signal                      senior signal
+coding           correct, efficient solution            + clean decomposition, tests, edge cases unprompted
+system design    a working architecture                 + drives scope, quantifies, names failure modes & trade-offs
+behavioral       "I completed my tasks well"            + cross-team impact, ambiguity, influence, learning
+communication    answers questions                      + structures the discussion, checks alignment, summarises
+```
+
+## Mechanism
+
+**Drive, don't follow.** In a senior system design round the interviewer expects you to set the agenda: requirements, estimates, high-level design, deep dives you pick for good reasons, and wrap-up. Ask "which part would you like me to go deeper on?" only after proposing your own priorities.
+
+**Make trade-offs explicit.** Replace "I'd use Kafka" with "I'd use a log because we need replay and multiple consumer groups; the cost is operational complexity and per-partition ordering only — if we didn't need replay, a managed queue would be simpler." The phrase *the cost is…* is the senior signal.
+
+**Quantify.** Back-of-the-envelope numbers (QPS, storage, latency budgets) turn opinions into engineering. "This fits on one machine" is a powerful senior statement when the math supports it — avoiding unnecessary distribution is judgment.
+
+**Think about operations.** Mention deployment (feature flags, canaries, migrations), observability (metrics, logs, traces, SLOs), failure modes (what happens when the cache, a region, or a dependency fails) and security/privacy. Production experience shows up here.
+
+**Know the boundaries of your knowledge.** Saying "I haven't used X in production; my understanding is… I'd validate it by…" is a strong signal; bluffing is a strong negative one.
+
+**Multiply others.** In behavioral rounds, stories about mentoring, improving code review culture, writing design docs, onboarding, or untangling cross-team dependencies show you make teams better — the core of senior roles.
+
+## Code
+
+```text
+Phrases that carry senior signals (use them when they are true):
+
+"Before designing, let me pin down the requirements that drive the architecture: …"
+"Rough numbers: 50k QPS reads, 500 writes/s, 2 TB/year — so a single primary handles writes; reads need caching."
+"I'm choosing X over Y. We gain …; the cost is …; I'd revisit if …"
+"The riskiest part is …, so I'd ship it behind a flag and canary it to 1% first."
+"How would we know this is broken? I'd alert on … at the SLO of …"
+"I don't know the exact behaviour of … — I'd check the docs / run a benchmark before committing."
+"In my last project I wrote the design doc, got sign-off from two teams, and mentored a junior engineer through the rollout."
+```
+
+## When to use / when not to
+
+Show senior signals proportionally: in a 45-minute coding round, a minute on testing strategy and edge cases is enough; don't derail into architecture. In system design, spend most time on the parts that are actually hard for the given product.
+
+**Don't** pad answers with buzzwords, over-engineer (sharding a 10 GB dataset), dismiss simple solutions, or claim titles instead of showing behaviour.
+
+## Trade-offs
+
+| Area | Under-levelled answer | Senior answer |
+| --- | --- | --- |
+| Requirements | jumps into components | clarifies users, scale, SLOs, what's out of scope |
+| Data | "use NoSQL, it scales" | access patterns → schema → store choice with costs |
+| Failures | not mentioned | failure modes, retries, idempotency, degradation |
+| Delivery | "then we deploy" | migrations, flags, canaries, rollback, observability |
+| People | "I did my part" | aligned teams, mentored, improved process |
+
+## Senior nuance
+
+- **Levelling is calibrated across rounds**: a strong system design can't fully compensate for weak coding or behavioral signals, so prepare all three.
+- **Senior ≠ knows everything**: it means navigating unknowns safely — experiments, reversible decisions, asking the right people.
+- **Staff+ signals** extend further: setting technical direction across teams, identifying problems nobody assigned, and business impact measured over quarters.
+- **Down-levelling** usually comes from passive behaviour — waiting for the interviewer to drive — more than from missing facts.
+
+## Interview questions
+
+<QA q="What distinguishes a senior engineer from a mid-level engineer?" level="senior">
+Scope and independence: seniors take ambiguous, multi-week or cross-team problems from definition to production without close guidance; they choose trade-offs deliberately and explain them; they own operational outcomes (reliability, performance, cost); and they multiply others through mentoring, reviews, design docs and process improvements. Mid-level engineers execute well-defined work reliably.
+</QA>
+
+<QA q="Tell me about a technical decision you made that you'd make differently now." level="senior">
+Pick a significant decision; explain the context and constraints at the time and the reasoning, so it's clear the decision was reasonable then; describe what changed or what you learned (data, scale, team), the consequences, how you mitigated or migrated, and the general principle you now apply. This shows judgment and reflection without defensiveness.
+</QA>
+
+<QA q="How do you handle a design that another senior engineer strongly disagrees with?" level="senior">
+Seek to understand their concerns first; separate facts from preferences; make the decision criteria explicit (latency, cost, team expertise, reversibility); gather data or prototype where it's cheap; write the options and trade-offs down; prefer reversible choices; and if still unresolved, escalate to an agreed decision-maker — then commit fully to the outcome either way.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Which statement is the strongest senior signal?", options: ["'I'd use microservices.'", "'I'd use one Postgres primary; at 500 writes/s it's enough, and it keeps transactions simple — I'd revisit at 10×.'", "'NoSQL scales better.'", "'Let's use the latest framework.'"], answer: 1, explain: "Quantified, explicit trade-off with a revisit condition." },
+  { q: "You don't know how a technology behaves under failure. Best move?", options: ["guess confidently", "say so, give your hypothesis and how you'd verify it", "change the topic", "avoid mentioning failures"], answer: 1, explain: "Honest boundaries + verification plan is a positive signal." },
+  { q: "Most common reason for down-levelling in design rounds?", options: ["not knowing one API", "passively waiting for the interviewer to drive", "drawing slowly", "using a whiteboard"], answer: 1, explain: "Seniors are expected to drive the discussion." }
+]} />
+
+## Resources
+
+<Resources topic="interview/senior-signals" />

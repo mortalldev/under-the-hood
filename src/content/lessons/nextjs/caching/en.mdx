@@ -1,0 +1,129 @@
+## TL;DR
+
+With Cache Components (`cacheComponents: true`, the default for new Next.js 16 apps), **data fetching is dynamic by default** and you opt in to caching explicitly with the `'use cache'` directive on async functions or components. Every cached scope should declare a lifetime with **`cacheLife`** and can be tagged with **`cacheTag`**. After a mutation you invalidate with **`updateTag`** (read-your-own-writes, Server Actions only), **`revalidateTag`** (stale-while-revalidate), or **`revalidatePath`**. In the browser, a **client cache** holds RSC payloads of visited and prefetched routes.
+
+<Callout kind="note" title="Version-specific">
+Everything here was checked against the documentation bundled with Next.js 16.4. Apps without Cache Components use the previous model (fetch cache options, `revalidate` route exports); the official "Caching without Cache Components" guide covers it.
+</Callout>
+
+## Visual model
+
+```text
+request ─▶ static shell (prerendered: static + cached components + Suspense fallbacks)  ── served from CDN
+              │
+              ├─ 'use cache' scopes      key = function identity + arguments + captured values
+              │      cacheLife: stale / revalidate / expire        cacheTag: "products", "product:42"
+              │
+              └─ dynamic holes (runtime APIs, uncached I/O) ─▶ stream at request time
+
+mutation (Server Action) ─▶ updateTag("products")   → expire now, user sees the change on this response
+                         ─▶ revalidateTag("products", "max") → serve stale, refresh in background
+browser ─▶ client cache: RSC payloads of visited/prefetched segments (layouts, loading states)
+```
+
+## Mechanism
+
+**`'use cache'`** at the top of an async function or component makes its return value cacheable. The **cache key** is derived from the function's identity plus its **arguments and any captured variables** — so passing a `userId` creates one entry per user. Arguments and return values must be serializable.
+
+**`cacheLife(profile)`** sets three timings:
+
+| Profile | `stale` (client may reuse without checking) | `revalidate` (refresh in background after) | `expire` (hard limit) |
+| --- | --- | --- | --- |
+| `default` | 5m | 15m | never |
+| `seconds` | 30s | 1s | 60s |
+| `minutes` | 5m | 1m | 1h |
+| `hours` | 5m | 1h | 1d |
+| `days` | 5m | 1d | 1w |
+| `weeks` | 5m | 1w | 30d |
+| `max` | 5m | 30d | 1y |
+
+Short-lived caches (`seconds`, `revalidate: 0`, or `expire` under 5 minutes) are excluded from prerendering and become dynamic holes.
+
+**Invalidation**:
+- `updateTag(tag)` — expires immediately; only in Server Actions; the action's response includes the re-rendered route, so the user sees their own write.
+- `revalidateTag(tag, profile)` — stale-while-revalidate: stale content is served while fresh content generates (use `'max'` for the longest stale window); allowed in Server Actions and Route Handlers.
+- `revalidatePath(path)` — invalidates everything cached for a route; prefer tags for precision.
+- `refresh()` (Server Actions only) — refreshes the client router without invalidating caches.
+
+**Variants**: `'use cache: private'` caches functions that read cookies/headers directly (per user, can join prefetches); `'use cache: remote'` uses a durable shared cache handler — the default runtime cache is in-memory and may not survive between serverless invocations.
+
+## Code
+
+```ts
+// lib/products.ts
+import { cacheLife, cacheTag } from "next/cache";
+
+export async function getProduct(id: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("products", `product:${id}`);
+  return db.product.findUnique({ where: { id } });
+}
+
+// app/products/actions.ts
+"use server";
+import { updateTag } from "next/cache";
+
+export async function renameProduct(id: string, name: string) {
+  const session = await auth();
+  if (!session?.isAdmin) throw new Error("Forbidden");    // actions are public endpoints
+  await db.product.update({ where: { id }, data: { name } });
+  updateTag(`product:${id}`);                              // admin sees the new name immediately
+}
+
+// app/api/webhooks/cms/route.ts — external system changed content
+import { revalidateTag } from "next/cache";
+export async function POST(req: Request) {
+  const { tag } = await req.json();
+  revalidateTag(tag, "max");                               // visitors get stale-while-revalidate
+  return Response.json({ ok: true });
+}
+```
+
+## When to use / when not to
+
+**Cache** data that many requests share and that tolerates being slightly old: catalogs, CMS content, configuration, expensive aggregations. Tag by entity so you can invalidate precisely.
+
+**Don't cache** per-request or security-sensitive results globally (permissions, balances) — read them at request time behind Suspense, or use per-user keys deliberately (`'use cache: private'` or a user ID argument). Don't use `'use cache'` to hide a slow query you could fix.
+
+## Trade-offs
+
+| Tool | Freshness after a write | Who sees the change | Where allowed |
+| --- | --- | --- | --- |
+| `updateTag` | immediate | the writer on this response; everyone after | Server Actions |
+| `revalidateTag(tag, "max")` | eventually (background) | next readers after refresh | Server Actions, Route Handlers |
+| `revalidatePath` | immediate for that route | everyone | Server Actions, Route Handlers |
+| short `cacheLife` | time-based | everyone | anywhere caching is used |
+
+## Senior nuance
+
+- **Captured values are part of the key**: a cached component that closes over a large object or a request-specific value multiplies cache entries. Pass minimal arguments.
+- **Serverless + in-memory cache** = low hit rates. For durable sharing across instances, configure a remote cache handler (`'use cache: remote'`) or accept re-computation.
+- **Read-your-own-writes vs. scale**: `updateTag` forces fresh content; for high-traffic public pages, `revalidateTag` with stale-while-revalidate avoids stampedes on the origin.
+- **Client cache**: layouts and loading states are reused instantly on navigation; pages are not cached by default but are reused on back/forward. The experimental `staleTimes` option can extend reuse — with the risk of showing stale data.
+
+## Interview questions
+
+<QA q="How does caching work in Next.js 16 with Cache Components?" level="mid">
+Fetching is dynamic by default. You mark async functions or components with 'use cache'; their results are cached by function identity plus arguments and captured values, with a lifetime from cacheLife and optional tags from cacheTag. Cached results can be part of the prerendered static shell. Invalidation happens by time (cacheLife) or on demand with updateTag, revalidateTag or revalidatePath.
+</QA>
+
+<QA q="updateTag vs revalidateTag?" level="senior">
+updateTag expires the tag immediately and is only allowed in Server Actions: the action's response re-renders with fresh data, so the user sees their own change (read-your-own-writes). revalidateTag with a profile like 'max' uses stale-while-revalidate: existing entries keep being served while fresh content is generated in the background — better for content where a short delay is fine and for protecting the origin under load. revalidateTag can also be called from Route Handlers (e.g. CMS webhooks).
+</QA>
+
+<QA q="What becomes part of a 'use cache' entry's key, and why does it matter?" level="senior">
+The function's identity (build-time ID), its serialized arguments, and any values it captures from enclosing scopes. Different inputs create different entries. Capturing request-specific or high-cardinality values creates many entries and low hit rates; capturing secrets would leak them into cached output — so pass only the minimal stable inputs.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "An admin edits a product name in a Server Action and must see it immediately. Use…", options: ["revalidateTag(tag, 'max')", "updateTag(tag)", "cacheLife('seconds')", "nothing — it's automatic"], answer: 1, explain: "updateTag gives read-your-own-writes within the action's response." },
+  { q: "A CMS webhook hits a Route Handler. Which works there?", options: ["updateTag", "revalidateTag", "refresh", "none"], answer: 1, explain: "updateTag and refresh are Server Action-only." },
+  { q: "Without cacheLife inside 'use cache'…", options: ["the result is never cached", "the default profile applies", "it errors", "it's cached forever"], answer: 1, explain: "The implicit default profile is used; Next.js recommends always pairing a lifetime." }
+]} />
+
+## Resources
+
+<Resources topic="nextjs/caching" />

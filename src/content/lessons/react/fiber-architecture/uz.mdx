@@ -1,0 +1,98 @@
+## TL;DR
+
+<Term id="fiber" /> — React'ning bitta komponent nusxasi uchun ichki yozuvi, shuningdek **ish birligi**. Daraxt JS call stack oʻrniga fiber'larning bogʻlangan tuzilmasi (child, sibling, return pointer'lari) sifatida saqlangani uchun React render'ni birliklar orasida **toʻxtatishi**, keyinroq **davom ettirishi**, shoshilinch yangilanishlarga **ustuvorlik berishi** (lane'lar) yoki jarayondagi render'ni **tashlab yuborishi** mumkin. Bir vaqtda ikki daraxt mavjud: `current` (ekranda) va `workInProgress` (qurilmoqda) — commit'da atomik almashtiriladi (double buffering).
+
+## Vizual model
+
+```text
+          App                 har bir fiber:
+           │ child              type, key, props, state (memoizedState → hook roʻyxati)
+          Page                  child ─▶ birinchi bola
+         /    \                 sibling ─▶ keyingi aka-uka
+   Toolbar ─sibling─▶ List      return ─▶ ota
+                                alternate ─▶ boshqa daraxtdagi xuddi shu fiber (current ⇄ workInProgress)
+                                lanes ─▶ bu yerda qaysi ustuvorliklarda kutilayotgan ish bor
+```
+
+## Mexanizm
+
+**Fiber'dan oldin** (React ≤ 15, "stack reconciler") reconciliation rekursiv tushish edi — boshlangandan keyin oxirigacha ishlardi va katta daraxtlarda main thread'ni bloklardi.
+
+**Work loop**: React fiber daraxtini explicit pointer bilan chuqurlik boʻyicha aylanadi. Har bir fiber uchun `beginWork`ni (komponentni render qilish, bolalarini reconcile qilish, birinchi bolani qaytarish) va subtree tugaganda `completeWork`ni (DOM node'lari/effect'larni tayyorlash, keyin aka-ukaga yoki yuqoriga oʻtish) chaqiradi. **Concurrent** rendering'da loop birliklar orasida brauzerga navbat berish kerakmi-yoʻqmi tekshiradi (`shouldYield`), shuning uchun uzun render kichik boʻlaklarga boʻlinadi.
+
+**Lane'lar** — ustuvorliklar bitmask'i: click/keypress yangilanishi yuqori ustuvorlikdagi lane, `startTransition` yangilanishi transition lane, Suspense uchun kelgan ma'lumot retry lane oladi. React kutilayotgan ishi bor eng yuqori ustuvorlikdagi lane'larni tanlab, avval ularni render qiladi; pastroq ustuvorlikdagi jarayondagi render toʻxtatilib, keyinroq qayta boshlanishi mumkin.
+
+**Double buffering**: `workInProgress` `current`dan `alternate` pointer'lari orqali (obyektlarni qayta ishlatib) quriladi. Render tugasa, commit uni bir zarbada yangi `current`ga aylantiradi — foydalanuvchi hech qachon yarim yangilangan daraxtni koʻrmaydi. Toʻxtatilsa, yarim qurilgan daraxt shunchaki tashlanadi.
+
+**Commit toʻxtatilmaydi**: DOM mutatsiyasi, ref biriktirish, layout effect'lar sinxron bajariladi; passive effect'lar (`useEffect`) paint'dan keyinga rejalashtiriladi.
+
+## Kod
+
+```tsx
+// Fiber arxitekturasi API darajasida nimaga imkon beradi:
+import { startTransition, useDeferredValue, useState } from "react";
+
+function Search({ items }: { items: string[] }) {
+  const [text, setText] = useState("");
+  const deferred = useDeferredValue(text);          // roʻyxatni past ustuvorlikdagi lane'da kechikkan qiymat bilan render qiladi
+  return (
+    <>
+      <input value={text} onChange={(e) => setText(e.target.value)} />   {/* shoshilinch lane: sezgir qoladi */}
+      <SlowList filter={deferred} items={items} />
+    </>
+  );
+}
+
+// Aniq transition bilan ekvivalenti
+function onType(next: string, setQuery: (q: string) => void) {
+  startTransition(() => setQuery(next));           // keyingi yozish bilan toʻxtatilishi mumkin
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Fiber'ni tushunish muhim**: nega render'lar sof boʻlishi kerakligini tushuntirishda (ular bir necha marta ishlashi yoki tashlanishi mumkin), tashqi store'lar bilan "tearing"ni debug qilishda (`useSyncExternalStore` ishlating), transition/Suspense haqida fikrlashda yoki React DevTools Profiler flamegraph'larini oʻqishda.
+
+**Siz toʻgʻridan-toʻgʻri fiber'lar ustida dasturlamaysiz** — ichki qismlar ommaviy API emas va versiyalar orasida oʻzgaradi (lane modeli React 17–18 sikli davomida avvalgi "expiration time" modelini almashtirgan).
+
+## Trade-off'lar
+
+| | Stack reconciler (eski) | Fiber |
+| --- | --- | --- |
+| Toʻxtatiladigan rendering | yoʻq | ha (concurrent xususiyatlar) |
+| Ustuvorliklar | yoʻq | lane'lar |
+| Xotira | kamroq | ikki daraxt, koʻproq hisob-kitob |
+| Render sofligi talabi | tavsiya etilgan | zarur |
+
+## Senior nuance
+
+- **Tearing**: concurrent rendering'da bitta render tashqi oʻzgaruvchan store'ni har xil vaqtlarda oʻqib, komponentlar boʻylab nomuvofiq qiymatlarni koʻrsatishi mumkin. `useSyncExternalStore` izchil snapshot'larni majburlaydi (va kerak boʻlganda oʻsha yangilanishni sinxronga oʻtkazadi).
+- **Effect'lar tartibi**: layout effect'lar avval bolada, keyin otada ishlaydi; cleanup'lar keyingi effect'lardan oldin ishlaydi. Passive effect'lar paint'dan keyin asinxron bajariladi, lekin hali kutilayotgan boʻlsa, keyingi diskret yangilanishdan oldin sinxron bajariladi.
+- **Work loop'dagi bailout'lar**: fiber'da joriy lane'larda kutilayotgan ish boʻlmasa va props/context oʻzgarmagan boʻlsa, `beginWork` uning bolalarini render qilmasdan klonlaydi — `memo` va oʻzgarmagan elementlar aynan shundan foydalanadi.
+- **"Fiber" ≠ "sukut boʻyicha concurrent"**: Fiber concurrency'ni mumkin qildi; React 18 dan beri concurrent rendering faqat siz belgilagan yangilanishlar (transition'lar, deferred qiymatlar, Suspense) uchun ishlatiladi.
+
+## Interview savollari
+
+<QA q="React Fiber qanday muammoni hal qildi?" level="mid">
+Eski reconciler JS call stack'da rekursiyadan foydalanardi, shuning uchun katta daraxtni render qilishni toʻxtatib boʻlmasdi va u input hamda animatsiyani bloklardi. Fiber daraxtni explicit pointer'li bogʻlangan ish birliklari sifatida saqlaydi, bu React'ga bosqichma-bosqich render qilish, brauzerga navbat berish, shoshilinch yangilanishlarga ustuvorlik berish va eskirgan ishni tashlab yuborish imkonini beradi.
+</QA>
+
+<QA q="React'da double buffering nima?" level="senior">
+React current daraxtni (ekranda) va work-in-progress daraxtni alternate pointer'lar orqali bogʻlangan holda saqlaydi. Yangilanishlar work-in-progress daraxtga render qilinadi; commit'da u atomik ravishda current'ga aylanadi. Toʻxtatilgan render'lar current'ga tegmaydi, shuning uchun foydalanuvchilar hech qachon qisman yangilanishlarni koʻrmaydi.
+</QA>
+
+<QA q="Lane'lar nima?" level="senior">
+Bitmask'ga asoslangan ustuvorlik modeli. Har bir yangilanishga manbaiga qarab lane beriladi (diskret foydalanuvchi input'i, uzluksiz input, default, transition, idle, retry'lar). React avval eng yuqori ustuvorlikdagi kutilayotgan lane'larni render qiladi va bir lane'dagi yangilanishlarni birlashtira oladi; shoshilinch lane'larga ish kelganda pastroq ustuvorlikdagi render'lar toʻxtatilishi mumkin.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "React qaysi bosqichni toʻxtata oladi?", options: ["commit", "render", "ikkalasi", "hech biri"], answer: 1, explain: "Render sof va davom ettiriladigan; commit atomik boʻlishi shart." },
+  { q: "'alternate' pointer fiber'ni nimaga bogʻlaydi?", options: ["otasiga", "aka-ukasiga", "boshqa daraxtdagi juftiga", "DOM node'iga"], answer: 2, explain: "current ⇄ workInProgress." },
+  { q: "Nega Fiber ostida render funksiyalari sof boʻlishi shart?", options: ["uslub qoʻllanmasi", "ular bir necha marta ishlashi yoki tashlanishi mumkin", "faqat SSR uchun", "TypeScript talab qiladi"], answer: 1, explain: "Toʻxtatilgan yoki qayta urinilgan render'lar side effect'larni takrorlaydi." }
+]} />
+
+## Resurslar
+
+<Resources topic="react/fiber-architecture" />

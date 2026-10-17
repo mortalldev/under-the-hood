@@ -1,0 +1,109 @@
+## TL;DR
+
+Pick the algorithm from the **edge weights**: all equal → BFS; only 0 and 1 → 0-1 BFS with a deque; non-negative → **Dijkstra** with a min-heap, O((V + E) log V); may be negative → **Bellman-Ford**, O(V·E), which also detects negative cycles. Every one of them is built on the same operation — <Term id="relaxation" />.
+
+## Visual model
+
+```text
+relax(u → v, w):  if dist[u] + w < dist[v]  then dist[v] = dist[u] + w, prev[v] = u
+
+dist[v] only ever decreases; it is always the length of SOME real path, so it is an upper bound
+on the true shortest distance. Algorithms differ only in the ORDER in which they relax edges.
+```
+
+## Mechanism
+
+**Dijkstra** settles nodes in increasing distance order. When the closest unsettled node u is popped from the heap, its distance is final: any other route to u would leave the settled region through some node x with dist[x] ≥ dist[u], then add non-negative weights — so it cannot be shorter. Watch the badges: each node's number only decreases until the node turns "settled".
+
+<DijkstraViz />
+
+Notice the stale entries in the queue: instead of a decrease-key operation, the same node is pushed again with a better distance, and the outdated copy is skipped when popped (lazy deletion).
+
+**Negative edges break the proof**: a settled node could later be improved through a negative edge. **Bellman-Ford** just relaxes every edge V − 1 times; after k rounds, every shortest path that uses at most k edges is correct. If a V-th round still improves something, a negative cycle is reachable.
+
+## Code
+
+```ts
+function dijkstra(adj: [number, number][][], src: number): number[] {
+  const dist = new Array<number>(adj.length).fill(Infinity);
+  dist[src] = 0;
+  const pq = new MinHeap<[number, number]>((a, b) => a[0] < b[0]); // [dist, node]
+  pq.push([0, src]);
+  while (pq.size) {
+    const [d, u] = pq.pop()!;
+    if (d > dist[u]) continue;                      // stale
+    for (const [v, w] of adj[u]) {
+      if (d + w < dist[v]) { dist[v] = d + w; pq.push([dist[v], v]); }
+    }
+  }
+  return dist;
+}
+
+function bellmanFord(n: number, edges: [number, number, number][], src: number) {
+  const dist = new Array<number>(n).fill(Infinity);
+  dist[src] = 0;
+  for (let i = 0; i < n - 1; i++) {
+    let changed = false;
+    for (const [u, v, w] of edges) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; changed = true; }
+    if (!changed) break;                            // early exit
+  }
+  const negativeCycle = edges.some(([u, v, w]) => dist[u] + w < dist[v]);
+  return { dist, negativeCycle };
+}
+
+// 0-1 BFS: weight-0 edges go to the FRONT of the deque, weight-1 edges to the back
+```
+
+## When to use / when not to
+
+| Weights | Algorithm | Time |
+| --- | --- | --- |
+| unweighted | BFS | O(V + E) |
+| 0 or 1 | 0-1 BFS (deque) | O(V + E) |
+| non-negative | Dijkstra (binary heap) | O((V + E) log V) |
+| any, single source | Bellman-Ford | O(V · E) |
+| DAG, any weights | relax in topological order | O(V + E) |
+| all pairs, small V | Floyd–Warshall | O(V³) |
+
+**Recognition signals**: "minimum cost/time/effort to reach", "network delay", "cheapest flight", grid with different costs per cell. "At most K stops" → Bellman-Ford limited to K + 1 rounds (copy the array each round) or BFS over (node, stops) states.
+
+## Trade-offs
+
+- Dijkstra with an adjacency matrix and no heap is O(V²) — actually better than the heap version on very dense graphs (E ≈ V²).
+- A* is Dijkstra with a heuristic added to the priority; with an admissible heuristic (never overestimates) it stays optimal and explores far fewer nodes on maps.
+- Bellman-Ford's simplicity makes it the choice for small graphs with negative edges and for distance-vector routing protocols.
+
+## Senior nuance
+
+- **"Minimax" path costs** (minimise the maximum edge on the path — Path With Minimum Effort, Swim in Rising Water) still work with Dijkstra: replace `d + w` with `max(d, w)`; the monotonicity argument still holds.
+- **Path reconstruction**: keep `prev[v]` on every successful relaxation and walk it back from the target.
+- **Overflow / Infinity**: in typed languages, `INF + w` overflows; guard with `if (dist[u] === INF) continue`.
+- **Dijkstra does not work with negative edges even without negative cycles** — a common interview trap. Johnson's algorithm reweights edges with Bellman-Ford potentials to make them non-negative, then runs Dijkstra from every node.
+
+## Interview questions
+
+<QA q="Why does Dijkstra fail with negative edge weights?" level="mid">
+Its correctness argument is that the popped node u has a final distance because any alternative route must go through a node at least as far away and then add non-negative weights. With a negative edge, a path through a farther node could come back cheaper, so a node can be "settled" too early.
+</QA>
+
+<QA q="Cheapest Flights Within K Stops — why not plain Dijkstra?" level="senior">
+The state is not just the node: a more expensive route with fewer stops may be the only one that can still finish within K. Either run Bellman-Ford for K + 1 rounds using the previous round's distances (so each round adds exactly one edge), or run Dijkstra/BFS over states (node, stopsUsed), allowing a node to be revisited with fewer stops.
+</QA>
+
+<QA q="How would you compute shortest paths on a road network with millions of nodes and many queries?" level="senior">
+Dijkstra per query is too slow at that scale. Production routers precompute: contraction hierarchies or hub labels make queries take microseconds to milliseconds, and A* with landmarks (ALT) gives good heuristics. Bidirectional search also roughly halves the explored area. Mentioning that preprocessing trades memory and build time for query latency is the senior signal.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "Edge weights are all 0 or 1. Best algorithm?", options: ["Dijkstra", "0-1 BFS", "Bellman-Ford", "Floyd–Warshall"], answer: 1, explain: "A deque keeps distance order in O(V + E): 0-edges go to the front." },
+  { q: "Bellman-Ford's V-th round still relaxes an edge. That means…", options: ["bug", "a reachable negative cycle", "graph is disconnected", "weights are zero"], answer: 1, explain: "Shortest simple paths use at most V − 1 edges; further improvement implies a negative cycle." },
+  { q: "Path With Minimum Effort (minimise the max step): Dijkstra with…", options: ["d + w", "max(d, w)", "min(d, w)", "d · w"], answer: 1, explain: "The path cost is the maximum edge so far; it is still monotonic along the path." }
+]} />
+
+**Classic problems:** Network Delay Time (Medium) · Path With Minimum Effort (Medium) · Cheapest Flights Within K Stops (Medium) · Swim in Rising Water (Hard) · Minimum Cost to Make at Least One Valid Path in a Grid (Hard).
+
+## Resources
+
+<Resources topic="dsa/shortest-paths" />

@@ -1,0 +1,120 @@
+## TL;DR
+
+Linked list masalalari — pointer jarrohligi masalalari. Uchta vosita deyarli barchasini qamraydi: **joyida teskari qilish** (prev/curr/next), <Term id="fast-slow-pointers" /> (oʻrta, cycle, oxiridan k-chi) va **dummy head** (birinchi node maxsus holat boʻlmasligi uchun). Tekshiriladigan koʻnikma — roʻyxatning qolgan qismini yoʻqotmasdan `next` pointer'larni oʻzgartirish.
+
+## Vizual model
+
+```text
+oldin:   head → 1 → 2 → 3 → 4 → null
+keyin:   null ← 1 ← 2 ← 3 ← 4 ← head
+```
+
+Har bir node faqat oʻzidan keyingisini biladi. `curr.next`ni ustidan yozganingizdan keyin, avval saqlamagan boʻlsangiz, eski keyingi node'ga yetib boʻlmaydi.
+
+## Mexanizm
+
+Teskari qilish <Term id="invariant" /> saqlaydi: `curr`'dan chapdagi hamma narsa allaqachon teskari va `prev`'dan boshlanadi; `curr`'dan boshlab hamma narsa tegilmagan. Bitta iteratsiya toʻrt harakatda bitta node'ni chegaradan oʻtkazadi: next'ni saqlash, teskari qilish, prev'ni surish, curr'ni surish.
+
+<LinkedListViz />
+
+**Floyd cycle aniqlash**: `slow`'ni 1 ga, `fast`'ni 2 ga suring. Cycle boʻlmasa, `fast` null'ga yetadi. Agar boʻlsa, ikkalasi ichkariga kirgach, ular orasidagi masofa har qadamda 1 ga qisqaradi, shuning uchun bir aylanish ichida albatta uchrashadi. Cycle **boshini** topish uchun: uchrashgandan keyin bitta pointer'ni head'ga qaytaring va ikkalasini 1 dan suring — ular kirish nuqtasida uchrashadi. (Agar cycle'dan oldingi dum uzunligi a boʻlsa va ular uzunligi c boʻlgan cycle'ga b qadam kirib uchrashgan boʻlsa, a ≡ c − b (mod c).)
+
+## Kod
+
+```ts
+interface ListNode { val: number; next: ListNode | null }
+
+function reverse(head: ListNode | null): ListNode | null {
+  let prev: ListNode | null = null, curr = head;
+  while (curr) {
+    const next = curr.next;
+    curr.next = prev;
+    prev = curr;
+    curr = next;
+  }
+  return prev;
+}
+
+function middle(head: ListNode): ListNode {         // juft uzunlikda ikkinchi oʻrta
+  let slow = head, fast: ListNode | null = head;
+  while (fast && fast.next) { slow = slow.next!; fast = fast.next.next; }
+  return slow;
+}
+
+function cycleStart(head: ListNode | null): ListNode | null {
+  let slow = head, fast = head;
+  while (fast && fast.next) {
+    slow = slow!.next; fast = fast.next.next;
+    if (slow === fast) {
+      let p = head;
+      while (p !== slow) { p = p!.next; slow = slow!.next; }
+      return p;
+    }
+  }
+  return null;
+}
+
+function removeNthFromEnd(head: ListNode | null, n: number): ListNode | null {
+  const dummy: ListNode = { val: 0, next: head };    // head'ni oʻchirish endi maxsus emas
+  let fast: ListNode | null = dummy, slow: ListNode = dummy;
+  for (let i = 0; i <= n; i++) fast = fast!.next;   // n + 1 oraliq
+  while (fast) { fast = fast.next; slow = slow.next!; }
+  slow.next = slow.next!.next;
+  return dummy.next;
+}
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+**Tanib olish signallari**
+- "Joyida", "O(1) qoʻshimcha xotira", "teskari qilish", "qayta tartiblash", "oxiridan k-chi", "cycle'ni aniqlash", "saralangan roʻyxatlarni birlashtirish".
+- Node head'da olib tashlanishi yoki qoʻshilishi mumkin boʻlgan har qanday masala → dummy node.
+- Takrorlanuvchi qiymatlar ketma-ketligi ("happy number", "find the duplicate number") — Floyd boshlangʻich nuqtadan takrorlangan istalgan f(x) funksiyasida ishlaydi.
+
+**Qachon kerak emas**
+- Random access yoki binary search kerak → array'lar.
+- Avval qiymatlarni array'ga nusxalash ruxsat etilgan va soddaroq → production'da koʻpincha maqbul; interview'da odatda maqsadni yoʻqqa chiqaradi, shuning uchun soʻrang.
+
+## Trade-off'lar
+
+| Amal | Singly linked list | Array |
+| --- | --- | --- |
+| Indeks boʻyicha murojaat | O(n) | O(1) |
+| Ma'lum node'da qoʻshish/oʻchirish | O(1) | O(n) (siljitish) |
+| Boshiga qoʻshish | O(1) | O(n) |
+| Xotira/cache xatti-harakati | har node'ga pointer, tarqoq | uzluksiz, cache'ga qulay |
+
+## Senior nuance
+
+- **Cache locality** — Big-O shunday desa ham, linked list'lar amalda kamdan-kam eng tez tanlov boʻlishining sababi; heap boʻylab tarqalgan node'lar har bir sakrashda cache miss keltiradi.
+- **LRU cache'lar** — kanonik real qoʻllanish: hash map node'ni O(1) da topadi; doubly linked list oldinga koʻchirish va dumdan chiqarishni O(1) da beradi.
+- Roʻyxatlarda **recursion** O(n) stack xotira; 10⁵ node'li roʻyxat stack'ni toʻldirib yuborishi mumkin. Iteratsiyani afzal koʻring.
+- JavaScript'da obyekt graph'laridagi cycle'lar GC uchun muammo emas (tracing collector'lar cycle'larni hal qiladi), lekin `JSON.stringify` va sodda deep-equality'ni buzadi.
+
+## Interview savollari
+
+<QA q="Linked list'ni k tadan guruhlab teskari qiling." level="senior">
+Head'dan oldin dummy va `groupPrev` pointer ishlating. Har bir guruh uchun avval k ta node borligini tekshiring (k qadam yuring); boʻlmasa toʻxtang. k ta node'ni prev guruhdan keyingi node'dan boshlanadigan standart prev/curr loop bilan teskari qiling, keyin qayta ulang: `groupPrev.next` yangi guruh boshiga aylanadi, `groupPrev` esa eski guruh boshiga (endi guruh dumi) koʻchadi. O(n) vaqt, O(1) xotira.
+</QA>
+
+<QA q="Nega Floyd algoritmi cycle kirish nuqtasini topadi?" level="senior">
+a = head'dan kirishgacha qadamlar, c = cycle uzunligi, ular kirishdan b qadam keyin uchrashgan boʻlsin. Slow a + b, fast 2(a + b) yurdi va fast'ning ortiqcha masofasi a + b — c ga karrali. Demak a ≡ −b (mod c): uchrashuv nuqtasidan yana a qadam yurish aynan kirishga olib keladi — head'dan a qadam yurish bilan bir xil.
+</QA>
+
+<QA q="k ta saralangan roʻyxatni samarali birlashtiring." level="mid">
+Har bir roʻyxatning joriy boshidan iborat min-heap ishlating: eng kichigini oling, qoʻshing, uning keyingisini push qiling. Jami N ta node uchun O(N log k). Muqobil: raundlarda juft-juft birlashtirish (divide and conquer), heap'siz ham O(N log k).
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Teskari qilish loop'ida `const next = curr.next`ni tashlab ketsangiz nima buziladi?", options: ["Hech narsa", "curr.next'ni oʻzgartirgandan keyin roʻyxatning qolganiga kira olmaysiz", "O(n²) boʻladi", "prev null boʻladi"], answer: 1, explain: "Teskari qilish qolgan node'larga yagona reference'ni ustidan yozadi." },
+  { q: "'Oxiridan N-chini oʻchirish'da nega dummy head ishlatiladi?", options: ["Tezroq", "Haqiqiy head'ni oʻchirish maxsus holat talab qilmasligi uchun", "Cycle'larni aniqlash uchun", "TypeScript talab qiladi"], answer: 1, explain: "Endi har bir haqiqiy node, head ham, oʻzidan oldingiga ega." },
+  { q: "Fast 2 ga, slow 1 ga yuradi. Cycle ichida ular orasidagi masofa har qadamda…", options: ["1 ga oʻsadi", "1 ga qisqaradi", "oʻzgarmaydi", "ikki baravar oshadi"], answer: 1, explain: "Shuning uchun ular cycle'ning bir aylanishi ichida uchrashadi." }
+]} />
+
+**Klassik masalalar:** Reverse Linked List (Easy) · Merge Two Sorted Lists (Easy) · Linked List Cycle (Easy) · Middle of the Linked List (Easy) · Linked List Cycle II (Medium) · Remove Nth Node From End of List (Medium) · Reorder List (Medium) · LRU Cache (Medium) · Merge k Sorted Lists (Hard).
+
+## Resurslar
+
+<Resources topic="dsa/linked-list" />

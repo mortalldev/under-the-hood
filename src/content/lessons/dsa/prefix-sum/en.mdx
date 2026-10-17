@@ -1,0 +1,112 @@
+## TL;DR
+
+A <Term id="prefix-sum" /> array stores running totals so that **any range sum is one subtraction**: `sum(l..r) = prefix[r + 1] − prefix[l]`. Combined with a hash map of previously seen prefixes, it answers "how many subarrays sum to k?" in O(n) — including with negative numbers, where a sliding window breaks.
+
+## Visual model
+
+```text
+nums    =    [ 3,  1,  4,  1,  5 ]
+prefix  = [0,  3,  4,  8,  9, 14 ]     prefix[i] = nums[0] + … + nums[i-1]
+
+sum(nums[1..3]) = prefix[4] − prefix[1] = 9 − 3 = 6   (1 + 4 + 1)
+```
+
+The extra leading 0 is the "empty prefix". It removes every `if (l === 0)` special case.
+
+## Mechanism
+
+The key identity: a subarray `nums[j+1..i]` has sum `prefix[i] − prefix[j]`. So "subarray ending at i with sum k" means "an earlier prefix equal to `prefix[i] − k`". Instead of looking back over all j (O(n²)), keep a hash map from prefix value to how many times it occurred. Step through it:
+
+<PrefixSumViz />
+
+Watch three details:
+- `seen` starts as `{0: 1}` — the empty prefix lets a subarray that starts at index 0 be counted.
+- The lookup happens **before** inserting the current prefix, so the subarray is never empty.
+- With negative numbers, the same prefix value can occur several times; that is why the map stores counts, not booleans.
+
+## Code
+
+```ts
+// Range sums after O(n) preprocessing
+function buildPrefix(nums: number[]): number[] {
+  const p = new Array<number>(nums.length + 1).fill(0);
+  for (let i = 0; i < nums.length; i++) p[i + 1] = p[i] + nums[i];
+  return p;
+}
+const rangeSum = (p: number[], l: number, r: number) => p[r + 1] - p[l]; // inclusive l..r
+
+// Count subarrays with sum k (works with negatives)
+function subarraySum(nums: number[], k: number): number {
+  const seen = new Map<number, number>([[0, 1]]);
+  let prefix = 0, count = 0;
+  for (const x of nums) {
+    prefix += x;
+    count += seen.get(prefix - k) ?? 0;
+    seen.set(prefix, (seen.get(prefix) ?? 0) + 1);
+  }
+  return count;
+}
+```
+
+Variants use the same idea with a different "key": prefix **mod k** (subarray sum divisible by k), prefix of **+1/−1** (equal numbers of 0s and 1s), prefix **XOR** (subarray XOR equals k), and 2D prefix sums for rectangle queries:
+
+```ts
+// 2D: P[r+1][c+1] = sum of the rectangle (0,0)..(r,c)
+// sum(r1..r2, c1..c2) = P[r2+1][c2+1] − P[r1][c2+1] − P[r2+1][c1] + P[r1][c1]
+```
+
+## When to use / when not to
+
+**Recognition signals**
+- Many range-sum queries on a static array.
+- "Count / find subarrays whose sum (or XOR, or balance) equals / is divisible by k".
+- The array contains negative numbers, so window sums are not monotonic.
+
+**When not to**
+- Values change between queries → Fenwick tree or segment tree (O(log n) update and query).
+- All numbers are non-negative and you want the *shortest/longest* window with sum ≥ k → sliding window is O(1) space.
+- You need range minimum/maximum → prefix sums do not invert; use a sparse table or segment tree.
+
+## Trade-offs
+
+| Technique | Build | Query | Update | Space |
+| --- | --- | --- | --- | --- |
+| Recompute each time | — | O(n) | O(1) | O(1) |
+| Prefix array | O(n) | O(1) | O(n) | O(n) |
+| Fenwick tree | O(n) | O(log n) | O(log n) | O(n) |
+| Prefix + hash map (count subarrays) | — | one pass O(n) | — | O(n) |
+
+## Senior nuance
+
+- **Off-by-one discipline**: choosing `prefix` of length n + 1 with a leading zero is the single best defence against boundary bugs. State the convention out loud in an interview.
+- **Overflow**: in fixed-width languages, prefix sums of 10⁵ values up to 10⁹ overflow 32-bit ints; in JavaScript they exceed `Number.MAX_SAFE_INTEGER` only beyond ~9 × 10¹⁵, but products and squared terms can still lose precision — use `BigInt` when exactness matters.
+- **Modulo with negatives**: in JavaScript `-1 % 5 === -1`. Normalize with `((x % k) + k) % k` before using it as a map key.
+- **Difference arrays** are the inverse trick: to add v to every element of a range many times, add v at l and −v at r + 1, then take one prefix sum at the end — O(1) per range update.
+
+## Interview questions
+
+<QA q="Why doesn't a sliding window work for 'subarray sum equals k' when numbers can be negative?" level="mid">
+A sliding window relies on monotonicity: extending the window increases the sum and shrinking decreases it, so you know which pointer to move. With negatives, adding an element can decrease the sum, so neither move is safe and the window can skip valid answers. Prefix sums + a hash map do not depend on monotonicity.
+</QA>
+
+<QA q="Count subarrays whose sum is divisible by k." level="mid">
+Two prefixes with the same remainder mod k bound a subarray whose sum is divisible by k. Keep counts of normalized remainders, seeded with `{0: 1}`; for each prefix add `count[rem]` to the answer, then increment it. O(n) time, O(k) space.
+</QA>
+
+<QA q="How would you support updates between range-sum queries?" level="senior">
+A plain prefix array needs O(n) per update. A Fenwick tree gives O(log n) for both point update and prefix query with a tiny, cache-friendly array; a segment tree also handles range updates (with lazy propagation) and non-invertible aggregates like min/max.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "prefix has a leading 0. What is sum(nums[2..4]) (inclusive)?", options: ["prefix[4] − prefix[2]", "prefix[5] − prefix[2]", "prefix[5] − prefix[1]", "prefix[4] − prefix[1]"], answer: 1, explain: "sum(l..r) = prefix[r + 1] − prefix[l] = prefix[5] − prefix[2]." },
+  { q: "Why is seen initialised with {0: 1}?", options: ["To avoid division by zero", "So subarrays starting at index 0 are counted", "To handle k = 0 only", "It is not needed"], answer: 1, explain: "A subarray nums[0..i] corresponds to prefix[i] − (empty prefix 0)." },
+  { q: "Longest subarray with equal 0s and 1s — what do you hash?", options: ["Raw prefix sums of 0/1", "Prefix of +1 for 1 and −1 for 0, storing the FIRST index of each value", "Prefix XOR", "Counts of 1s only"], answer: 1, explain: "Balance 0 between two positions means equal counts; the first index maximizes the length." }
+]} />
+
+**Classic problems:** Range Sum Query - Immutable (Easy) · Subarray Sum Equals K (Medium) · Continuous Subarray Sum (Medium) · Contiguous Array (Medium) · Product of Array Except Self (Medium) · Subarray Sums Divisible by K (Medium).
+
+## Resources
+
+<Resources topic="dsa/prefix-sum" />

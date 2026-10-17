@@ -1,0 +1,112 @@
+## TL;DR
+
+Node bir nechta CPU yadrosidan foydalanishning uchta yoʻlini beradi. **Worker thread'lar** JavaScript'ni **bitta jarayon ichida** parallel ishga tushiradi (alohida V8 isolate va event loop'lar, `SharedArrayBuffer` orqali umumiy xotira mumkin) — CPU-ogʻir ish uchun. **Cluster** tinglash port'ini boʻlishadigan bir xil serverning bir nechta **jarayonini** fork qiladi — request'larni qayta ishlashni yadrolar boʻylab masshtablash uchun. **Child process'lar** **istalgan dasturni** (boshqa Node skript, Python, ffmpeg) toʻliq izolyatsiya bilan ishga tushiradi — tashqi vositalar va nosozlik izolyatsiyasi uchun.
+
+## Vizual model
+
+<FlowDiagram height={58} nodes={[
+  { id: "proc", label: "bitta jarayon", sub: "main thread + event loop", x: 19, y: 10, w: 24 },
+  { id: "w1", label: "worker thread", sub: "oʻz isolate + loop", x: 10, y: 32, w: 18, kind: "queue" },
+  { id: "w2", label: "worker thread", sub: "SharedArrayBuffer mumkin", x: 30, y: 32, w: 18, kind: "queue" },
+  { id: "primary", label: "cluster primary", sub: "qabul / taqsimlash", x: 70, y: 10, w: 24 },
+  { id: "c1", label: "worker process", sub: "oʻz heap'i, bir xil port", x: 52, y: 32, w: 18, kind: "service" },
+  { id: "c2", label: "worker process", sub: "qulash izolyatsiyalangan", x: 88, y: 32, w: 18, kind: "service" },
+  { id: "child", label: "child process", sub: "ffmpeg / python / node", x: 70, y: 50, w: 26, kind: "note" }
+]} edges={[
+  { from: "proc", to: "w1", label: "postMessage" }, { from: "proc", to: "w2" },
+  { from: "primary", to: "c1", label: "IPC" }, { from: "primary", to: "c2" },
+  { from: "primary", to: "child", dashed: true, label: "spawn + stdio" }
+]} caption="Thread'lar jarayonni boʻlishadi (arzon, kamroq izolyatsiya); jarayonlar sukut boʻyicha hech narsani boʻlishmaydi (ogʻirroq, qulashdan izolyatsiyalangan)." />
+
+## Mexanizm
+
+**Worker thread'lar** (`node:worker_threads`): har bir worker oʻz V8 isolate'i, heap'i va event loop'iga ega. Aloqa xabar almashish orqali (`postMessage`, structured clone) — obyektlar **nusxalanadi**, agar `ArrayBuffer`ni transfer qilmasangiz (egalik koʻchadi, nusxasiz) yoki haqiqiy umumiy xotira uchun `SharedArrayBuffer` + `Atomics` ishlatmasangiz. Ishga tushirish oʻnlab millisekund va har worker uchun xotira turadi, shuning uchun koʻp kichik task'lar uchun **pool** ishlating.
+
+**Cluster** (`node:cluster`): primary jarayon bir xil skriptni ishlatadigan N ta worker'ni fork qiladi. Ulanishlar primary tomonidan (koʻp platformalarda sukut boʻyicha round-robin) yoki OS tomonidan taqsimlanadi. Worker'larning xotirasi alohida — jarayon ichidagi cache va sessiyalar **umumiy emas**, shuning uchun state Redis/DB'da yashashi shart. Qulagan worker butun servisni toʻxtatmasdan qayta ishga tushirilishi mumkin.
+
+**Child process'lar** (`node:child_process`): `spawn` (stdio'ni stream qiladi, uzoq ishlaydigan yoki katta natija uchun), `exec` (natijani buffer'ga oladi, shell orqali ishlaydi — injection'dan ehtiyot boʻling), `execFile` (shell'siz), `fork` (IPC kanalli Node skript). OS darajasidagi toʻliq izolyatsiya.
+
+Konteynerlarda gorizontal masshtablash (load balancer ortida koʻproq pod) koʻpincha `cluster`ni almashtiradi: har konteynerga bitta Node jarayoni, qayta ishga tushirish va taqsimlashni orkestrator hal qilsin.
+
+## Kod
+
+```js
+// CPU-ogʻir ish uchun worker thread
+// main.js
+const { Worker } = require("node:worker_threads");
+function hash(password) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL("./hash-worker.js", "file://" + __filename), { workerData: password });
+    w.once("message", resolve);
+    w.once("error", reject);
+  });
+}
+// hash-worker.js
+const { parentPort, workerData } = require("node:worker_threads");
+parentPort.postMessage(expensiveHash(workerData));
+
+// Katta buffer'ni nusxasiz transfer qilish
+// worker.postMessage(buffer, [buffer]);   // `buffer` joʻnatuvchida ishlatib boʻlmaydigan boʻladi
+
+// Shell'siz child process (argumentlar orqali injection yoʻq)
+const { execFile } = require("node:child_process");
+execFile("ffmpeg", ["-i", input, "-vf", "scale=640:-1", output], (err) => { /* … */ });
+
+// ✗ Shell injection xavfi
+// exec(`convert ${userFilename} out.png`);   // userFilename = "a.png; rm -rf /"
+```
+
+## Qachon ishlatiladi / ishlatilmaydi
+
+| Ehtiyoj | Tanlov |
+| --- | --- |
+| Request'larni bloklamasdan CPU-ogʻir JS (JS'da rasm/video qayta ishlash, parsing, JS'da crypto) | worker thread'lar (pool) |
+| Bitta VM'da HTTP server uchun barcha yadrolardan foydalanish | cluster yoki reverse proxy ortida bir nechta jarayon |
+| Tashqi binary'lar yoki boshqa tillarni ishga tushirish | child process (`spawn`/`execFile`) |
+| Ishonchsiz yoki qulashga moyil ish uchun kuchli nosozlik izolyatsiyasi | child process |
+| Kubernetes / konteynerlar | har konteynerga bitta jarayon, replica'larni masshtablash |
+
+I/O-bound ish uchun **worker ishlatmang** — event loop allaqachon minglab parallel I/O amallarini hal qiladi.
+
+## Trade-off'lar
+
+| | Worker thread'lar | Cluster | Child process |
+| --- | --- | --- | --- |
+| Izolyatsiya | thread (umumiy jarayon) | jarayon | jarayon (istalgan dastur) |
+| Xotirani boʻlishish | `SharedArrayBuffer`, transfer | yoʻq (faqat IPC) | yoʻq (stdio/IPC) |
+| Ishga tushirish narxi | oʻnlab ms | jarayon fork | jarayon spawn |
+| Qulash nimani toʻxtatadi | butun jarayonni (hal qilinmasa) | bitta worker'ni | faqat child'ni |
+| Odatiy qoʻllanish | CPU task'lari | koʻp yadroli serverlar | tashqi vositalar |
+
+## Senior nuance
+
+- **Xabar serialization'i ustun kelishi mumkin**: worker'ga 50 MB obyekt yuborish uni structured-clone qiladi; buning oʻrniga buffer'larni transfer qiling yoki xotirani boʻlishing.
+- **Thread pool va worker thread'lar**: worker'lar libuv pool'ini oshirmaydi; har bir worker'ning oʻz event loop'i bor, lekin ular butun jarayon uchun umumiy libuv thread pool'ini boʻlishadi.
+- Ulanish holati tashqariga chiqarilmasa, cluster bilan WebSocket/long-polling uchun **sticky session'lar** kerak.
+- **Graceful restart'lar**: cluster bilan nol-uzilishli deploy uchun worker'larni birma-bir qayta ishga tushiring (`disconnect`, jarayondagi request'larni kuting).
+
+## Interview savollari
+
+<QA q="Worker thread'lar va cluster — qachon qaysi biri?" level="mid">
+Worker thread'lar CPU-bound task'lar uchun bitta jarayon ichida parallel JavaScript ishga tushiradi, main thread esa request'larga xizmat qilishda davom etadi; ular xotirani boʻlisha oladi. Cluster request'larni qayta ishlash uchun bir nechta yadrodan foydalanish maqsadida bir xil serverning bir nechta jarayonini ishga tushiradi; ular hech narsani boʻlishmaydi va IPC/tashqi store'lar orqali muvofiqlashadi. CPU-bound task'ni yuklash → worker'lar; bitta mashinada stateless serverni masshtablash → cluster (yoki bir nechta konteyner).
+</QA>
+
+<QA q="Nega foydalanuvchi input'i bilan exec xavfli?" level="mid">
+exec buyruqni shell orqali ishga tushiradi, shuning uchun interpolyatsiya qilingan input'dagi metabelgilar (; | && $()) talqin qilinadi va command injection'ga yoʻl ochadi. Argumentlar array'i bilan (shell'siz) execFile yoki spawn ishlating, input'larni validatsiya qiling va foydalanuvchi ma'lumotidan hech qachon shell string qurmang.
+</QA>
+
+<QA q="API latency'siga zarar yetkazmasdan 10 000 ta thumbnail'ni qanday qayta ishlaysiz?" level="senior">
+Ishni request yoʻlidan chiqaring: job'larni queue'ga qoʻyib, ularni CPU soniga moslangan worker-thread pool yoki native vositalar (sharp/libvips, ffmpeg) bilan fon worker'larida (alohida jarayon yoki konteynerlarda) qayta ishlang; fayllarni toʻliq yuklash oʻrniga stream qiling; queue'ning parallellik chegarasi orqali backpressure qoʻllang; API jarayoni esa faqat navbatga qoʻyib, holatni xabar qilsin.
+</QA>
+
+## Mashq
+
+<Quiz questions={[
+  { q: "Transfer roʻyxatisiz worker'ga postMessage(obj)…", options: ["obj'ni boʻlishadi", "obj'ni structured clone orqali nusxalaydi", "obj'ni koʻchiradi", "xato tashlaydi"], answer: 1, explain: "Buffer'lar transfer yoki share qilinmasa, xabarlar klonlanadi." },
+  { q: "Cluster bilan xotiradagi sessiyalar…", options: ["avtomatik umumiy", "har worker jarayoniga alohida — tashqi store ishlating", "SharedArrayBuffer talab qiladi", "faqat Linux'da ishlaydi"], answer: 1, explain: "Cluster worker'lari alohida jarayonlar." },
+  { q: "Node'dan Python skriptini toʻliq izolyatsiya bilan ishga tushirish:", options: ["worker_threads", "cluster.fork", "child_process.spawn", "setImmediate"], answer: 2, explain: "Child process'lar istalgan executable'ni ishga tushira oladi." }
+]} />
+
+## Resurslar
+
+<Resources topic="nodejs/workers-cluster-processes" />

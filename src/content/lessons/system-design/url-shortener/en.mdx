@@ -1,0 +1,130 @@
+## TL;DR
+
+A URL shortener is the classic warm-up because every decision is visible: a **read-heavy** key→value lookup (redirects outnumber creations ~100:1), a short **unique ID** scheme, a **cache-friendly** redirect path, and an **analytics** pipeline that must not slow redirects down. This lesson walks through it as you would in a 45-minute interview, with the numbers.
+
+## Visual model
+
+<FlowDiagram height={62} nodes={[
+  { id: "user", label: "browser", x: 8, y: 10, w: 14, kind: "client" },
+  { id: "cdn", label: "CDN / edge", sub: "cache 301/302", x: 28, y: 10, w: 18, kind: "edge" },
+  { id: "lb", label: "load balancer", x: 50, y: 10, w: 18 },
+  { id: "redir", label: "redirect service", sub: "stateless", x: 74, y: 10, w: 22 },
+  { id: "cache", label: "Redis", sub: "code → long URL", x: 74, y: 30, w: 18, kind: "queue" },
+  { id: "db", label: "key-value DB", sub: "sharded by code", x: 74, y: 50, w: 22, kind: "store" },
+  { id: "create", label: "create service", sub: "ID ranges", x: 26, y: 32, w: 20 },
+  { id: "events", label: "click events", sub: "log / stream → analytics", x: 46, y: 52, w: 26, kind: "queue" }
+]} edges={[
+  { from: "user", to: "cdn" }, { from: "cdn", to: "lb" }, { from: "lb", to: "redir" }, { from: "redir", to: "cache" }, { from: "cache", to: "db", dashed: true, label: "miss" }, { from: "lb", to: "create" }, { from: "create", to: "db" }, { from: "redir", to: "events", dashed: true, label: "async" }
+]} caption="Redirects never wait for analytics: click events are emitted asynchronously." />
+
+## Mechanism
+
+### 1. Requirements
+
+Functional: create a short link for a long URL (optionally custom alias, expiry); redirect short → long; basic click analytics. Non-functional: redirects p99 under ~50 ms server-side, highly available (redirect failures break links everywhere), links never collide, abuse protection (spam/phishing).
+
+### 2. Estimation
+
+- Writes: 100 M new links/month ≈ 40 writes/s average (peak ~10× → 400/s).
+- Reads: 100:1 → ~4 000 redirects/s average, ~40 000/s peak.
+- Storage: ~500 B per record × 1.2 B links/year ≈ 600 GB/year (before replication) — a sharded key-value store or a few database shards.
+- ID space: base62 (a–z, A–Z, 0–9) with 7 characters = 62⁷ ≈ 3.5 × 10¹² codes — enough for centuries at this rate.
+
+### 3. API
+
+```text
+POST /api/links        { url, alias?, expiresAt? }  →  201 { code, shortUrl }
+GET  /{code}           →  302 Location: <long URL>     (301 if you don't need per-click analytics)
+GET  /api/links/{code}/stats  →  { clicks, byDay, byCountry }
+```
+
+### 4. ID generation (the deep dive)
+
+- **Hash the URL** (e.g. first 7 base62 chars of a hash): deterministic, but collisions must be detected and resolved, and the same URL from different users maps to one code (sometimes desired, sometimes not).
+- **Global counter → base62**: no collisions; a single counter is a bottleneck, so each create-service instance **leases a range** (e.g. 1 000 000 IDs) from a coordinator (DB sequence, ZooKeeper/etcd). Sequential codes are guessable — scramble with a bijective permutation if enumeration matters.
+- **Random 7-char codes**: simple, but must check for collisions (insert with a uniqueness constraint and retry).
+
+### 5. Read path
+
+Redirect service looks up `code` in Redis, falls back to the DB on miss and populates the cache. Popular links are also cacheable at the CDN. **302 vs 301**: 301 (permanent) is cached by browsers, so later clicks may not reach you — fewer requests, but you lose per-click analytics and can't change the target; 302 keeps every click visible.
+
+### 6. Analytics
+
+The redirect handler emits a click event (code, timestamp, country, user agent) to a log/stream asynchronously and responds immediately. Consumers aggregate into a time-series/OLAP store; counts are eventually consistent.
+
+## Code
+
+```ts
+const ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+function toBase62(n: bigint): string {
+  let s = "";
+  do { s = ALPHABET[Number(n % 62n)] + s; n /= 62n; } while (n > 0n);
+  return s.padStart(7, "0");
+}
+
+// Each instance leases a block of IDs, so creation needs no coordination per request
+class IdAllocator {
+  private next = 0n; private end = 0n;
+  async nextId(): Promise<bigint> {
+    if (this.next >= this.end) {
+      const start = await db.leaseRange("links", 1_000_000);   // atomic UPDATE … RETURNING
+      this.next = start; this.end = start + 1_000_000n;
+    }
+    return this.next++;
+  }
+}
+
+async function redirect(code: string): Promise<Response> {
+  const url = (await redis.get(`l:${code}`)) ?? (await loadAndCache(code));
+  if (!url) return new Response("Not found", { status: 404 });
+  emitClick({ code, at: Date.now() });                          // fire-and-forget to the event stream
+  return new Response(null, { status: 302, headers: { Location: url } });
+}
+```
+
+## When to use / when not to
+
+The same skeleton — short ID + key-value store + cache + async analytics — fits paste bins, invite links, QR code redirects, and tracking links. Don't over-engineer: at a few requests per second, one relational database with an index on `code` and a small cache is the right answer; say when you'd add each piece.
+
+## Trade-offs
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| ID scheme | leased counter ranges + base62 | no collisions, no per-request coordination |
+| Redirect status | 302 | keeps analytics; 301 if traffic cost dominates |
+| Storage | key-value, sharded by code | single-key lookups, even distribution |
+| Analytics | async event stream | redirects stay fast; counts eventually consistent |
+| Abuse | URL reputation check at creation, rate limits per user/IP | stop spam/phishing at the source |
+
+## Senior nuance
+
+- **Hot links** (a viral tweet) concentrate traffic on one key: CDN caching and in-process caches absorb it; replicate the key across cache shards.
+- **Custom aliases** share the namespace with generated codes — reserve them with a uniqueness constraint and keep generated codes in a disjoint space (e.g. different length).
+- **Expiry and deletion** must invalidate caches and CDN entries; 301 responses already cached by browsers cannot be revoked — another reason to prefer 302 when links can change.
+- **Data retention**: click events contain IPs/user agents — define retention and anonymisation for privacy regulations.
+
+## Interview questions
+
+<QA q="How many characters does the short code need?" level="mid">
+Estimate total links over the system's lifetime and choose the length so that the code space is much larger: with base62, 6 chars ≈ 5.7 × 10¹⁰ and 7 chars ≈ 3.5 × 10¹² codes. At ~1.2 billion links per year, 7 characters lasts thousands of years and keeps random-code collision probability low.
+</QA>
+
+<QA q="301 or 302 for redirects?" level="mid">
+301 is permanent and cacheable by browsers and proxies: fewer requests to your servers, but later clicks may never reach you (no analytics) and the target can't be changed. 302 (or 307) is temporary: every click hits your service, enabling analytics, expiry and target changes at the cost of more traffic.
+</QA>
+
+<QA q="How do you generate unique IDs across many servers without a bottleneck?" level="senior">
+Pre-allocate ranges: each server atomically leases a block of IDs from a coordinator (DB sequence or consensus store) and serves IDs from it locally, leasing a new block when exhausted. Alternatives: Snowflake-style IDs (timestamp + machine ID + sequence) or random codes with a uniqueness constraint and retry. Encode in base62 and optionally apply a bijective scramble so codes aren't sequential.
+</QA>
+
+## Exercise
+
+<Quiz questions={[
+  { q: "62⁷ is approximately…", options: ["3.5 × 10⁹", "3.5 × 10¹²", "6.2 × 10⁷", "10¹⁵"], answer: 1, explain: "62⁷ ≈ 3.52 × 10¹²." },
+  { q: "Why emit click analytics asynchronously?", options: ["to save storage", "so redirects aren't slowed by analytics writes", "for consistency", "required by HTTP"], answer: 1, explain: "The redirect is the latency-critical path." },
+  { q: "With 100:1 reads and 40 writes/s, average redirects/s ≈", options: ["400", "4 000", "40 000", "40"], answer: 1, explain: "40 × 100 = 4 000." }
+]} />
+
+## Resources
+
+<Resources topic="system-design/url-shortener" />
