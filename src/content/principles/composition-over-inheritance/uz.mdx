@@ -1,0 +1,75 @@
+## Qisqacha
+
+**Composition over inheritance:** xatti-harakatni chuqur `extends` zanjirlari orqali emas, kichik qismlarni **birlashtirib** quring.
+
+Bu maslahat 1994-yildagi "Design Patterns" (Gang of Four) kitobidan. Meros "**is-a**" munosabatini ifodalaydi ("Duck — bu Bird"), composition esa "**has-a**" yoki "**can-do**" munosabatini ("Duck'da uchish va suzish qobiliyati bor"). Meros kuchli coupling yaratadi: subclass parent'ning **barcha** tafsilotlarini, ichki xatti-harakatini va kelajakdagi oʻzgarishlarini ham meros qilib oladi.
+
+## Animatsiya
+
+Meros daraxti yangi talab bilan qanday portlashini va qobiliyatlarni birlashtirish uni qanday soddalashtirishini kuzating:
+
+<PrincipleViz id="composition-over-inheritance" />
+
+## Muammo
+
+```ts
+class Bird { fly() { /* … */ } }
+class Duck extends Bird { swim() { /* … */ } }
+class Penguin extends Bird {
+  fly() { throw new Error("Penguins can't fly"); } // LSP buzildi
+  swim() { /* … */ }
+}
+// Endi: uchadigan robot? suzadigan baliq? uchib suzadigan oʻrdak va suzolmaydigan tovus?
+// class FlyingSwimmingBird extends Bird … class NonFlyingSwimmingBird … — "class portlashi"
+```
+
+Merosning muammolari:
+
+- **Fragile base class:** parent'dagi kichik oʻzgarish barcha subclass'larni buzishi mumkin.
+- **Bitta oʻq:** class faqat bitta parent'dan meros oladi, qobiliyatlar esa koʻp oʻlchovli.
+- **Keraksiz meros:** subclass oʻziga kerak boʻlmagan narsalarni ham oladi.
+
+## Yechim
+
+```ts
+type Flyer = { fly(): string };
+type Swimmer = { swim(): string };
+
+const canFly = (name: string): Flyer => ({ fly: () => `${name} uchyapti` });
+const canSwim = (name: string): Swimmer => ({ swim: () => `${name} suzyapti` });
+
+const duck = { name: "Oʻrdak", ...canFly("Oʻrdak"), ...canSwim("Oʻrdak") };
+const penguin = { name: "Pingvin", ...canSwim("Pingvin") };
+const drone = { model: "DJI", ...canFly("Dron") }; // qush emas — muammo yoʻq
+
+function race(flyers: Flyer[]) { return flyers.map((f) => f.fly()); }
+race([duck, drone]); // ✅  race([penguin]) — compile xatosi
+```
+
+Class'lar bilan ham xuddi shunday: bogʻliqlikni **maydon** sifatida saqlang va ishni unga topshiring (delegation).
+
+```ts
+class Car {
+  constructor(private engine: Engine, private nav: Navigator) {}
+  start() { this.engine.start(); }
+  route(to: string) { return this.nav.route(to); }
+}
+new Car(new ElectricEngine(), new OfflineNavigator()); // istalgan kombinatsiya
+```
+
+<Callout kind="note" title="React — composition'ning eng yaxshi misoli">
+React jamoasi component'lar orasida meros ishlatishni tavsiya qilmaydi. Buning oʻrniga `children`, props orqali uzatilgan component'lar va custom hook'lar ishlatiladi. Masalan, `useAuth()` va `useTheme()` hook'larini istalgan component'da birlashtirish mumkin.
+</Callout>
+
+## Haddan oshirmang
+
+- Meros yomon emas. Haqiqiy, barqaror "is-a" munosabat va umumiy xatti-harakat boʻlsa (`class HttpError extends Error`), u eng oddiy yechim.
+- Sayoz meros (1-2 daraja) va `abstract` base class'lar framework'larda odatiy. Muammo **chuqur** ierarxiyalarda va faqat kodni qayta ishlatish uchun qilingan merosda.
+
+## Intervyuda
+
+<QA q="Qachon meros, qachon composition tanlaysiz?" level="mid">
+
+Subclass parent'ning **barcha** va'dalarini bajara olsa (LSP), munosabat barqaror boʻlsa va bu tilning yoki framework'ning odatiy usuli boʻlsa (`extends Error`), meros ishlataman. Maqsad faqat kodni qayta ishlatish boʻlsa yoki qobiliyatlar har xil kombinatsiyada kerak boʻlsa, composition tanlayman.
+
+</QA>

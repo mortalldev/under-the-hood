@@ -1,0 +1,68 @@
+## TL;DR
+
+**Tell, Don't Ask:** instead of **asking** an object for its data and deciding outside, **tell** the object what to do. Let the owner of the data make the decision.
+
+This is encapsulation put into practice. When the rule lives next to the data it protects, nobody can bypass it, and nobody needs to copy it.
+
+## Animation
+
+See what happens when two services each repeat the same rule slightly differently, and how moving the decision into the account makes it reliable:
+
+<PrincipleViz id="tell-dont-ask" />
+
+## The problem
+
+```ts
+// payment.ts — asks, then decides itself
+if (account.balance >= amount && account.status === "active") {
+  account.balance -= amount;
+  account.history.push({ kind: "payment", amount });
+}
+
+// refund.ts — a copy of the same rule… with the status check forgotten
+if (account.balance >= amount) {
+  account.balance -= amount;
+}
+```
+
+The rule ("active account and enough funds") lives **outside** the account, in several copies. Each copy differs a little, and one is bound to be wrong.
+
+## The fix
+
+```ts
+class Account {
+  #balance = 0;
+  #status: "active" | "frozen" = "active";
+
+  withdraw(amount: number, reason: string) {
+    if (this.#status !== "active") throw new AccountFrozen();
+    if (amount > this.#balance) throw new InsufficientFunds(this.#balance, amount);
+    this.#balance -= amount;
+    this.#log(reason, -amount);
+  }
+  // …
+}
+
+// payment.ts and refund.ts
+account.withdraw(amount, "payment");
+```
+
+The caller now says **what** it wants. The account knows **how**.
+
+<Callout kind="tip" title="The sign">
+Code that pulls data out of an object with several getters, runs `if`s on it, then writes back to the same object is the classic "ask". That logic usually wants to become a method of the object.
+</Callout>
+
+## Don't overdo it
+
+- In **read** paths — reports, UI, exports — asking for data is natural: to show `account.balance` on screen, you ask for it.
+- Stuffing all logic into one object creates a "God object". Decisions involving several objects (transferring money between two accounts) belong in a separate domain service.
+- In a functional style the principle looks different: data stays plain, and rules live in pure functions. What matters is that the rule lives in **one place**.
+
+## In interviews
+
+<QA q="How do Tell, Don't Ask and the Law of Demeter relate?" level="mid">
+
+They complement each other. LoD says "don't reach into strangers"; TDA says "don't take data from your friend and decide yourself — hand it the job". Both keep knowledge with the owner of the data, so callers don't get coupled to internal structure.
+
+</QA>

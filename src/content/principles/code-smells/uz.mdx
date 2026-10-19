@@ -1,0 +1,73 @@
+## Qisqacha
+
+**Code smell** — kodning xato emas, lekin **chuqurroq dizayn muammosiga ishora qiluvchi** tashqi belgisi. Bu atamani Kent Beck va Martin Fowler "Refactoring" kitobida ommalashtirgan.
+
+Smell "kod notoʻgʻri ishlaydi" demaydi. U "bu yerni oʻzgartirish qiyin boʻladi" deydi. Har bir smell'ning ma'lum **davosi** bor, ya'ni ma'lum bir refactoring usuli.
+
+## Animatsiya
+
+Ishlayotgan, lekin "hid" chiqarayotgan funksiyada smell'larni birma-bir toping va har biriga mos davoni koʻring:
+
+<PrincipleViz id="code-smells" />
+
+## Muammo
+
+```ts
+function processOrder(id: string, user: User, items: Item[], coupon: string | null,
+                      tax: number, ship: boolean, notify: boolean, isAdmin: boolean, dryRun: boolean) {
+  // … 180 qator: validatsiya, narx, chegirma, soliq, saqlash, email …
+  if (isAdmin) { /* bir xil mantiqning bir varianti */ } else { /* boshqasi */ }
+  const total = items.reduce((s, i) => s + i.price * i.qty, 0); // checkout.ts va cart.ts'da ham bor
+  if (order.status === 3) { /* 3 nima? */ }
+}
+```
+
+## Eng keng tarqalgan smell'lar va davolari
+
+| Smell | Belgisi | Davosi |
+| --- | --- | --- |
+| **Long function** | Ekranga sigʻmaydi, "va" bilan ta'riflanadi | Extract Function |
+| **Long parameter list** | 4 tadan ortiq parametr, ketma-ket boolean'lar | Parameter Object, options obyekti |
+| **Flag argument** | `fn(true)` — `true` nimani bildiradi? | Ikki funksiyaga ajratish |
+| **Duplicated code** | Bir xil mantiq bir necha joyda | Extract & reuse (DRY) |
+| **Magic number** | `status === 3`, `* 1.12` | Nomli konstanta yoki enum |
+| **God object** | Hamma narsani biladigan class | Mas'uliyatlarga ajratish (SRP) |
+| **Feature envy** | Metod boshqa class'ning ma'lumotlari bilan koʻproq ishlaydi | Metodni oʻsha class'ga koʻchirish |
+| **Primitive obsession** | Pul `number`, email `string` sifatida yuradi | Value object yoki branded type |
+| **Shotgun surgery** | Bitta oʻzgarish oʻnta faylni tahrirlashni talab qiladi | Birga oʻzgaradiganlarni birlashtirish |
+| **Dead code** | Hech qayerdan chaqirilmaydi | Oʻchirish (git eslab qoladi) |
+| **Comments as deodorant** | Chalkash kodni izoh "tushuntiradi" | Kodni aniqroq yozish, aniq nomlar |
+
+## Yechim
+
+```ts
+interface OrderRequest { orderId: string; user: User; items: Item[]; coupon?: string }
+interface ProcessOptions { notify?: boolean; dryRun?: boolean }
+
+const OrderStatus = { Pending: 1, Paid: 2, Shipped: 3 } as const;
+
+function processOrder(req: OrderRequest, opts: ProcessOptions = {}) {
+  const order = validate(req);
+  const priced = applyPricing(order, req.coupon);
+  if (opts.dryRun) return priced;
+  save(priced);
+  if (opts.notify) notifyCustomer(priced);
+  return priced;
+}
+```
+
+<Callout kind="tip" title="Smell'ni avtomatik topish">
+ESLint qoidalari (`complexity`, `max-params`, `max-lines-per-function`, `no-magic-numbers`), TypeScript'ning `noUnusedLocals` sozlamasi va SonarQube kabi vositalar koʻp smell'larni avtomatik koʻrsatadi. Lekin ular faqat signal beradi, qarorni odam qabul qiladi.
+</Callout>
+
+## Haddan oshirmang
+
+Smell — **evristika**, qonun emas. 40 qatorli, lekin bitta aniq ishni ketma-ket bajaradigan funksiya 5 ta mayda funksiyaga boʻlinganidan koʻra tushunarliroq boʻlishi mumkin. Har bir smell oldida bitta savol bering: "Bu kodni oʻzgartirishni qiyinlashtiryaptimi?"
+
+## Intervyuda
+
+<QA q="Code review'da qaysi smell'larga birinchi e'tibor berasiz?" level="mid">
+
+Avval oʻzgarish narxiga eng koʻp ta'sir qiladiganlariga qarayman: takrorlangan biznes qoidalar, aniq boʻlmagan nomlar, flag argumentlar va bitta funksiyada aralashib ketgan bir nechta mas'uliyat. Formatlash kabi narsalarni esa linter va prettier hal qilishi kerak. Review vaqti dizayn uchun sarflanishi kerak.
+
+</QA>

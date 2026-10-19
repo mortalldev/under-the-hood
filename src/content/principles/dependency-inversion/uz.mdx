@@ -1,0 +1,93 @@
+## Qisqacha
+
+**Dependency Inversion Principle (DIP)** ikki qismdan iborat:
+
+1. Yuqori darajadagi modullar (biznes mantiq) past darajadagi modullarga (baza, HTTP, fayl tizimi) bogʻliq boʻlmasligi kerak. **Ikkalasi ham abstraksiyaga** bogʻliq boʻladi.
+2. Abstraksiya tafsilotlarga bogʻliq boʻlmasligi kerak, aksincha, tafsilotlar abstraksiyaga bogʻliq boʻladi.
+
+"Inversion" soʻzi shundan: odatda bogʻliqlik strelkasi yuqoridan pastga, ya'ni biznes mantiqdan bazaga qarab ketadi. DIP'da esa interface'ga **yuqori daraja egalik qiladi**, past daraja uni amalga oshiradi va strelka teskari tomonga buriladi.
+
+## Animatsiya
+
+Strelka qanday teskari burilishini va test uchun boshqa implementatsiya qanday oson ulanishini kuzating:
+
+<PrincipleViz id="dependency-inversion" />
+
+## Muammo
+
+```ts
+import { Pool } from "pg";
+
+class SignupService {
+  private db = new Pool({ connectionString: process.env.DATABASE_URL });
+
+  async signup(email: string) {
+    const exists = await this.db.query("SELECT 1 FROM users WHERE email = $1", [email]);
+    if (exists.rowCount) throw new Error("Email taken");
+    await this.db.query("INSERT INTO users (email) VALUES ($1)", [email]);
+  }
+}
+```
+
+- Unit test yozish uchun haqiqiy Postgres kerak yoki `pg` modulini mock qilish kerak.
+- Boshqa omborga oʻtish biznes mantiq faylini tahrirlashni talab qiladi.
+- Biznes qoida ("email takrorlanmasin") SQL tafsilotlari orasiga koʻmilib ketgan.
+
+## Yechim
+
+```ts
+// Abstraksiya — biznes tomon nimaga muhtojligini aytadi
+interface UserStore {
+  exists(email: string): Promise<boolean>;
+  add(email: string): Promise<void>;
+}
+
+class SignupService {
+  constructor(private readonly users: UserStore) {}
+
+  async signup(email: string) {
+    if (await this.users.exists(email)) throw new Error("Email taken");
+    await this.users.add(email);
+  }
+}
+
+// Tafsilot — abstraksiyani amalga oshiradi
+class PostgresUserStore implements UserStore {
+  constructor(private readonly db: Pool) {}
+  async exists(email: string) {
+    return Boolean((await this.db.query("SELECT 1 FROM users WHERE email = $1", [email])).rowCount);
+  }
+  async add(email: string) {
+    await this.db.query("INSERT INTO users (email) VALUES ($1)", [email]);
+  }
+}
+
+// Composition root — hammasi bir joyda ulanadi
+const signup = new SignupService(new PostgresUserStore(pool));
+```
+
+Test esa juda oddiy boʻlib qoladi:
+
+```ts
+const emails = new Set<string>();
+const fake: UserStore = { exists: async (e) => emails.has(e), add: async (e) => void emails.add(e) };
+await new SignupService(fake).signup("a@b.uz");
+```
+
+<Callout kind="note" title="DIP, DI va IoC">
+**Dependency Inversion** — dizayn tamoyili: abstraksiyaga bogʻlaning. **Dependency Injection** — usul: bogʻliqlikni constructor yoki parametr orqali tashqaridan bering. **Inversion of Control** — umumiy gʻoya: obyektlarni yaratish va chaqirishni framework yoki container boshqaradi ("Hollywood principle: bizga qoʻngʻiroq qilmang, biz sizga qoʻngʻiroq qilamiz").
+</Callout>
+
+## Haddan oshirmang
+
+- Har bir class uchun interface yaratmang. `formatDate()` yoki `Math` kabi barqaror, yon ta'sirsiz kod uchun abstraksiya kerak emas.
+- DIP'ni **chegaralarda** qoʻllang: baza, tarmoq, vaqt (`Date.now()`), tasodifiylik, fayl tizimi. Aynan ular test qilishni qiyinlashtiradi va almashadi.
+- DI container ishlatish shart emas. Oddiy constructor parametrlari koʻpincha yetarli.
+
+## Intervyuda
+
+<QA q="Nima uchun interface'ga past daraja emas, yuqori daraja egalik qilishi kerak?" level="senior">
+
+Chunki interface **ehtiyojni** ifodalaydi: biznes mantiqqa nima kerak boʻlsa, oʻsha. Agar interface baza moduli ichida aniqlansa, u bazaning imkoniyatlarini aks ettiradi, biznes esa yana tafsilotga bogʻlanib qoladi. Interface'ni biznes modulida aniqlab, baza moduli uni import qilsa, bogʻliqlik strelkasi haqiqatan teskari buriladi.
+
+</QA>

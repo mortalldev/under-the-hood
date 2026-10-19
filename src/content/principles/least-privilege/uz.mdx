@@ -1,0 +1,72 @@
+## Qisqacha
+
+**Principle of Least Privilege (PoLP):** har bir foydalanuvchi, servis, token yoki kod qismiga **faqat oʻz ishini bajarish uchun kerak boʻlgan** minimal ruxsatni bering. Bu ruxsat faqat kerakli muddatga beriladi.
+
+Xatolar va sizib chiqishlar baribir boʻladi. PoLP ular sodir boʻlganda **zarar radiusini** (blast radius) cheklaydi. Faqat oʻqish huquqi bor job'dagi SQL injection jadvalni oʻchira olmaydi.
+
+## Animatsiya
+
+Admin sifatida ulangan hisobot job'idagi bitta xato qanchalik katta zarar keltirishi mumkinligini va minimal ruxsat uni qanday cheklashini koʻring:
+
+<PrincipleViz id="least-privilege" />
+
+## Muammo
+
+```ts
+// Tungi hisobot job'i
+const db = new Pool({ connectionString: "postgres://admin:***@db/prod" }); // superuser
+
+// GitHub Actions: hamma narsaga ruxsat
+// permissions: write-all
+
+// Frontend'da: server kaliti brauzerga chiqib ketgan
+const stripe = new Stripe(process.env.NEXT_PUBLIC_STRIPE_SECRET_KEY!); // ❌
+```
+
+Har bir holatda haqiqatan kerak boʻlganidan **ancha koʻp** kuch berilgan. Bitta xato yoki sizib chiqqan kalit hujumchiga ana shu kuchning hammasini beradi.
+
+## Yechim
+
+```sql
+-- faqat kerakli narsa
+CREATE ROLE report_reader LOGIN PASSWORD '…';
+GRANT SELECT ON orders, order_items TO report_reader;
+```
+
+```ts
+const db = new Pool({ connectionString: process.env.REPORT_DATABASE_URL }); // report_reader
+```
+
+```yaml
+# GitHub Actions — job darajasida tor ruxsatlar
+permissions:
+  contents: read
+  pull-requests: write
+```
+
+Kodda ham shu tamoyil ishlaydi:
+
+```ts
+// ❌ funksiya butun db klientini oladi — u istalgan narsani qila oladi
+function monthlyReport(db: Database) { /* … */ }
+
+// ✅ faqat kerakli imkoniyat
+function monthlyReport(orders: { listByMonth(m: string): Promise<Order[]> }) { /* … */ }
+```
+
+<Callout kind="tip" title="Amaliy roʻyxat">
+Har bir servis uchun alohida baza foydalanuvchisi va API kaliti boʻlsin. Kalitlar qisqa muddatli va scope'lari tor boʻlsin. Secret'lar faqat serverda saqlansin: Next.js'da `NEXT_PUBLIC_` prefiksli oʻzgaruvchilar brauzerga chiqadi. Konteynerlar root sifatida ishlamasin. Ruxsatlarni muntazam qayta koʻrib chiqing va ishlatilmaganlarini olib tashlang.
+</Callout>
+
+## Haddan oshirmang
+
+- Haddan tashqari tor ruxsatlar ishni toʻxtatib qoʻyadi. Dasturchilar esa "tezroq boʻlsin" deb hammaga admin berib yuboradi. Ruxsat soʻrash jarayoni **oson** va tez boʻlishi kerak.
+- Development muhitida qulaylik muhimroq boʻlishi mumkin, lekin production ruxsatlari alohida va tor boʻlsin.
+
+## Intervyuda
+
+<QA q="Least privilege'ni kod dizayni darajasida qanday qoʻllaysiz?" level="senior">
+
+Funksiya yoki modulga butun obyektni emas, faqat kerakli imkoniyatni beraman. Bu ISP bilan bir xil gʻoya. Masalan, `Database` oʻrniga `OrderReader` interface'ini beraman. Natijada xavfsizlik yaxshilanadi, testlar soddalashadi va kod nimaga qodirligi imzosidan koʻrinib turadi. Bu "capability-based" dizayn deyiladi: qila oladigan narsang — qoʻlingdagi havolalar.
+
+</QA>

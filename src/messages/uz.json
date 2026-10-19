@@ -21,6 +21,7 @@
     "resources": "Resurslar",
     "search": "Qidiruv",
     "glossary": "Glossariy",
+    "principles": "Tamoyillar",
     "filterLessons": "Darsni topish",
     "noMatches": "Mos dars topilmadi",
     "overview": "Boʻlim haqida"
@@ -171,6 +172,7 @@
     "lesson": "Dars",
     "term": "Atama",
     "section": "Boʻlim",
+    "principle": "Tamoyil",
     "close": "Yopish"
   },
   "Resources": {
@@ -205,6 +207,20 @@
     "reset": "Qayta boshlash",
     "solution": "Yechimni koʻrsatish",
     "limit": "Kod serverda TypeScript compiler bilan tekshiriladi; u hech qachon ishga tushirilmaydi."
+  },
+  "Principles": {
+    "title": "Dasturlash tamoyillari",
+    "lead": "SOLID, DRY, KISS, YAGNI va oʻzgartirish oson kod ortidagi boshqa tamoyillar. Har bir tamoyilda qadamma-qadam animatsiya, TypeScript'da yomon va yaxshi misol hamda uni qachon qoʻllamaslik kerakligi bor.",
+    "stats": "{principles} ta tamoyil · {categories} ta kategoriya · har biri animatsiyali",
+    "start": "SOLID'dan boshlang",
+    "categories": "Kategoriyalar",
+    "count": "{count, plural, other {# ta tamoyil}}",
+    "tabs": "Sahifa qismlari",
+    "related": "Bogʻliq tamoyillar",
+    "nav": "Tamoyillar navigatsiyasi",
+    "all": "Barcha tamoyillar",
+    "solidLead": "Beshta harf, bitta maqsad: kichik, almashtiriladigan va kengaytirish xavfsiz boʻlgan class'lar.",
+    "open": "Ochish"
   },
   "Glossary": {
     "title": "Glossariy",

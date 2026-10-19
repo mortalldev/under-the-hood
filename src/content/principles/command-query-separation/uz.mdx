@@ -1,0 +1,75 @@
+## Qisqacha
+
+**Command–Query Separation (CQS):** har bir metod **yo command, yo query** boʻlishi kerak:
+
+- **Command** holatni oʻzgartiradi va hech narsa qaytarmaydi (`void`).
+- **Query** ma'lumot qaytaradi va hech narsani oʻzgartirmaydi.
+
+Bertrand Meyer bu tamoyilni shunday ifodalagan: *"Savol berish javobni oʻzgartirmasligi kerak."* Query'lar yon ta'sirsiz boʻlgani uchun ularni istalgancha chaqirish mumkin: log'da, testda, debugger'da yoki `useMemo` ichida.
+
+## Animatsiya
+
+Debug uchun qoʻshilgan bitta `console.log` haqiqiy natijani qanday jimgina oʻzgartirishini va ajratilgan query'lar buni qanday oldini olishini koʻring:
+
+<PrincipleViz id="command-query-separation" />
+
+## Muammo
+
+```ts
+let count = 0;
+function next() { return ++count; } // ham oʻqiydi, ham yozadi
+
+console.log("next id:", next()); // debug uchun qoʻshilgan qator…
+const id = next();               // …haqiqiy id'ni 1 dan 2 ga oʻzgartirdi
+```
+
+React'da ham xuddi shunday muammo bor:
+
+```tsx
+function Cart({ cart }: { cart: Cart }) {
+  const total = cart.calculateTotalAndApplyCoupon(); // render — query boʻlishi kerak!
+  return <p>{total}</p>;                              // StrictMode'da ikki marta chaqiriladi
+}
+```
+
+## Yechim
+
+```ts
+let count = 0;
+function increment(): void { count++; }     // command
+function current(): number { return count; } // query
+
+increment();
+console.log("id:", current()); // xavfsiz — hech narsani oʻzgartirmaydi
+const id = current();
+```
+
+```tsx
+// query — render paytida xavfsiz
+const total = useMemo(() => calculateTotal(cart.items, cart.coupon), [cart]);
+// command — faqat foydalanuvchi harakatida
+<button onClick={() => applyCoupon(code)}>Qoʻllash</button>
+```
+
+<Callout kind="note" title="CQS va CQRS">
+**CQRS** (Command Query Responsibility Segregation) — shu gʻoyaning arxitektura darajasidagi shakli. Yozish va oʻqish uchun alohida modellar, ba'zan alohida bazalar ishlatiladi. Bu kuchli, lekin murakkab yondashuv. Uni faqat oʻqish va yozish yuklamalari keskin farq qilganda qoʻllang.
+</Callout>
+
+## Haddan oshirmang
+
+Ba'zi standart amallar CQS'ni ataylab buzadi, chunki bu qulay va **atomik**:
+
+- `stack.pop()` olib tashlaydi va qaytaradi.
+- `map.delete(key)` olib tashlaydi va `boolean` qaytaradi.
+- `INSERT … RETURNING id` yozadi va yangi id'ni qaytaradi.
+- Bir vaqtda ishlaydigan kodda "tekshir, keyin oʻzgartir" ikki qadam boʻlsa, race condition'ga olib keladi. Shuning uchun `compareAndSet` kabi birlashtirilgan amallar kerak.
+
+Muhimi — bunday istisnolar **nomdan aniq** boʻlishi kerak.
+
+## Intervyuda
+
+<QA q="React render funksiyasi nima uchun query boʻlishi kerak?" level="mid">
+
+React render'ni istalgancha chaqira oladi: StrictMode'da ikki marta, concurrent rendering'da esa bekor qilib qayta boshlashi mumkin. Agar render holatni oʻzgartirsa, ya'ni fetch, mutatsiya yoki hisoblagichni oshirsa, natija chaqiruvlar soniga bogʻliq boʻlib qoladi. Command'lar event handler'larda yoki `useEffect`'da boʻlishi kerak.
+
+</QA>

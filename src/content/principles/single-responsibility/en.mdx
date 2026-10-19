@@ -1,0 +1,89 @@
+## TL;DR
+
+**Single Responsibility Principle (SRP):** a class or module should have **only one reason to change**.
+
+It is often misread as "a class should have only one method". Robert C. Martin's sharper definition: a module should be responsible to **one actor** — one team or one stakeholder. If accounting, the DBA and marketing — three different people — all ask for changes to the same file, that file has three responsibilities.
+
+## Animation
+
+Watch three teams' requests collide in one class, then spread out across classes that were split apart:
+
+<PrincipleViz id="single-responsibility" />
+
+## The problem
+
+```ts
+class InvoiceService {
+  // 1) Accounting rules
+  total(items: Item[]) {
+    const sum = items.reduce((s, i) => s + i.price * i.qty, 0);
+    return sum * (1 + TAX_RATE);
+  }
+  // 2) Persistence details
+  async save(invoice: Invoice) {
+    await db.query("INSERT INTO invoices (id, total) VALUES ($1, $2)", [invoice.id, invoice.total]);
+  }
+  // 3) Delivery and design
+  async email(invoice: Invoice) {
+    await smtp.send(invoice.customerEmail, `<h1>Invoice ${invoice.id}</h1>...`);
+  }
+}
+```
+
+Three independent reasons live in one file. As a result:
+
+- A developer editing the email template can accidentally break the tax calculation.
+- Testing `total()` means mocking the database and SMTP too.
+- Two teams edit the file at once, and merge conflicts follow.
+
+## The fix
+
+```ts
+class InvoiceCalculator {
+  constructor(private readonly taxRate: number) {}
+  total(items: Item[]) {
+    const sum = items.reduce((s, i) => s + i.price * i.qty, 0);
+    return sum * (1 + this.taxRate);
+  }
+}
+
+class InvoiceRepository {
+  constructor(private readonly db: Db) {}
+  save(invoice: Invoice) {
+    return this.db.query("INSERT INTO invoices (id, total) VALUES ($1, $2)", [invoice.id, invoice.total]);
+  }
+}
+
+class InvoiceMailer {
+  constructor(private readonly mail: MailClient) {}
+  send(invoice: Invoice) {
+    return this.mail.send(invoice.customerEmail, renderInvoice(invoice));
+  }
+}
+```
+
+Each class now changes for one reason. A small "orchestrator" that ties them together (say, `issueInvoice()`) knows only the order of steps, not the details.
+
+<Callout kind="tip" title="Quick check">
+Can you say what the class does in one sentence **without "and"**? "Calculates **and** saves **and** sends the invoice" is three responsibilities. Another sign: `Manager`, `Helper` or `Utils` in the name.
+</Callout>
+
+## Don't overdo it
+
+- **Don't create a class per method.** Things that change together belong together — that is high cohesion. Splitting too finely makes code just as hard to navigate.
+- In a small script or prototype you don't need strict SRP. The principle pays off once code grows and several people work on it.
+- The question is not "how many methods?" but **"who asks for this to change?"**
+
+## In interviews
+
+<QA q="Doesn't SRP just mean a class should do one thing?" level="mid">
+
+No. SRP is about the **reason** for change. `InvoiceCalculator` can have `subtotal()`, `discount()` and `total()` — all of them serve one actor (accounting). What matters is not the number of methods but the number of parties who can demand changes.
+
+</QA>
+
+<QA q="What does SRP look like in a React component?" level="junior">
+
+Data fetching (a custom hook), business rules (pure functions) and the view (the component) are kept apart. The component only renders props. Then a design change doesn't touch the API call, and an API change doesn't touch the markup.
+
+</QA>

@@ -1,0 +1,68 @@
+## Qisqacha
+
+**Tell, Don't Ask:** obyektdan ma'lumotini **soʻrab olib**, qarorni tashqarida qabul qilish oʻrniga, obyektga **nima qilishni ayting**. Qarorni ma'lumot egasi qabul qilsin.
+
+Bu tamoyil encapsulation'ning amaliy davomi. Qoida u himoya qiladigan ma'lumot yonida yashasa, uni chetlab oʻtib boʻlmaydi va takrorlash ham kerak boʻlmaydi.
+
+## Animatsiya
+
+Ikki servis bitta qoidani turlicha takrorlaganda nima boʻlishini va qaror hisob ichiga koʻchgach qanday ishonchli boʻlishini koʻring:
+
+<PrincipleViz id="tell-dont-ask" />
+
+## Muammo
+
+```ts
+// payment.ts — soʻraydi, keyin oʻzi qaror qiladi
+if (account.balance >= amount && account.status === "active") {
+  account.balance -= amount;
+  account.history.push({ kind: "payment", amount });
+}
+
+// refund.ts — xuddi shu qoidaning nusxasi… lekin status tekshiruvi unutilgan
+if (account.balance >= amount) {
+  account.balance -= amount;
+}
+```
+
+Qoida ("faol hisob va yetarli mablagʻ") hisobdan **tashqarida**, bir necha nusxada yashaydi. Har bir nusxa biroz farq qiladi va biri albatta xato boʻladi.
+
+## Yechim
+
+```ts
+class Account {
+  #balance = 0;
+  #status: "active" | "frozen" = "active";
+
+  withdraw(amount: number, reason: string) {
+    if (this.#status !== "active") throw new AccountFrozen();
+    if (amount > this.#balance) throw new InsufficientFunds(this.#balance, amount);
+    this.#balance -= amount;
+    this.#log(reason, -amount);
+  }
+  // …
+}
+
+// payment.ts va refund.ts
+account.withdraw(amount, "payment");
+```
+
+Chaqiruvchi endi **nima** istashini aytadi. **Qanday** bajarilishini hisob biladi.
+
+<Callout kind="tip" title="Belgisi">
+Agar kod obyektdan bir nechta getter bilan ma'lumot olib, ular ustida `if` qilib, keyin yana shu obyektga yozsa, bu "ask"ning klassik shakli. Bunday mantiq odatda shu obyektning metodiga aylanishi kerak.
+</Callout>
+
+## Haddan oshirmang
+
+- Hisobot, UI yoki eksport kabi **oʻqish** joylarida ma'lumotni soʻrash tabiiy: `account.balance`'ni ekranga chiqarish uchun uni soʻrash kerak.
+- Barcha mantiqni bitta obyektga tiqish "God object"ga olib keladi. Bir nechta obyektni oʻz ichiga olgan qarorlar (masalan, ikki hisob orasida pul oʻtkazish) alohida domain service'da qoladi.
+- Funksional uslubda bu tamoyil boshqacha koʻrinadi: ma'lumot oddiy, qoidalar esa pure function'larda boʻladi. Muhimi — qoida **bitta joyda** boʻlsin.
+
+## Intervyuda
+
+<QA q="Tell, Don't Ask va Law of Demeter qanday bogʻliq?" level="mid">
+
+Ular bir-birini toʻldiradi. LoD "begonalarning ichiga kirmang" deydi. TDA esa "doʻstingizdan ma'lumotni olib, qarorni oʻzingiz qilmang, unga ishni topshiring" deydi. Ikkalasi ham bilimni ma'lumot egasida saqlaydi, shuning uchun chaqiruvchilar ichki tuzilmaga bogʻlanmaydi.
+
+</QA>

@@ -1,0 +1,85 @@
+## TL;DR
+
+**Interface Segregation Principle (ISP):** no client should be forced to depend on **methods it does not use**.
+
+Instead of one big interface that "knows everything", create small interfaces that each describe one **role**. Every class then implements only what it can really do, and every client sees only what it needs.
+
+## Animation
+
+See the fat `Machine` interface force a simple printer to lie, and how splitting by role fixes it:
+
+<PrincipleViz id="interface-segregation" />
+
+## The problem
+
+```ts
+interface Machine {
+  print(doc: Doc): void;
+  scan(doc: Doc): Image;
+  fax(doc: Doc, to: string): void;
+}
+
+class SimplePrinter implements Machine {
+  print(doc: Doc) { /* … */ }
+  scan(): Image { throw new Error("Not supported"); }
+  fax(): void { throw new Error("Not supported"); }
+}
+
+function printReport(m: Machine) { m.print(report); } // needs nothing but print
+```
+
+- The type claims `SimplePrinter` can scan. That's a lie, and you find out only at runtime.
+- When `fax()`'s signature changes, `SimplePrinter` has to change too, despite having nothing to do with faxing.
+- Testing `printReport()` needs a mock with three methods.
+
+## The fix
+
+```ts
+interface Printer { print(doc: Doc): void }
+interface Scanner { scan(doc: Doc): Image }
+interface Fax { fax(doc: Doc, to: string): void }
+
+class SimplePrinter implements Printer {
+  print(doc: Doc) { /* … */ }
+}
+
+class OfficeMachine implements Printer, Scanner, Fax {
+  print(doc: Doc) { /* … */ }
+  scan(doc: Doc) { /* … */ return image; }
+  fax(doc: Doc, to: string) { /* … */ }
+}
+
+function printReport(p: Printer) { p.print(report); } // mock: { print: vi.fn() }
+```
+
+Function parameters are interfaces too, so keep them as narrow as you can.
+
+## In React and TypeScript
+
+```tsx
+// ❌ The component depends on the whole user: any new user field puts it in scope
+function Avatar({ user }: { user: User }) {
+  return <img src={user.avatarUrl} alt={user.name} />;
+}
+
+// ✅ Only what it needs — easy to reuse and test
+function Avatar({ src, name }: { src: string; name: string }) {
+  return <img src={src} alt={name} />;
+}
+
+// In TypeScript: carve a narrow interface out of an existing type
+type UserPreview = Pick<User, "name" | "avatarUrl">;
+```
+
+## Don't overdo it
+
+- Don't create an interface per method. Methods that are **always used together** belong to one role.
+- ISP is thinking from the client's side. Ask: "What does this caller actually use?"
+
+## In interviews
+
+<QA q="How is ISP different from SRP?" level="mid">
+
+SRP is about the **implementation**: split a class by its reasons to change. ISP looks from the **client's** side: limit the contract a client sees to the part it uses. One class may implement several small interfaces. That is fine under ISP and doesn't violate SRP either.
+
+</QA>

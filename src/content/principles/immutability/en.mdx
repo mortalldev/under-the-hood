@@ -1,0 +1,77 @@
+## TL;DR
+
+**Immutability:** instead of **changing** an existing value, create a **new** value with the change applied.
+
+In JavaScript, objects and arrays are passed **by reference**. If two places point to one object and one of them changes it, the other doesn't know. Immutable data removes that risk: once a value is created it never changes, and a plain `!==` comparison answers "what changed?".
+
+## Animation
+
+See a "silent" change spread through a shared reference, and how creating a new object prevents it:
+
+<PrincipleViz id="immutability" />
+
+## The problem
+
+```tsx
+function Cart() {
+  const [cart, setCart] = useState({ items: ["book"] });
+
+  const addPen = () => {
+    cart.items.push("pen"); // mutation
+    setCart(cart);          // same reference → React: "nothing changed" → no re-render
+  };
+  // …
+}
+```
+
+```ts
+const defaults = { theme: "light", features: ["a"] };
+function createConfig(overrides: Partial<Config>) {
+  const cfg = Object.assign(defaults, overrides); // mutates defaults itself!
+  cfg.features.push("b");                         // later calls get "b" too
+  return cfg;
+}
+```
+
+## The fix
+
+```tsx
+const addPen = () => setCart((c) => ({ ...c, items: [...c.items, "pen"] }));
+```
+
+```ts
+function createConfig(overrides: Partial<Config>): Config {
+  return { ...defaults, ...overrides, features: [...defaults.features, "b"] };
+}
+```
+
+Immutable options in modern JavaScript:
+
+| Mutating | Immutable alternative |
+| --- | --- |
+| `arr.push(x)` | `[...arr, x]` |
+| `arr.sort()` | `arr.toSorted()` |
+| `arr.reverse()` | `arr.toReversed()` |
+| `arr.splice(i, 1)` | `arr.toSpliced(i, 1)` or `arr.filter((_, j) => j !== i)` |
+| `arr[i] = x` | `arr.with(i, x)` |
+| `obj.key = v` | `{ ...obj, key: v }` |
+
+In TypeScript, `readonly`, `ReadonlyArray<T>` and `as const` forbid mutation at compile time. `Object.freeze` does a shallow freeze at runtime.
+
+<Callout kind="tip" title="Why it matters">
+Immutable values can be **shared** safely — between threads or workers, in caches, in undo/redo history. They are also easier to **reason** about: you can trust that a function won't damage its argument.
+</Callout>
+
+## Don't overdo it
+
+- Copying a huge array on every step is expensive. **Local** mutation inside a hot loop is fine, as long as it doesn't escape the function.
+- For deeply nested updates, libraries like Immer give an immutable result with "mutation-like" syntax.
+- `const` isn't immutability: `const arr = []; arr.push(1)` works. `const` only forbids reassigning the variable.
+
+## In interviews
+
+<QA q="Why can't you mutate React state directly?" level="junior">
+
+React detects changes by comparing references (`Object.is`). If you change an object in place and pass the same object to `setState`, the reference is unchanged and React doesn't re-render. `memo`, `useMemo` and `useEffect` dependencies rely on reference comparison too, and mutation fools them as well.
+
+</QA>

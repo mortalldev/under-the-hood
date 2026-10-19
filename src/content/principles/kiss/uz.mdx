@@ -1,0 +1,64 @@
+## Qisqacha
+
+**KISS (Keep It Simple, Stupid):** muammoni hal qiladigan **eng oddiy** yechimni tanlang.
+
+Bu ibora AQSh harbiy-dengiz flotidagi muhandislardan chiqqan. Samolyotni dalada oddiy asboblar bilan ta'mirlash mumkin boʻlishi kerak edi. Dasturlashda ham shunday: kodni tunda, shoshib, kontekstni bilmasdan oʻqiydigan odam ham tushuna olishi kerak. Murakkablik — xatolar yashashi uchun eng qulay joy.
+
+## Animatsiya
+
+Bir xil savolga "aqlli" va oddiy javobni solishtiring. Har biri oʻquvchidan necha qadam fikrlashni talab qilishini sanang:
+
+<PrincipleViz id="kiss" />
+
+## Muammo
+
+```ts
+// "aqlli" — lekin har bir oʻquvchi uni qayta shifrlab chiqishi kerak
+const isWeekend = (d: Date) => !!((1 << d.getDay()) & 0b1000001);
+
+// bitta qatorli "ustalik"
+const result = data.reduce((a, x) => ({ ...a, [x.k]: [...(a[x.k] ?? []), x] }), {} as Record<string, Item[]>);
+
+// har ehtimolga qarshi umumlashtirilgan
+class AbstractStrategyFactoryProvider<T extends BaseConfig> { /* … */ }
+```
+
+Uchala holatda ham kod ishlaydi. Lekin keyingi oʻquvchi, jumladan uch oydan keyingi oʻzingiz ham, uni tushunish uchun vaqt sarflaydi. Xatoni koʻrish esa yanada qiyin.
+
+## Yechim
+
+```ts
+const SUNDAY = 0;
+const SATURDAY = 6;
+const isWeekend = (d: Date) => d.getDay() === SUNDAY || d.getDay() === SATURDAY;
+
+// guruhlash — standart funksiya bilan
+const result = Object.groupBy(data, (x) => x.k);
+
+// umumlashtirish — faqat ikkinchi haqiqiy holat paydo boʻlganda
+function loadConfig(path: string): Config { /* … */ }
+```
+
+KISS uchun amaliy usullar:
+
+- Standart kutubxonadan foydalaning: `Object.groupBy`, `structuredClone`, `Array.prototype.at`.
+- Uzun ifodalarni **nomli oʻzgaruvchilarga** boʻling: `const isExpired = now > token.expiresAt;`.
+- Chuqur ichma-ich `if` oʻrniga erta `return` ishlating.
+- Funksiya ekranga sigʻmasa, uni boʻling.
+
+<Callout kind="tip" title="Oddiy ≠ oson">
+Oddiy kod yozish koʻpincha **qiyinroq**: muammoni yaxshi tushunishni talab qiladi. Rich Hickey "simple" va "easy"ni farqlaydi. *Easy* — tanish va qoʻl ostidagi narsa. *Simple* — chalkashmagan, bir-biriga oʻralmagan narsa. KISS ikkinchisi haqida.
+</Callout>
+
+## Haddan oshirmang
+
+- KISS "primitiv kod yozing" degani emas. Masalan, haqiqatan murakkab muammoni yashiradigan oddiy koʻrinishdagi kod (race condition'ni e'tiborsiz qoldirish) — bu soddalik emas, notoʻliqlik.
+- Ba'zan toʻgʻri abstraksiya kodni **soddalashtiradi**: 10 ta oʻxshash `fetch` oʻrniga bitta `api.get()`.
+
+## Intervyuda
+
+<QA q="Kodingiz oddiymi yoki yoʻqligini qanday baholaysiz?" level="mid">
+
+Bir nechta savol beraman. Yangi jamoa a'zosi uni izohsiz tushunadimi? Funksiyani bitta gap bilan ta'riflay olamanmi? Bitta oʻzgarish uchun nechta faylni ochish kerak? Testi oddiymi? Yana bir yaxshi signal — code review'da "bu nima qiladi?" degan savollar soni.
+
+</QA>

@@ -1,0 +1,70 @@
+## TL;DR
+
+**Principle of Least Astonishment (POLA):** code should behave **the way its readers and users expect**. Name, signature and behaviour should agree.
+
+Every "surprise" is a chance for a bug. If `getUser()` also clears the cache while reading the user, someone will call it in a loop and slow the whole app down — and nobody saw it coming.
+
+## Animation
+
+Watch the hidden side effects of a function that looks like a getter, and what changes once the name tells the truth:
+
+<PrincipleViz id="least-astonishment" />
+
+## The problem
+
+```ts
+// "get" — but it writes too
+function getUser(id: string) {
+  cache.clear();
+  analytics.track("user_viewed", { id });
+  return db.users.find(id);
+}
+
+// "isValid" — but it changes the input
+function isValid(form: Form) {
+  form.email = form.email.trim().toLowerCase();
+  return EMAIL_RE.test(form.email);
+}
+
+// silently mutates its argument
+function sortByDate(items: Item[]) {
+  return items.sort((a, b) => a.date.getTime() - b.date.getTime()); // the original array changes too
+}
+```
+
+## The fix
+
+```ts
+function findUser(id: string) { return db.users.find(id); }   // only reads
+function trackUserView(id: string) { analytics.track("user_viewed", { id }); }
+
+function normalizeEmail(email: string) { return email.trim().toLowerCase(); }
+function isValidEmail(email: string) { return EMAIL_RE.test(email); }
+
+function sortByDate(items: readonly Item[]) {
+  return items.toSorted((a, b) => a.date.getTime() - b.date.getTime()); // a new array
+}
+```
+
+Follow conventions:
+
+- `get*`, `find*`, `is*`, `has*` — reads with no side effects.
+- `set*`, `update*`, `delete*`, `send*` — changes.
+- `is*` and `has*` return a `boolean`. `find*` returns `undefined` when nothing is found, `get*` throws (agree on this as a team).
+- Functions with the same job take parameters in the same order.
+
+<Callout kind="note" title="Surprises in JavaScript itself">
+`[10, 1, 2].sort()` returns `[1, 10, 2]`, because the default comparison is by string. `typeof null === "object"`. `parseInt("08")` returned `0` in old browsers. `new Date(2026, 1, 1)` means February, since months start at 0. That's why newer APIs like `toSorted` and `Temporal` were designed to be clearer.
+</Callout>
+
+## Don't overdo it
+
+POLA raises the question "expected by whom?". The answer depends on context: your audience, the language's conventions and your team's habits. In React hooks start with `use`; in Go errors are returned as values. Following local conventions is part of POLA too.
+
+## In interviews
+
+<QA q="How do you apply POLA when designing an API?" level="senior">
+
+Names say exactly what happens. Existing standards and platform conventions are followed: in HTTP, GET is safe and idempotent. Defaults are chosen to be safe, and similar endpoints stay consistent. Another technique is to write the calling code before the docs. If you have to look something up to know what it returns, the design isn't clear enough yet.
+
+</QA>

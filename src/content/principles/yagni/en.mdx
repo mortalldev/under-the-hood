@@ -1,0 +1,76 @@
+## TL;DR
+
+**YAGNI (You Aren't Gonna Need It):** write a feature **when it is needed**, not ahead of time because "we might need it later".
+
+The principle comes from Extreme Programming. Most predicted features never get used, and the ones that do are usually needed in a different shape. Yet that code still has to be written, tested, reviewed and maintained.
+
+## Animation
+
+Compare the cost of a plugin system built "for the future" with a three-line solution for today's requirement:
+
+<PrincipleViz id="yagni" />
+
+## The problem
+
+```ts
+// Requirement: "Download the report as JSON"
+interface ExportPlugin {
+  name: string;
+  mime: string;
+  extension: string;
+  export(data: Report, options?: ExportOptions): Promise<Blob>;
+}
+
+class ExportRegistry {
+  private plugins = new Map<string, ExportPlugin>();
+  register(p: ExportPlugin) { this.plugins.set(p.name, p); }
+  get(name: string) { /* … */ }
+  list() { /* … */ }
+}
+
+class JsonExporter implements ExportPlugin { /* … */ }
+class XmlExporter implements ExportPlugin { /* … nobody asked */ }
+class PdfExporter implements ExportPlugin { /* … nobody asked */ }
+```
+
+Every "might need it" feature has **four costs**:
+
+1. **Cost of building:** time spent now that could have gone to real requirements.
+2. **Cost of delay:** the real feature ships later.
+3. **Cost of carry:** every later change has to understand and update this code too.
+4. **Cost of a wrong guess:** when PDF is really needed, the guessed API doesn't fit and gets rewritten anyway.
+
+## The fix
+
+```ts
+export function downloadJson(report: Report) {
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  Object.assign(document.createElement("a"), { href: url, download: "report.json" }).click();
+  URL.revokeObjectURL(url);
+}
+```
+
+When a second format is really requested, refactor: extract what's shared and design the interface from two **real** examples.
+
+<Callout kind="note" title="YAGNI is not a licence for sloppy code">
+YAGNI is about not adding future **features**, not about lowering code quality. Tests, clear names and SRP make later changes cheap, and that's exactly what makes YAGNI safe.
+</Callout>
+
+## Don't overdo it
+
+Some things are **cheaper** to think about up front because changing them later is very expensive:
+
+- public APIs and data formats (clients come to depend on them);
+- database schema and migrations;
+- the basics of security, i18n and accessibility.
+
+Even there, don't build the feature — just **leave the door open**. Returning an API response as `{ data: [...] }`, for example, lets you add `meta` later.
+
+## In interviews
+
+<QA q="Don't YAGNI and good architecture contradict each other?" level="senior">
+
+No. Good architecture isn't building **every** future feature up front; it's making **change cheap**. Small modules, clear boundaries and tests allow extension in any direction. Speculative abstractions make one guessed direction easier and every other direction harder.
+
+</QA>

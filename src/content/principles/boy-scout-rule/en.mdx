@@ -1,0 +1,58 @@
+## TL;DR
+
+**Boy Scout Rule:** *"Leave the code a little cleaner than you found it."*
+
+It comes from the scouts' "leave the campground cleaner than you found it", adapted to programming by Robert C. Martin. The idea is **small, constant** improvements: every time you touch code, fix one name, extract one function, add one test. Over time those small acts keep a codebase healthy without a big "cleanup sprint".
+
+## Animation
+
+See a few small commits gradually bring down the number of smells in a file:
+
+<PrincipleViz id="boy-scout-rule" />
+
+## In practice
+
+You came to fix a bug on line 120:
+
+```diff
+- const d = calc(x, true);
+- if (d > 50000) { … }
++ const deliveryFee = calcDeliveryFee(order, { express: true });
++ if (deliveryFee > FREE_DELIVERY_THRESHOLD) { … }
+```
+
+And along the way you:
+
+- renamed unclear names (`d`, `x`);
+- turned a magic number into a named constant;
+- added a test for the bug you fixed;
+- deleted an unused import next to it.
+
+All of it **in the same spot**, in one small PR, easy for the reviewer to follow.
+
+## Good "scout" changes
+
+- Renames: variables, functions, files.
+- A small Extract Function.
+- Deleting an outdated comment, or adding a "why" comment.
+- Removing dead code and unused imports.
+- Replacing `any` with a precise type.
+- Adding a missing test.
+
+<Callout kind="warning" title="Keep it scoped">
+The Boy Scout Rule is not a licence to rewrite a whole file or module. A large unrelated cleanup makes a PR impossible to review and delays the bug fix too. If a big cleanup is needed, make it a **separate** PR or task.
+</Callout>
+
+## Why it works
+
+- **Broken windows theory:** messy code "invites" more mess, while clean code encourages keeping it clean.
+- The places that change most get cleaned most — exactly where cleanliness pays off most.
+- Small steps are safe: easy to review, easy to roll back.
+
+## In interviews
+
+<QA q="Should you refactor in a bug-fix PR?" level="mid">
+
+Yes, if it's a small cleanup in the same spot — a rename or a small extract — that helps make the bug understandable. I put it in a separate commit so the reviewer can tell the fix from the cleanup. A big refactor goes in its own PR, especially for hotfixes, which need to ship fast and safely.
+
+</QA>

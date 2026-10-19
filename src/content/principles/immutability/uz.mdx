@@ -1,0 +1,77 @@
+## Qisqacha
+
+**Immutability:** mavjud qiymatni **oʻzgartirish oʻrniga**, oʻzgartirilgan **yangi** qiymat yarating.
+
+JavaScript'da obyekt va massivlar **havola** (reference) orqali uzatiladi. Agar ikki joy bitta obyektga ishora qilsa va biri uni oʻzgartirsa, ikkinchisi buni bilmay qoladi. Immutable ma'lumot bu xavfni yoʻqotadi: qiymat bir marta yaratilgach, u oʻzgarmaydi. "Nima oʻzgardi?" degan savolga esa oddiy `!==` taqqoslash javob beradi.
+
+## Animatsiya
+
+Umumiy havola orqali "jimgina" oʻzgarish qanday tarqalishini va yangi obyekt yaratish buni qanday oldini olishini koʻring:
+
+<PrincipleViz id="immutability" />
+
+## Muammo
+
+```tsx
+function Cart() {
+  const [cart, setCart] = useState({ items: ["book"] });
+
+  const addPen = () => {
+    cart.items.push("pen"); // mutatsiya
+    setCart(cart);          // bir xil havola → React: "oʻzgarish yoʻq" → qayta render yoʻq
+  };
+  // …
+}
+```
+
+```ts
+const defaults = { theme: "light", features: ["a"] };
+function createConfig(overrides: Partial<Config>) {
+  const cfg = Object.assign(defaults, overrides); // defaults'ning oʻzi oʻzgaradi!
+  cfg.features.push("b");                         // keyingi chaqiruvlar ham "b"ni oladi
+  return cfg;
+}
+```
+
+## Yechim
+
+```tsx
+const addPen = () => setCart((c) => ({ ...c, items: [...c.items, "pen"] }));
+```
+
+```ts
+function createConfig(overrides: Partial<Config>): Config {
+  return { ...defaults, ...overrides, features: [...defaults.features, "b"] };
+}
+```
+
+Zamonaviy JavaScript'da immutable usullar:
+
+| Mutatsiya qiluvchi | Immutable muqobili |
+| --- | --- |
+| `arr.push(x)` | `[...arr, x]` |
+| `arr.sort()` | `arr.toSorted()` |
+| `arr.reverse()` | `arr.toReversed()` |
+| `arr.splice(i, 1)` | `arr.toSpliced(i, 1)` yoki `arr.filter((_, j) => j !== i)` |
+| `arr[i] = x` | `arr.with(i, x)` |
+| `obj.key = v` | `{ ...obj, key: v }` |
+
+TypeScript'da `readonly`, `ReadonlyArray<T>` va `as const` mutatsiyani kompilyatsiya vaqtida taqiqlaydi. `Object.freeze` esa runtime'da yuzaki muzlatadi.
+
+<Callout kind="tip" title="Nima uchun bu muhim">
+Immutable qiymatlarni xavfsiz **ulashish** mumkin. Ularni threadlar yoki worker'lar orasida, keshda va undo/redo tarixida saqlash oson. Ular haqida **fikrlash** ham oson: funksiya argumentni buzmasligiga ishonch hosil qilasiz.
+</Callout>
+
+## Haddan oshirmang
+
+- Juda katta massivni har bir qadamda nusxalash qimmat. Issiq loop ichida **lokal** mutatsiya muammo emas, chunki u funksiyadan tashqariga chiqmaydi.
+- Chuqur ichma-ich yangilanishlar uchun Immer kabi kutubxonalar "mutatsiyaga oʻxshash" sintaksis bilan immutable natija beradi.
+- `const` immutability emas: `const arr = []; arr.push(1)` ishlaydi. `const` faqat oʻzgaruvchini qayta tayinlashni taqiqlaydi.
+
+## Intervyuda
+
+<QA q="Nima uchun React state'ni toʻgʻridan-toʻgʻri oʻzgartirib boʻlmaydi?" level="junior">
+
+React oʻzgarishni havolani solishtirib aniqlaydi (`Object.is`). Agar obyektni joyida oʻzgartirib, `setState`'ga oʻsha obyektni bersangiz, havola bir xil qoladi va React qayta render qilmaydi. `memo`, `useMemo` va `useEffect`'ning dependency'lari ham havola taqqoslashiga tayanadi. Mutatsiya ularni ham aldaydi.
+
+</QA>

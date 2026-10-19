@@ -1,0 +1,85 @@
+## TL;DR
+
+**Refactoring** is improving the internal structure of code **without changing its external behaviour**.
+
+Martin Fowler's definition has two key ideas: **small steps** and **behaviour is preserved**. Refactoring isn't a "big rewrite". It's a sequence of tiny changes, each safe and verifiable, and the program works after every one of them.
+
+## Animation
+
+Watch a function get cleaned up step by step under green tests, and what happens when refactoring is mixed with a new feature:
+
+<PrincipleViz id="refactoring" />
+
+## The process
+
+1. **Start green.** If there are no tests, first write a "characterization test" that pins down current behaviour.
+2. **Take one small step**: rename, extract a function, inline a variable.
+3. **Run the tests.** Green: commit. Red: undo the step.
+4. Repeat.
+
+## Example: step by step
+
+```ts
+// Start: a 60-line function
+function calcPrice(order: Order) {
+  let total = 0;
+  for (const i of order.items) total += i.price * i.qty;
+  if (order.coupon === "SALE10") total *= 0.9;
+  else if (order.coupon === "SALE20") total *= 0.8;
+  if (order.region === "UZ") total *= 1.12;
+  else if (order.region === "KZ") total *= 1.12;
+  // …
+  return Math.round(total);
+}
+```
+
+```ts
+// Step 1: Extract Function — subtotal
+const subtotal = (o: Order) => o.items.reduce((s, i) => s + i.price * i.qty, 0);
+
+// Step 2: Replace Conditional with Lookup — discounts become data
+const COUPONS: Record<string, number> = { SALE10: 0.1, SALE20: 0.2 };
+const applyDiscount = (sum: number, coupon?: string) => sum * (1 - (COUPONS[coupon ?? ""] ?? 0));
+
+// Step 3: Extract Function — tax
+const TAX: Record<Region, number> = { UZ: 0.12, KZ: 0.12 };
+const addTax = (sum: number, region: Region) => sum * (1 + TAX[region]);
+
+// Result: reads like a recipe
+function calcPrice(order: Order) {
+  return Math.round(addTax(applyDiscount(subtotal(order), order.coupon), order.region));
+}
+```
+
+The tests ran after every step, and the result stayed the same.
+
+## Core refactorings
+
+| Name | What it does |
+| --- | --- |
+| **Rename** | Makes a name match its meaning (F2 in the IDE — the safest and most useful one) |
+| **Extract Function / Variable** | Gives a piece of code a name |
+| **Inline Function / Variable** | Removes a needless layer |
+| **Move Function** | Moves a function next to the data it uses most |
+| **Introduce Parameter Object** | Groups parameters that travel together |
+| **Replace Conditional with Polymorphism / Lookup** | Replaces a long `if/switch` |
+| **Split Phase** | Separates stages such as "parse, then calculate" |
+
+<Callout kind="warning" title="The two hats rule">
+Kent Beck: at any moment wear either the **refactoring** hat or the **new feature** hat, never both. If a test fails in a mixed commit, you can't tell why, and the change is harder to review.
+</Callout>
+
+## When to refactor
+
+- **Before adding a feature:** "make the change easy, then make the easy change" (Kent Beck).
+- **When you finally understand code:** put that understanding back into the code as a better name or function.
+- **In code review** or while fixing a bug, with the Boy Scout Rule.
+- **Don't:** do a big refactor where there are no tests and none can be written, the day before a deadline, or in code that's about to be deleted.
+
+## In interviews
+
+<QA q="What's the difference between refactoring and a rewrite?" level="mid">
+
+Refactoring is small, behaviour-preserving steps: the program always works, and you can stop at any time. A rewrite throws the old code away and starts from scratch. It delivers no value for a long time and risks losing the hidden knowledge in the old code — edge cases and bug fixes. That's why the "strangler fig" approach is often preferred: new code gradually replaces the old.
+
+</QA>

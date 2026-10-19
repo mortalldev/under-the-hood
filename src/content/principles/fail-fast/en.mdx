@@ -1,0 +1,81 @@
+## TL;DR
+
+**Fail fast:** detect invalid state **as early as possible** and with a **clear** message. Don't swallow errors silently.
+
+The later an error is found, the more it costs. A late error surfaces far from its cause, with a vague message, and has often already hit real users. Failing early shows the problem where it happened, to the person who caused it.
+
+## Animation
+
+See a missing key "travel" all the way to production, and a startup check stop it immediately:
+
+<PrincipleViz id="fail-fast" />
+
+## The problem
+
+```ts
+// config.ts
+export const config = {
+  apiKey: process.env.PAYMENTS_KEY || "",       // missing? carry on with ""
+  port: Number(process.env.PORT) || 3000,
+  retries: parseInt(process.env.RETRIES!),      // "abc" → NaN
+};
+
+// an hour later, during a payment…
+try {
+  await payments.charge(order, { key: config.apiKey });
+} catch {
+  // silent — "we'll look at it later"
+}
+```
+
+Three problems here: a lying default (`""`), an unchecked parse (`NaN`) and a swallowed exception. The result: no money is charged, but the order is marked "paid".
+
+## The fix
+
+```ts
+// config.ts — validate at startup
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
+}
+
+export const config = {
+  apiKey: required("PAYMENTS_KEY"),
+  port: Number(process.env.PORT ?? 3000),
+};
+```
+
+Inside functions, use **guard clauses**:
+
+```ts
+function applyDiscount(order: Order, percent: number) {
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new RangeError(`percent must be 0..100, got ${percent}`);
+  }
+  if (order.status !== "open") throw new Error(`Order ${order.id} is ${order.status}`);
+
+  // the main logic — no deep nesting
+  return { ...order, total: order.total * (1 - percent / 100) };
+}
+```
+
+Validating external data at the boundary with a schema — API responses, forms, env — is failing fast too: `const user = UserSchema.parse(await res.json());`.
+
+<Callout kind="warning" title="A silent catch is the most dangerous code">
+`catch {}` or a bare `console.log(e)` hides the error. If you can really handle the error, handle it. Otherwise add context and rethrow: `throw new Error("charge failed", { cause: e })`.
+</Callout>
+
+## Don't overdo it
+
+- Fail fast doesn't mean "crash everywhere". Show a friendly message in the **user-facing** layer; inside, detect errors early and precisely.
+- In distributed systems one service's failure shouldn't take down the whole system. Circuit breakers and fallbacks fail fast too: they reject at once instead of waiting on a hung request.
+- Related to `assert`: check invariants in development, and keep runtime checks for things that must hold in production.
+
+## In interviews
+
+<QA q="Are defensive programming and fail fast opposites?" level="mid">
+
+No, they work together. Defensive programming **expects** bad input and checks for it. Fail fast says what to do when a check fails: report it immediately and clearly instead of silently "fixing" it and carrying on. The bad kind of "defensive" code hides errors behind lying defaults like `x || 0`.
+
+</QA>

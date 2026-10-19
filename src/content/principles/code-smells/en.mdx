@@ -1,0 +1,73 @@
+## TL;DR
+
+A **code smell** is a surface sign in code that isn't a bug but **points to a deeper design problem**. Kent Beck and Martin Fowler popularised the term in "Refactoring".
+
+A smell doesn't say "this code is wrong". It says "this will be hard to change". Each smell has a known **cure** — a specific refactoring.
+
+## Animation
+
+Find the smells in a function that works but "smells" one by one, and see the matching cure for each:
+
+<PrincipleViz id="code-smells" />
+
+## The problem
+
+```ts
+function processOrder(id: string, user: User, items: Item[], coupon: string | null,
+                      tax: number, ship: boolean, notify: boolean, isAdmin: boolean, dryRun: boolean) {
+  // … 180 lines: validation, price, discount, tax, saving, email …
+  if (isAdmin) { /* one variant of the same logic */ } else { /* another */ }
+  const total = items.reduce((s, i) => s + i.price * i.qty, 0); // also in checkout.ts and cart.ts
+  if (order.status === 3) { /* what is 3? */ }
+}
+```
+
+## The most common smells and their cures
+
+| Smell | Sign | Cure |
+| --- | --- | --- |
+| **Long function** | Doesn't fit on screen; described with "and" | Extract Function |
+| **Long parameter list** | More than 4 parameters, booleans in a row | Parameter Object, an options object |
+| **Flag argument** | `fn(true)` — what does `true` mean? | Split into two functions |
+| **Duplicated code** | The same logic in several places | Extract & reuse (DRY) |
+| **Magic number** | `status === 3`, `* 1.12` | A named constant or enum |
+| **God object** | A class that knows everything | Split by responsibility (SRP) |
+| **Feature envy** | A method works mostly with another class's data | Move the method to that class |
+| **Primitive obsession** | Money as `number`, email as `string` | A value object or branded type |
+| **Shotgun surgery** | One change means editing ten files | Bring together what changes together |
+| **Dead code** | Never called from anywhere | Delete it (git remembers) |
+| **Comments as deodorant** | A comment "explains" confusing code | Write clearer code with clear names |
+
+## The fix
+
+```ts
+interface OrderRequest { orderId: string; user: User; items: Item[]; coupon?: string }
+interface ProcessOptions { notify?: boolean; dryRun?: boolean }
+
+const OrderStatus = { Pending: 1, Paid: 2, Shipped: 3 } as const;
+
+function processOrder(req: OrderRequest, opts: ProcessOptions = {}) {
+  const order = validate(req);
+  const priced = applyPricing(order, req.coupon);
+  if (opts.dryRun) return priced;
+  save(priced);
+  if (opts.notify) notifyCustomer(priced);
+  return priced;
+}
+```
+
+<Callout kind="tip" title="Finding smells automatically">
+ESLint rules (`complexity`, `max-params`, `max-lines-per-function`, `no-magic-numbers`), TypeScript's `noUnusedLocals` setting and tools like SonarQube flag many smells automatically. They only raise a signal, though; a person makes the call.
+</Callout>
+
+## Don't overdo it
+
+A smell is a **heuristic**, not a law. A 40-line function that does one clear job step by step can be easier to follow than five tiny ones. Before each smell, ask one question: "Is this making the code harder to change?"
+
+## In interviews
+
+<QA q="Which smells do you look for first in code review?" level="mid">
+
+The ones that affect the cost of change most: duplicated business rules, unclear names, flag arguments, and several responsibilities mixed in one function. Formatting and similar things should be handled by a linter and Prettier, so review time goes to design.
+
+</QA>

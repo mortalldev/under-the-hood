@@ -1,0 +1,78 @@
+## Qisqacha
+
+**Open/Closed Principle (OCP):** dastur qismlari **kengaytirish uchun ochiq, oʻzgartirish uchun yopiq** boʻlishi kerak.
+
+Yangi xatti-harakat qoʻshish uchun allaqachon ishlayotgan va test qilingan kodni ochib tahrirlash emas, **yangi kod qoʻshish** kifoya boʻlsin. Bunga odatda abstraksiya orqali erishiladi: interface, callback yoki strategy obyekti. Oʻzgaruvchan qism shu abstraksiya ortiga yashiriladi.
+
+## Animatsiya
+
+`if/else` zanjiri har bir yangi toʻlov turi bilan qanday oʻsishini, keyin interface yangi turlarni eski kodga tegmasdan qanday qabul qilishini koʻring:
+
+<PrincipleViz id="open-closed" />
+
+## Muammo
+
+```ts
+function checkout(method: "card" | "paypal" | "click", amount: number) {
+  if (method === "card") {
+    return stripe.charge(amount);
+  } else if (method === "paypal") {
+    return paypal.createOrder(amount);
+  } else if (method === "click") {
+    return click.invoice(amount); // yangi tur = eski funksiyani tahrirlash
+  }
+  throw new Error("Unknown method");
+}
+```
+
+Har bir yangi toʻlov turi `checkout()`'ni ochib tahrirlashni talab qiladi. Bunday `switch` odatda kod bazasining bir necha joyida takrorlanadi: `refund()`, `fee()` va `label()`'da ham. Bittasini unutish oson.
+
+## Yechim
+
+```ts
+interface PaymentMethod {
+  readonly id: string;
+  pay(amount: number): Promise<Receipt>;
+  refund(receipt: Receipt): Promise<void>;
+}
+
+class CardPayment implements PaymentMethod { /* … */ }
+class PaypalPayment implements PaymentMethod { /* … */ }
+class ClickPayment implements PaymentMethod { /* … yangi fayl, eski kod oʻzgarmaydi */ }
+
+const methods = new Map<string, PaymentMethod>(
+  [new CardPayment(), new PaypalPayment(), new ClickPayment()].map((m) => [m.id, m]),
+);
+
+function checkout(methodId: string, amount: number) {
+  const method = methods.get(methodId);
+  if (!method) throw new Error(`Unknown payment method: ${methodId}`);
+  return method.pay(amount);
+}
+```
+
+Endi yangi tur qoʻshish — yangi class yozib, uni roʻyxatga qoʻshish demak. `checkout()` yopiq: u boshqa hech qachon tahrirlanmaydi.
+
+<Callout kind="note" title="JavaScript'da yengilroq usul">
+Har doim class kerak emas. Funksiyalar xaritasi ham OCP'ga mos keladi: `const handlers: Record<string, (amount: number) => Promise<Receipt>> = { card, paypal }`. Yangi tur — yangi kalit.
+</Callout>
+
+## Haddan oshirmang
+
+- **Ikki-uch variant uchun oddiy `if` yaxshiroq.** Abstraksiya qoʻshish ham narxga ega: kodni kezish va tushunish qiyinlashadi.
+- OCP'ni variantlar **haqiqatan koʻpayib borayotgan** joyda qoʻllang: toʻlov turlari, eksport formatlari, bildirishnoma kanallari.
+- TypeScript'da discriminated union va `switch` ham yaxshi tanlov boʻlishi mumkin. Agar `never` bilan exhaustive check qilsangiz, compiler unutilgan holatni koʻrsatadi.
+
+## Intervyuda
+
+<QA q="OCP qaysi design pattern'lar bilan bogʻliq?" level="mid">
+
+Strategy (almashtiriladigan algoritm), Template Method (oʻzgaruvchan qadamlar subclass'da), Decorator (xatti-harakatni oʻrab kengaytirish) va plugin arxitekturasi. Hammasining gʻoyasi bitta: oʻzgaruvchan qismni barqaror interface ortiga yashirish.
+
+</QA>
+
+<QA q="Kod hech qachon oʻzgarmasligi kerakmi?" level="junior">
+
+Yoʻq. Xatolar tuzatiladi va talablar oʻzgaradi. OCP ma'lum turdagi **kutilgan** kengayishlar haqida. Yangi variant qoʻshish eski, tekshirilgan kodni ochishni talab qilmasligi kerak.
+
+</QA>

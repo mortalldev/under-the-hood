@@ -1,0 +1,85 @@
+## Qisqacha
+
+**Interface Segregation Principle (ISP):** client oʻzi **ishlatmaydigan metodlarga** bogʻliq boʻlishga majbur boʻlmasligi kerak.
+
+Bitta katta, "hamma narsani biladigan" interface oʻrniga, har biri bitta **rol**ni ifodalaydigan kichik interface'lar yarating. Shunda har bir class faqat haqiqatan qila oladigan narsani amalga oshiradi. Har bir client esa faqat oʻziga kerakli narsani koʻradi.
+
+## Animatsiya
+
+Katta `Machine` interface'i oddiy printerni yolgʻon gapirishga qanday majburlashini, keyin rollarga ajratish buni qanday tuzatishini koʻring:
+
+<PrincipleViz id="interface-segregation" />
+
+## Muammo
+
+```ts
+interface Machine {
+  print(doc: Doc): void;
+  scan(doc: Doc): Image;
+  fax(doc: Doc, to: string): void;
+}
+
+class SimplePrinter implements Machine {
+  print(doc: Doc) { /* … */ }
+  scan(): Image { throw new Error("Not supported"); }
+  fax(): void { throw new Error("Not supported"); }
+}
+
+function printReport(m: Machine) { m.print(report); } // print'dan boshqasi kerak emas
+```
+
+- Type `SimplePrinter`'ni "scan qila oladi" deb koʻrsatadi, lekin bu yolgʻon. Xato faqat runtime'da chiqadi.
+- `fax()` imzosi oʻzgarsa, fax'ga hech qanday aloqasi yoʻq `SimplePrinter` ham tahrirlanishi kerak.
+- `printReport()`'ni test qilish uchun uchta metodli mock yozish kerak.
+
+## Yechim
+
+```ts
+interface Printer { print(doc: Doc): void }
+interface Scanner { scan(doc: Doc): Image }
+interface Fax { fax(doc: Doc, to: string): void }
+
+class SimplePrinter implements Printer {
+  print(doc: Doc) { /* … */ }
+}
+
+class OfficeMachine implements Printer, Scanner, Fax {
+  print(doc: Doc) { /* … */ }
+  scan(doc: Doc) { /* … */ return image; }
+  fax(doc: Doc, to: string) { /* … */ }
+}
+
+function printReport(p: Printer) { p.print(report); } // mock: { print: vi.fn() }
+```
+
+Funksiya parametrlari ham interface — ularni ham imkon qadar tor qiling.
+
+## React va TypeScript'da
+
+```tsx
+// ❌ Component butun user obyektiga bogʻliq: user'ga yangi maydon qoʻshilsa ham qayta tekshiriladi
+function Avatar({ user }: { user: User }) {
+  return <img src={user.avatarUrl} alt={user.name} />;
+}
+
+// ✅ Faqat kerakli narsa — qayta ishlatish va test qilish oson
+function Avatar({ src, name }: { src: string; name: string }) {
+  return <img src={src} alt={name} />;
+}
+
+// TypeScript'da mavjud type'dan tor interface ajratish
+type UserPreview = Pick<User, "name" | "avatarUrl">;
+```
+
+## Haddan oshirmang
+
+- Har bir metod uchun alohida interface yaratmang. Doim **birga** ishlatiladigan metodlar bitta rolga tegishli.
+- ISP — client nuqtai nazaridan fikrlash. Savol shunday: "Bu chaqiruvchi aslida nimadan foydalanadi?"
+
+## Intervyuda
+
+<QA q="ISP va SRP farqi nima?" level="mid">
+
+SRP **implementatsiya** haqida: class'ni oʻzgarish sabablari boʻyicha ajratish. ISP esa **client** tomonidan qaraydi: client'ga koʻrinadigan shartnomani u ishlatadigan qism bilan cheklash. Bitta class bir necha kichik interface'ni amalga oshirishi mumkin. Bu ISP'ga mos, SRP'ni ham buzmaydi.
+
+</QA>

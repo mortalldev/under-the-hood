@@ -1,0 +1,82 @@
+## Qisqacha
+
+**Separation of Concerns (SoC):** dasturni har biri **bitta masala** (concern) bilan shugʻullanadigan qismlarga ajrating: koʻrinish, biznes qoidalar, ma'lumotlarga kirish, tarmoq, autentifikatsiya va hokazo.
+
+Bu atamani Edsger Dijkstra 1974-yilda ishlatgan. Gʻoya oddiy: odam bir vaqtda bitta masala haqida yaxshi oʻylaydi. SRP class darajasida qanday ishlasa, SoC butun dastur va arxitektura darajasida shunday ishlaydi.
+
+## Animatsiya
+
+Hamma narsani qiladigan bitta component qatlamlarga qanday ajralishini koʻring. Har bir qatlam oʻz vazifasini bajaradi:
+
+<PrincipleViz id="separation-of-concerns" />
+
+## Muammo
+
+```tsx
+function Orders() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    fetch("/api/orders", { headers: { Authorization: `Bearer ${localStorage.token}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(setOrders)
+      .catch(() => setError("Yuklab boʻlmadi"));
+  }, []);
+
+  const paid = orders
+    .filter((o) => o.status === "paid" && o.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 10);
+
+  return error ? <p>{error}</p> : <ul>{paid.map((o) => <li key={o.id}>{o.total} soʻm</li>)}</ul>;
+}
+```
+
+Bitta funksiyada toʻrtta masala bor: autentifikatsiya, HTTP, biznes qoida ("top 10 toʻlangan buyurtma") va koʻrinish. Saralash qoidasini test qilish uchun fetch'ni mock qilish va React'ni render qilish kerak. Token saqlash usuli oʻzgarsa, UI faylini tahrirlashga toʻgʻri keladi.
+
+## Yechim
+
+```ts
+// api.ts — tarmoq va autentifikatsiya
+export const api = { orders: () => http.get<Order[]>("/api/orders") };
+
+// orders.rules.ts — biznes qoida, pure function
+export const topPaid = (orders: Order[], n = 10) =>
+  orders.filter((o) => o.status === "paid" && o.total > 0).sort((a, b) => b.total - a.total).slice(0, n);
+
+// useOrders.ts — ma'lumot holati
+export const useOrders = () => useQuery({ queryKey: ["orders"], queryFn: api.orders });
+```
+
+```tsx
+// OrdersList.tsx — faqat koʻrinish
+export function OrdersList({ orders }: { orders: Order[] }) {
+  return <ul>{orders.map((o) => <li key={o.id}>{formatMoney(o.total)}</li>)}</ul>;
+}
+
+// OrdersPage.tsx — qatlamlarni bogʻlaydi
+export function OrdersPage() {
+  const { data = [], error } = useOrders();
+  return error ? <ErrorMessage /> : <OrdersList orders={topPaid(data)} />;
+}
+```
+
+Endi `topPaid()`'ni oddiy massiv bilan test qilsa boʻladi. `OrdersList` Storybook'da soxta ma'lumot bilan ishlaydi. Autentifikatsiya esa bitta `http` modulida oʻzgaradi.
+
+<Callout kind="note" title="SoC atrofingizda">
+HTML, CSS va JS'ning ajralishi; MVC; frontend va backend; Next.js'dagi Server va Client Components; middleware — bularning hammasi SoC. Tailwind kabi yondashuvlar faylni emas, **masalani** ajratish muhimligini eslatadi: koʻrinish component'ning ichida qolsa ham, u baribir faqat koʻrinish haqida.
+</Callout>
+
+## Haddan oshirmang
+
+- Kichik component uchun toʻrtta fayl ochish shart emas. Ajratish kod **oʻsganda** yoki qism alohida test qilinishi kerak boʻlganda foyda beradi.
+- Fayl turlari boʻyicha emas (`components/`, `hooks/`, `utils/`), **imkoniyatlar** boʻyicha papkalash (`orders/`, `checkout/`) koʻpincha cohesion'ni yaxshilaydi.
+
+## Intervyuda
+
+<QA q="Layered architecture va SoC qanday bogʻliq?" level="mid">
+
+Layered architecture — SoC'ning mashhur shakli. Masalan, presentation, application (use case), domain va infrastructure qatlamlari. Har bir qatlam bitta masala bilan shugʻullanadi, bogʻliqliklar esa bitta yoʻnalishda, odatda ichkariga, domen tomonga qarab ketadi. Bu DIP bilan birga ishlaganda baza yoki UI'ni almashtirish domen mantiqqa tegmaydi.
+
+</QA>

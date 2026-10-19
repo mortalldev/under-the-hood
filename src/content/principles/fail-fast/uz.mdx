@@ -1,0 +1,81 @@
+## Qisqacha
+
+**Fail fast:** notoʻgʻri holatni **imkon qadar erta** va **aniq** xabar bilan aniqlang. Xatoni jimgina yutib yubormang.
+
+Xato qanchalik kech topilsa, shunchalik qimmatga tushadi. Kech topilgan xato sababidan uzoqda yuzaga chiqadi, xabari noaniq boʻladi va koʻpincha haqiqiy foydalanuvchilarga allaqachon ta'sir qilgan boʻladi. Erta yiqilish esa muammoni sodir boʻlgan joyda, uni keltirib chiqargan odamga koʻrsatadi.
+
+## Animatsiya
+
+Yetishmayotgan kalit production'gacha qanday "sayohat" qilishini va ishga tushishdagi tekshiruv uni qanday darhol toʻxtatishini koʻring:
+
+<PrincipleViz id="fail-fast" />
+
+## Muammo
+
+```ts
+// config.ts
+export const config = {
+  apiKey: process.env.PAYMENTS_KEY || "",       // yoʻq boʻlsa — "" bilan davom etadi
+  port: Number(process.env.PORT) || 3000,
+  retries: parseInt(process.env.RETRIES!),      // "abc" boʻlsa — NaN
+};
+
+// bir soatdan keyin, toʻlov paytida…
+try {
+  await payments.charge(order, { key: config.apiKey });
+} catch {
+  // jim — "keyinroq koʻramiz"
+}
+```
+
+Bu yerda uchta muammo bor: yolgʻon standart qiymat (`""`), tekshirilmagan parse (`NaN`) va yutib yuborilgan exception. Natijada pul yechilmaydi, buyurtma esa "toʻlandi" deb belgilanadi.
+
+## Yechim
+
+```ts
+// config.ts — ishga tushishda tekshiring
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
+}
+
+export const config = {
+  apiKey: required("PAYMENTS_KEY"),
+  port: Number(process.env.PORT ?? 3000),
+};
+```
+
+Funksiya ichida esa **guard clause** ishlating:
+
+```ts
+function applyDiscount(order: Order, percent: number) {
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new RangeError(`percent must be 0..100, got ${percent}`);
+  }
+  if (order.status !== "open") throw new Error(`Order ${order.id} is ${order.status}`);
+
+  // asosiy mantiq — chuqur if'larsiz
+  return { ...order, total: order.total * (1 - percent / 100) };
+}
+```
+
+Tashqi ma'lumotni, ya'ni API javobi, forma yoki env'ni chegarada schema bilan tekshirish ham fail fast: `const user = UserSchema.parse(await res.json());`.
+
+<Callout kind="warning" title="Jim catch — eng xavfli kod">
+`catch {}` yoki faqat `console.log(e)` xatoni yashiradi. Agar xatoni haqiqatan hal qila olsangiz, hal qiling. Aks holda kontekst qoʻshib, yuqoriga uzating: `throw new Error("charge failed", { cause: e })`.
+</Callout>
+
+## Haddan oshirmang
+
+- Fail fast "hamma joyda crash qiling" degani emas. **Foydalanuvchiga** koʻrinadigan qismda chiroyli xato xabarini koʻrsating, ichkarida esa xatoni aniq va erta aniqlang.
+- Tarqatilgan tizimlarda bitta servis xatosi butun tizimni toʻxtatmasligi kerak. Circuit breaker va fallback'lar ham "tez" yiqiladi: osilib qolgan soʻrovni kutmasdan, darhol rad etadi.
+- `assert` bilan bogʻliq: development'da invariant'larni tekshiring, toʻgʻri ishlashi kerak boʻlgan narsa uchun esa runtime tekshiruvini qoldiring.
+
+## Intervyuda
+
+<QA q="Defensive programming va fail fast qarama-qarshimi?" level="mid">
+
+Yoʻq, ular birga ishlaydi. Defensive programming notoʻgʻri input'ni **kutadi** va tekshiradi. Fail fast esa tekshiruv muvaffaqiyatsiz boʻlganda nima qilishni aytadi: jimgina "tuzatib" davom etmasdan, darhol va aniq xato berish. Yomon tomoni — "defensive" deb, `x || 0` kabi yolgʻon standart qiymatlar bilan xatolarni yashirish.
+
+</QA>

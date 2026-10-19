@@ -1,0 +1,68 @@
+## Qisqacha
+
+**Law of Demeter (LoD),** yoki **Principle of Least Knowledge:** obyekt faqat **yaqin doʻstlari** bilan gaplashishi kerak, begonalar bilan emas.
+
+Rasmiy ta'rif: `m` metodi faqat quyidagilarning metodlarini chaqirishi mumkin:
+
+1. obyektning oʻzi (`this`);
+2. `m`'ning parametrlari;
+3. `m` ichida yaratilgan obyektlar;
+4. obyektning bevosita maydonlari.
+
+Belgisi — **uzun nuqtali zanjirlar**: `a.getB().getC().doSomething()`. Bunday kod `a` ichidagi butun tuzilmani bilib oladi.
+
+## Animatsiya
+
+`checkout.ts` uchta class ichiga kirib borganda nima boʻlishini va bitta "doʻst"dan soʻrash tuzilma oʻzgarishini qanday yutib yuborishini koʻring:
+
+<PrincipleViz id="law-of-demeter" />
+
+## Muammo
+
+```ts
+// checkout.ts
+const city = order.getCustomer().getAddress().getCity();
+const zip = order.getCustomer().getAddress().getZip();
+const fee = shippingRates[city] ?? DEFAULT_FEE;
+
+// mijozda endi bir nechta manzil boʻlishi mumkin → bu qatorlar kod bazasining hamma joyida buziladi
+```
+
+`checkout.ts` `Order`, `Customer` va `Address`'ning ichki tuzilishiga bogʻlanib qolgan. Bu "train wreck" deb ataladi. Zanjirdagi har bir halqa — oʻzgarish xavfi. Testda esa uch qavatli mock kerak boʻladi.
+
+## Yechim
+
+```ts
+class Order {
+  constructor(private customer: Customer, private shippingAddressId?: string) {}
+
+  shippingAddress(): Address {
+    return this.customer.addressById(this.shippingAddressId) ?? this.customer.primaryAddress();
+  }
+
+  shippingCity(): string {
+    return this.shippingAddress().city;
+  }
+}
+
+// checkout.ts — faqat yaqin doʻst bilan
+const fee = shippingRates[order.shippingCity()] ?? DEFAULT_FEE;
+```
+
+Manzil qanday topilishi haqidagi bilim endi `Order` ichida. Customer'ning tuzilishi oʻzgarsa, faqat bitta metod tahrirlanadi.
+
+<Callout kind="note" title="Bu qoida nuqtalar sonini sanash emas">
+`arr.map(f).filter(g).slice(0, 3)` yoki `query.where().orderBy().limit()` LoD'ni **buzmaydi**. Fluent API har safar bir xil turdagi qiymat qaytaradi, siz esa begona obyektning ichiga kirmaysiz. Oddiy ma'lumot tuzilmalarini (`config.db.host`, JSON) oʻqish ham odatda muammo emas.
+</Callout>
+
+## Haddan oshirmang
+
+Har bir zanjirni yashirish uchun `order.getCustomerAddressCityName()` kabi oʻnlab "delegat" metod yaratish wrapper'lar portlashiga olib keladi. Savol shunday: "Chaqiruvchi aslida nimani bilishi **kerak**?" Odatda unga ma'lumot emas, natija kerak. Bu holatda Tell, Don't Ask tamoyili yordam beradi.
+
+## Intervyuda
+
+<QA q="Law of Demeter nima uchun testlarni osonlashtiradi?" level="mid">
+
+Chunki har bir obyekt faqat bevosita bogʻliqliklarni ishlatadi. Testda faqat bitta qavatni mock qilish kerak: `order.shippingCity()` "Toshkent" qaytarsin. `order → customer → address → city` zanjirini toʻliq qurish shart emas. Mock'lar ichma-ich boʻlib ketsa, bu odatda LoD buzilganining belgisi.
+
+</QA>

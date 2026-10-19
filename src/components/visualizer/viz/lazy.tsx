@@ -45,4 +45,5 @@ export const TopoSortViz = dynamic(() => import("./TopoSortViz").then((m) => m.T
 export const TreeTraversalViz = dynamic(() => import("./TreeTraversalViz").then((m) => m.TreeTraversalViz), { loading: VizPlaceholder });
 export const TrieViz = dynamic(() => import("./TrieViz").then((m) => m.TrieViz), { loading: VizPlaceholder });
 export const TwoPointersViz = dynamic(() => import("./TwoPointersViz").then((m) => m.TwoPointersViz), { loading: VizPlaceholder });
+export const PrincipleViz = dynamic(() => import("./PrincipleViz").then((m) => m.PrincipleViz), { loading: VizPlaceholder });
 export const UnionFindViz = dynamic(() => import("./UnionFindViz").then((m) => m.UnionFindViz), { loading: VizPlaceholder });

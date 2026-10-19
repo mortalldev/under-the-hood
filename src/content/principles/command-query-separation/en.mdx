@@ -1,0 +1,75 @@
+## TL;DR
+
+**Command–Query Separation (CQS):** every method should be **either a command or a query**:
+
+- A **command** changes state and returns nothing (`void`).
+- A **query** returns data and changes nothing.
+
+Bertrand Meyer put it as: *"Asking a question should not change the answer."* Because queries have no side effects, you can call them as often as you like — in logs, tests, the debugger or inside `useMemo`.
+
+## Animation
+
+See a single `console.log` added for debugging silently change the real result, and how separate queries prevent it:
+
+<PrincipleViz id="command-query-separation" />
+
+## The problem
+
+```ts
+let count = 0;
+function next() { return ++count; } // reads and writes
+
+console.log("next id:", next()); // a line added for debugging…
+const id = next();               // …changed the real id from 1 to 2
+```
+
+React has the same problem:
+
+```tsx
+function Cart({ cart }: { cart: Cart }) {
+  const total = cart.calculateTotalAndApplyCoupon(); // render should be a query!
+  return <p>{total}</p>;                              // called twice in StrictMode
+}
+```
+
+## The fix
+
+```ts
+let count = 0;
+function increment(): void { count++; }     // command
+function current(): number { return count; } // query
+
+increment();
+console.log("id:", current()); // safe — changes nothing
+const id = current();
+```
+
+```tsx
+// a query — safe during render
+const total = useMemo(() => calculateTotal(cart.items, cart.coupon), [cart]);
+// a command — only on a user action
+<button onClick={() => applyCoupon(code)}>Apply</button>
+```
+
+<Callout kind="note" title="CQS and CQRS">
+**CQRS** (Command Query Responsibility Segregation) is the same idea at architecture level: separate models — sometimes separate databases — for writes and reads. It's powerful but complex. Use it only when read and write loads differ sharply.
+</Callout>
+
+## Don't overdo it
+
+Some standard operations break CQS on purpose, because it's convenient and **atomic**:
+
+- `stack.pop()` removes and returns.
+- `map.delete(key)` removes and returns a `boolean`.
+- `INSERT … RETURNING id` writes and returns the new id.
+- In concurrent code, "check, then change" as two steps leads to race conditions. That's why combined operations like `compareAndSet` exist.
+
+What matters is that such exceptions are **obvious from the name**.
+
+## In interviews
+
+<QA q="Why should a React render function be a query?" level="mid">
+
+React may call render any number of times: twice in StrictMode, and in concurrent rendering it can abandon and restart a render. If render changes state — fetching, mutating, incrementing a counter — the result depends on how many times it ran. Commands belong in event handlers or `useEffect`.
+
+</QA>

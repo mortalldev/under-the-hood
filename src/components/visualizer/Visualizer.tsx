@@ -35,6 +35,8 @@ export interface VisualizerProps<I, S> {
   multiline?: boolean;
   /** Hide the input row entirely for fixed demonstrations. */
   hideInput?: boolean;
+  /** Stage, controls and code in one column at every width (wide diagrams). */
+  stacked?: boolean;
   /** Extra UI under the stage, e.g. a prediction box. */
   footer?: (ctx: { input: I; steps: Step<S>[]; index: number; atEnd: boolean }) => ReactNode;
 }
@@ -60,6 +62,7 @@ export function Visualizer<I, S>({
   presets,
   multiline = false,
   hideInput = false,
+  stacked = false,
   footer,
 }: VisualizerProps<I, S>) {
   const t = useTranslations("Visualizer");
@@ -231,9 +234,9 @@ export function Visualizer<I, S>({
           right under the animation. xl+: stage and controls on the left, the
           whole program on the right, both visible while it plays. The code is
           never clipped: no inner scrollbar, long lines wrap with a hanging indent. */}
-      <div className="grid grid-cols-1 xl:grid-cols-2">
+      <div className={`grid grid-cols-1 ${stacked ? "" : "xl:grid-cols-2"}`}>
         <div
-          className="order-1 min-h-48 touch-pan-y overflow-x-auto overscroll-x-contain p-3 sm:min-h-56 sm:p-5 xl:col-start-1 xl:row-start-1"
+          className={`order-1 min-h-48 touch-pan-y overflow-x-auto overscroll-x-contain p-3 sm:min-h-56 sm:p-5 ${stacked ? "" : "xl:col-start-1 xl:row-start-1"}`}
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
         >
@@ -241,7 +244,7 @@ export function Visualizer<I, S>({
             <LayoutGroup id={groupId}>{render(step.state, input)}</LayoutGroup>
           </MotionConfig>
         </div>
-        <div className="order-3 border-t border-border bg-code-bg xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:border-l xl:border-t-0">
+        <div className={`order-3 border-t border-border bg-code-bg ${stacked ? "" : "xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:border-l xl:border-t-0"}`}>
           <p className="flex items-center justify-between px-4 pt-3 text-[0.7rem] font-medium uppercase tracking-wider text-fg-subtle">
             {t("code")}
             <span className="font-mono normal-case tracking-normal">
@@ -270,7 +273,7 @@ export function Visualizer<I, S>({
           </pre>
         </div>
 
-        <div className="order-2 border-t border-border px-3 py-4 sm:px-5 xl:col-start-1 xl:row-start-2">
+        <div className={`order-2 border-t border-border px-3 py-4 sm:px-5 ${stacked ? "" : "xl:col-start-1 xl:row-start-2"}`}>
           <p className="min-h-12 text-[0.95rem] leading-relaxed" aria-live={isPlaying ? "off" : "polite"} aria-atomic="true">
             <span className="mr-2 font-mono text-xs text-fg-subtle">
               {t("stepOf", { current: current + 1, total: steps.length })}

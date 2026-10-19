@@ -1,0 +1,72 @@
+## TL;DR
+
+**Principle of Least Privilege (PoLP):** give every user, service, token or piece of code **only the access it needs** to do its job, and only for as long as it needs it.
+
+Bugs and leaks will happen anyway. PoLP limits the **blast radius** when they do: SQL injection in a read-only job can't drop a table.
+
+## Animation
+
+See how much damage one bug in a report job connected as admin can do, and how minimal access contains it:
+
+<PrincipleViz id="least-privilege" />
+
+## The problem
+
+```ts
+// The nightly report job
+const db = new Pool({ connectionString: "postgres://admin:***@db/prod" }); // superuser
+
+// GitHub Actions: permission to do everything
+// permissions: write-all
+
+// In the frontend: a server key leaked into the browser
+const stripe = new Stripe(process.env.NEXT_PUBLIC_STRIPE_SECRET_KEY!); // ❌
+```
+
+Each case grants **far more** power than needed. One bug or one leaked key hands all of it to an attacker.
+
+## The fix
+
+```sql
+-- only what's needed
+CREATE ROLE report_reader LOGIN PASSWORD '…';
+GRANT SELECT ON orders, order_items TO report_reader;
+```
+
+```ts
+const db = new Pool({ connectionString: process.env.REPORT_DATABASE_URL }); // report_reader
+```
+
+```yaml
+# GitHub Actions — narrow permissions per job
+permissions:
+  contents: read
+  pull-requests: write
+```
+
+The same principle works in code:
+
+```ts
+// ❌ the function gets the whole db client — it can do anything
+function monthlyReport(db: Database) { /* … */ }
+
+// ✅ only the capability it needs
+function monthlyReport(orders: { listByMonth(m: string): Promise<Order[]> }) { /* … */ }
+```
+
+<Callout kind="tip" title="A practical checklist">
+Give each service its own database user and API key. Make keys short-lived and narrowly scoped. Keep secrets on the server only: in Next.js, `NEXT_PUBLIC_` variables reach the browser. Don't run containers as root. Review permissions regularly and remove what isn't used.
+</Callout>
+
+## Don't overdo it
+
+- Permissions that are too tight block work, and developers end up handing everyone admin "to move faster". Requesting access should be **easy** and quick.
+- In development, convenience can matter more, but production access stays separate and narrow.
+
+## In interviews
+
+<QA q="How do you apply least privilege at the level of code design?" level="senior">
+
+I give a function or module only the capability it needs, not the whole object — the same idea as ISP. For example, an `OrderReader` interface instead of `Database`. That improves security, simplifies tests, and makes the signature show what the code can do. It's called capability-based design: what you can do is the references you hold.
+
+</QA>

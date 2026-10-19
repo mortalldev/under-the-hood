@@ -1,0 +1,73 @@
+## TL;DR
+
+**Technical debt** is the "good enough for now" shortcuts taken to ship faster. You pay them back later, as **interest** on every change.
+
+Ward Cunningham introduced the metaphor in 1992. Like financial debt, technical debt isn't always bad: it can be a way to "buy" speed. Trouble starts not when debt is **taken** but when it **isn't paid back** — interest piles up until every new feature is slow and expensive.
+
+## Animation
+
+Watch each "quick" copy make later work more expensive, and paying the debt back bring the cost down:
+
+<PrincipleViz id="technical-debt" />
+
+## How debt appears
+
+```ts
+// "We need this before tomorrow's release" — the checkout gets copied
+if (country === "UZ") {
+  const tax = total * 0.12;
+  /* … 80 lines … */
+} else if (country === "KZ") {
+  const tax = total * 0.12; // a copy, slightly edited
+  /* … 80 lines … */
+}
+// TODO: merge these later  ← written three years ago
+```
+
+How the interest gets paid:
+
+- A tax fix has to be made in **two** places, and one gets forgotten.
+- A new developer spends a day working out which copy is "right".
+- Adding a third country means a third copy.
+
+## Paying it back
+
+```ts
+interface CheckoutRules { taxRate: number; currency: Currency; requiresPassport: boolean }
+
+const RULES: Record<Country, CheckoutRules> = {
+  UZ: { taxRate: 0.12, currency: "UZS", requiresPassport: false },
+  KZ: { taxRate: 0.12, currency: "KZT", requiresPassport: true },
+};
+
+function checkout(order: Order) {
+  const rules = RULES[order.country];
+  /* one shared flow */
+}
+```
+
+## Kinds of debt: Fowler's quadrant
+
+| | **Deliberate** | **Inadvertent** |
+| --- | --- | --- |
+| **Prudent** | "We'll ship now, we know the consequences, and we'll fix it later." | "Now we know how we should have done it." |
+| **Reckless** | "We don't have time for design." | "What's layering?" |
+
+The top-left corner is a normal business decision. The bottom row is the problem.
+
+<Callout kind="tip" title="Managing debt">
+Make debt **visible**: record it in the issue tracker with the reason and the cost. Pay down a small part every sprint (say, 10–20%). Pay first where code changes most often: old code nobody touches charges no interest.
+</Callout>
+
+## Don't overdo it
+
+- Not all old or imperfect code is "debt". If it works and nobody changes it, "paying it off" is wasted money.
+- "Let's rewrite everything" isn't paying debt back; it risks taking on new debt. Pay it down in small refactoring steps.
+
+## In interviews
+
+<QA q="How do you explain technical debt to the business?" level="senior">
+
+In business terms: time and risk. "Every new feature in this module now takes 5 days; after the cleanup it would take 2. Three of last quarter's incidents came from here." Then a concrete proposal: how much time is needed, when it gets paid, and how the result is measured. Numbers persuade; "the code is bad" doesn't.
+
+</QA>

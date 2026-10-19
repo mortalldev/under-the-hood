@@ -1,0 +1,76 @@
+## Qisqacha
+
+**YAGNI (You Aren't Gonna Need It):** imkoniyatni **hozir kerak boʻlganda** yozing, "keyin kerak boʻlib qolar" deb oldindan emas.
+
+Bu tamoyil Extreme Programming'dan chiqqan. Bashorat qilingan imkoniyatlarning koʻpi hech qachon ishlatilmaydi. Ishlatilganlari esa koʻpincha boshqacha shaklda kerak boʻladi. Bunday kodni baribir yozish, test qilish, review qilish va qoʻllab-quvvatlash kerak.
+
+## Animatsiya
+
+"Kelajak uchun" qurilgan plugin tizimining narxini va bugungi talabga mos uch qatorli yechimni solishtiring:
+
+<PrincipleViz id="yagni" />
+
+## Muammo
+
+```ts
+// Talab: "Hisobotni JSON sifatida yuklab olish"
+interface ExportPlugin {
+  name: string;
+  mime: string;
+  extension: string;
+  export(data: Report, options?: ExportOptions): Promise<Blob>;
+}
+
+class ExportRegistry {
+  private plugins = new Map<string, ExportPlugin>();
+  register(p: ExportPlugin) { this.plugins.set(p.name, p); }
+  get(name: string) { /* … */ }
+  list() { /* … */ }
+}
+
+class JsonExporter implements ExportPlugin { /* … */ }
+class XmlExporter implements ExportPlugin { /* … hech kim soʻramagan */ }
+class PdfExporter implements ExportPlugin { /* … hech kim soʻramagan */ }
+```
+
+Har bir "ehtimol kerak boʻladigan" imkoniyatning **toʻrtta narxi** bor:
+
+1. **Yaratish narxi:** hozir sarflangan vaqt, bu vaqtni haqiqiy talablarga sarflash mumkin edi.
+2. **Kechikish narxi:** haqiqiy imkoniyat kechroq yetkaziladi.
+3. **Yuk narxi:** har bir keyingi oʻzgarishda bu kodni ham tushunish va oʻzgartirish kerak.
+4. **Notoʻgʻri taxmin narxi:** PDF haqiqatan kerak boʻlganda, taxmin qilingan API mos kelmaydi va baribir qayta yoziladi.
+
+## Yechim
+
+```ts
+export function downloadJson(report: Report) {
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  Object.assign(document.createElement("a"), { href: url, download: "report.json" }).click();
+  URL.revokeObjectURL(url);
+}
+```
+
+Ikkinchi format haqiqatan soʻralganda, refactor qiling: umumiy qismni ajrating va ikkita **haqiqiy** misolga qarab interface yarating.
+
+<Callout kind="note" title="YAGNI sifatsiz kodga ruxsat emas">
+YAGNI kelajak uchun **imkoniyatlar** qoʻshmaslik haqida, kod sifatini pasaytirish haqida emas. Test yozish, aniq nomlar va SRP kabi narsalar keyinchalik oʻzgartirishni arzon qiladi. Aynan shu YAGNI'ni xavfsiz qiladi.
+</Callout>
+
+## Haddan oshirmang
+
+Ba'zi narsalarni oldindan oʻylash **arzonroq**, chunki keyin oʻzgartirish juda qimmat:
+
+- ochiq API va ma'lumotlar formati (mijozlar unga bogʻlanib qoladi);
+- baza sxemasi va migratsiyalar;
+- xavfsizlik, i18n va accessibility asoslari.
+
+Bunda ham imkoniyatni toʻliq qurmang, faqat **eshikni ochiq qoldiring**. Masalan, API javobini `{ data: [...] }` koʻrinishida qaytarish keyinchalik `meta` qoʻshishga imkon beradi.
+
+## Intervyuda
+
+<QA q="YAGNI va yaxshi arxitektura bir-biriga zid emasmi?" level="senior">
+
+Yoʻq. Yaxshi arxitektura kelajakdagi **hamma** imkoniyatni oldindan qurish emas, **oʻzgarishni arzon** qilish. Kichik modullar, aniq chegaralar va testlar istalgan yoʻnalishda kengaytirishga imkon beradi. Spekulyativ abstraksiyalar esa faqat bitta taxmin qilingan yoʻnalishni osonlashtiradi, qolgan hammasini qiyinlashtiradi.
+
+</QA>

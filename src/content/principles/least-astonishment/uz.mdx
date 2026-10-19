@@ -1,0 +1,70 @@
+## Qisqacha
+
+**Principle of Least Astonishment (POLA):** kod oʻquvchi va foydalanuvchi **kutganidek** ishlashi kerak. Nom, imzo va xatti-harakat bir-biriga mos boʻlsin.
+
+Har bir "hayratlanish" — bu xato uchun imkoniyat. Agar `getUser()` foydalanuvchini oʻqish bilan birga cache'ni ham tozalasa, kimdir uni loop ichida chaqiradi va butun ilova sekinlashadi. Hech kim buni kutmagan edi.
+
+## Animatsiya
+
+Getter'dek koʻringan funksiyaning yashirin yon ta'sirlarini va nom haqiqatni aytganda nima oʻzgarishini kuzating:
+
+<PrincipleViz id="least-astonishment" />
+
+## Muammo
+
+```ts
+// "get" — lekin yozadi ham
+function getUser(id: string) {
+  cache.clear();
+  analytics.track("user_viewed", { id });
+  return db.users.find(id);
+}
+
+// "isValid" — lekin input'ni oʻzgartiradi
+function isValid(form: Form) {
+  form.email = form.email.trim().toLowerCase();
+  return EMAIL_RE.test(form.email);
+}
+
+// argumentni jimgina oʻzgartiradi
+function sortByDate(items: Item[]) {
+  return items.sort((a, b) => a.date.getTime() - b.date.getTime()); // asl massiv ham oʻzgaradi
+}
+```
+
+## Yechim
+
+```ts
+function findUser(id: string) { return db.users.find(id); }   // faqat oʻqiydi
+function trackUserView(id: string) { analytics.track("user_viewed", { id }); }
+
+function normalizeEmail(email: string) { return email.trim().toLowerCase(); }
+function isValidEmail(email: string) { return EMAIL_RE.test(email); }
+
+function sortByDate(items: readonly Item[]) {
+  return items.toSorted((a, b) => a.date.getTime() - b.date.getTime()); // yangi massiv
+}
+```
+
+Konvensiyalarga amal qiling:
+
+- `get*`, `find*`, `is*`, `has*` — yon ta'sirsiz oʻqish.
+- `set*`, `update*`, `delete*`, `send*` — oʻzgartirish.
+- `is*` va `has*` — `boolean` qaytaradi. `find*` topmasa `undefined`, `get*` topmasa xato qaytaradi (jamoada kelishib oling).
+- Bir xil vazifadagi funksiyalarda parametrlar tartibi bir xil boʻlsin.
+
+<Callout kind="note" title="JavaScript'ning oʻzidagi kutilmagan holatlar">
+`[10, 1, 2].sort()` natijasi `[1, 10, 2]`, chunki sukut boʻyicha satr sifatida solishtiriladi. `typeof null === "object"`. `parseInt("08")` eski brauzerlarda `0` qaytarardi. `new Date(2026, 1, 1)` esa fevralni bildiradi, chunki oylar 0 dan boshlanadi. Shuning uchun `toSorted`, `Temporal` kabi yangi API'lar aniqroq qilib loyihalangan.
+</Callout>
+
+## Haddan oshirmang
+
+POLA "kimning kutishi?" degan savolni beradi. Javob kontekstga bogʻliq: auditoriyangiz, tilning konvensiyalari va jamoa odatlari. React'da hook'lar `use` bilan boshlanadi, Go'da xato qiymat sifatida qaytariladi. Mahalliy konvensiyaga amal qilish ham POLA'ning bir qismi.
+
+## Intervyuda
+
+<QA q="API dizayn qilishda POLA'ni qanday qoʻllaysiz?" level="senior">
+
+Nomlar xatti-harakatni aniq aytadigan qilib tanlanadi. Mavjud standartlar va platforma konvensiyalariga amal qilinadi: HTTP'da GET xavfsiz va idempotent boʻladi. Standart qiymatlar xavfsiz tanlanadi va oʻxshash endpoint'lar izchil boʻladi. Yana bir usul — hujjat yozishdan oldin API'ni ishlatadigan kodni yozib koʻrish. Agar "bu nima qaytaradi?" deb hujjatga qarashga toʻgʻri kelsa, dizayn hali yetarlicha aniq emas.
+
+</QA>

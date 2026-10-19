@@ -1,0 +1,73 @@
+## Qisqacha
+
+**Technical debt** — tezroq yetkazish uchun tanlangan "hozircha shunday boʻlsin" yechimlar. Ular keyinchalik har bir oʻzgarishda **foiz** sifatida qaytariladi.
+
+Bu metaforani Ward Cunningham 1992-yilda kiritgan. Moliyaviy qarz kabi texnik qarz ham har doim yomon emas. U tezlikni "sotib olish" vositasi boʻlishi mumkin. Muammo qarz **olinganda** emas, u **toʻlanmaganda** boshlanadi: foizlar yigʻilib, oxir-oqibat har bir yangi imkoniyat qimmat va sekin boʻlib qoladi.
+
+## Animatsiya
+
+Har bir "tez" nusxa keyingi ishlarni qanday qimmatlashtirishini va qarzni toʻlash narxni qanday tushirishini kuzating:
+
+<PrincipleViz id="technical-debt" />
+
+## Qarz qanday paydo boʻladi
+
+```ts
+// "Ertaga relizdan oldin ulgurish kerak" — checkout nusxalanadi
+if (country === "UZ") {
+  const tax = total * 0.12;
+  /* … 80 qator … */
+} else if (country === "KZ") {
+  const tax = total * 0.12; // nusxa, ozgina oʻzgartirilgan
+  /* … 80 qator … */
+}
+// TODO: keyin birlashtiramiz  ← uch yil oldin yozilgan
+```
+
+Foiz qanday toʻlanadi:
+
+- Soliq qoidasini tuzatish **ikki** joyda qilinishi kerak, biri esa unutiladi.
+- Yangi dasturchi qaysi nusxa "toʻgʻri" ekanini tushunishga bir kun sarflaydi.
+- Uchinchi davlatni qoʻshish uchinchi nusxani anglatadi.
+
+## Qarzni toʻlash
+
+```ts
+interface CheckoutRules { taxRate: number; currency: Currency; requiresPassport: boolean }
+
+const RULES: Record<Country, CheckoutRules> = {
+  UZ: { taxRate: 0.12, currency: "UZS", requiresPassport: false },
+  KZ: { taxRate: 0.12, currency: "KZT", requiresPassport: true },
+};
+
+function checkout(order: Order) {
+  const rules = RULES[order.country];
+  /* bitta umumiy oqim */
+}
+```
+
+## Qarz turlari: Fowler kvadranti
+
+| | **Ongli** (deliberate) | **Tasodifiy** (inadvertent) |
+| --- | --- | --- |
+| **Ehtiyotkor** (prudent) | "Hozir yetkazamiz, oqibatini bilamiz va keyin tuzatamiz." | "Endi bilamizki, buni boshqacha qilish kerak edi." |
+| **Ehtiyotsiz** (reckless) | "Dizaynga vaqtimiz yoʻq." | "Layering nima?" |
+
+Yuqori chap burchak — normal biznes qarori. Pastki qator — muammo.
+
+<Callout kind="tip" title="Qarzni boshqarish">
+Qarzni **koʻrinadigan** qiling: issue tracker'da yozing, sababini va narxini koʻrsating. Har bir sprintda kichik qismini (masalan 10–20%) toʻlang. Eng koʻp oʻzgaradigan joylardagi qarzni birinchi toʻlang: hech kim tegmaydigan eski kod foiz toʻlamaydi.
+</Callout>
+
+## Haddan oshirmang
+
+- Har bir eski yoki noideal kod "qarz" emas. Agar u ishlasa va uni hech kim oʻzgartirmasa, uni "toʻlash" pulni behuda sarflashdir.
+- "Hammasini qayta yozamiz" — qarzni toʻlash emas, yangi qarz olish xavfi. Kichik refactoring qadamlari bilan toʻlang.
+
+## Intervyuda
+
+<QA q="Biznesga technical debt'ni qanday tushuntirasiz?" level="senior">
+
+Biznes tilida gapiraman: vaqt va xavf. "Bu modulga har bir yangi imkoniyat hozir 5 kun oladi, tozalashdan keyin 2 kun oladi. Oxirgi chorakdagi 3 ta incident shu yerdan chiqdi." Shundan keyin aniq taklif beraman: qancha vaqt kerak, qachon toʻlanadi va qanday natija oʻlchanadi. "Kod yomon" degan gap emas, raqamlar ishontiradi.
+
+</QA>

@@ -1,0 +1,74 @@
+## Qisqacha
+
+**Encapsulation (information hiding):** obyekt yoki modulning ichki tuzilishini yashiring. Tashqariga faqat **kichik va xavfsiz** interface oching.
+
+Bu yerda ikki gʻoya bor. Birinchisi — **ma'lumot va uni oʻzgartiradigan qoidalar birga yashaydi**. Ikkinchisi — **tashqi kod ichki tafsilotlarga bogʻlanmaydi**. David Parnas 1972-yilda modullarni "qaysi qaror oʻzgarishi mumkin boʻlsa, oʻshani yashirish" tamoyili asosida ajratishni taklif qilgan.
+
+## Animatsiya
+
+Ochiq maydon qanday qilib istalgan joydan buzilishini, keyin yagona "eshik" notoʻgʻri qiymatni qanday toʻxtatishini koʻring:
+
+<PrincipleViz id="encapsulation" />
+
+## Muammo
+
+```ts
+class Account {
+  balance = 0;            // hamma oʻzgartira oladi
+  history: Tx[] = [];     // hamma oʻzgartira oladi
+}
+
+// refund.ts
+account.balance -= 500;           // tarix yozilmadi
+// checkout.ts
+account.balance = account.balance + price; // manfiy tekshiruvi yoʻq
+account.history.length = 0;       // tasodifan tarix oʻchirildi
+```
+
+"Balans hech qachon manfiy boʻlmaydi" va "har bir oʻzgarish tarixga yoziladi" qoidalari (invariant'lar) hech qayerda yoʻq. Ular har bir chaqiruvchining xotirasiga bogʻliq.
+
+## Yechim
+
+```ts
+class Account {
+  #balance = 0;
+  #history: Tx[] = [];
+
+  deposit(amount: number) {
+    if (!(amount > 0)) throw new RangeError("amount must be > 0");
+    this.#apply(amount, "deposit");
+  }
+
+  withdraw(amount: number) {
+    if (amount > this.#balance) throw new Error("Insufficient funds");
+    this.#apply(-amount, "withdraw");
+  }
+
+  get balance() { return this.#balance; }                 // faqat oʻqish
+  get history(): readonly Tx[] { return this.#history; }  // oʻzgartirib boʻlmaydi
+
+  #apply(delta: number, kind: Tx["kind"]) {
+    this.#balance += delta;
+    this.#history.push({ kind, delta, at: new Date() });
+  }
+}
+```
+
+Endi invariant'lar **bitta joyda** himoyalangan. Keyinchalik balansni tiyinlarda saqlashga yoki ledger'ga oʻtsangiz, chaqiruvchilarning birortasi oʻzgarmaydi.
+
+<Callout kind="note" title="JavaScript'da yashirish usullari">
+`#private` maydonlar runtime'da haqiqatan yashirin. TypeScript'dagi `private` esa faqat kompilyatsiya vaqtida ishlaydi. Closure ham kuchli usul: `function createCounter() { let n = 0; return { inc: () => ++n }; }`. Modul darajasida faqat `export` qilingan narsa koʻrinadi, shuning uchun hamma narsani export qilmang.
+</Callout>
+
+## Haddan oshirmang
+
+- Har bir maydonga mexanik ravishda `getX()/setX()` qoʻshish encapsulation emas. Bu shunchaki ochiq maydonning uzun shakli. Maqsad — **ma'noli amallar** (`withdraw`), setter'lar emas.
+- Oddiy ma'lumot tashuvchi obyektlar (DTO, API javobi, React props) uchun ochiq, `readonly` maydonlar yetarli.
+
+## Intervyuda
+
+<QA q="Getter va setter qoʻshsam, encapsulation boʻladimi?" level="junior">
+
+Har doim emas. Agar setter hech qanday tekshiruvsiz qiymatni yozsa, tashqi kod hamon ichki holatni boshqaradi. Encapsulation — qoidani ma'lumot yonida saqlash. Shuning uchun `setBalance(x)` oʻrniga `deposit(amount)` va `withdraw(amount)` kabi biznes amallar yaxshiroq.
+
+</QA>

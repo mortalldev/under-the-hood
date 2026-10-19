@@ -1,0 +1,58 @@
+## Qisqacha
+
+**Boy Scout Rule:** *"Kodni topganingizdan sal tozaroq holda qoldiring."*
+
+Bu skautlarning "lagerni topganingizdan tozaroq qoldiring" qoidasidan olingan. Robert C. Martin uni dasturlashga moslagan. Gʻoya — **kichik va doimiy** yaxshilanishlar. Kodga har safar tekkaningizda bitta nomni tuzating, bitta funksiyani ajrating yoki bitta test qoʻshing. Vaqt oʻtib bu kichik ishlar katta "tozalash sprinti"siz kod bazasini sogʻlom saqlaydi.
+
+## Animatsiya
+
+Bir necha kichik commit fayldagi smell'lar sonini qanday asta-sekin kamaytirishini koʻring:
+
+<PrincipleViz id="boy-scout-rule" />
+
+## Amalda
+
+Siz 120-qatordagi bugni tuzatish uchun keldingiz:
+
+```diff
+- const d = calc(x, true);
+- if (d > 50000) { … }
++ const deliveryFee = calcDeliveryFee(order, { express: true });
++ if (deliveryFee > FREE_DELIVERY_THRESHOLD) { … }
+```
+
+Va yoʻl-yoʻlakay:
+
+- tushunarsiz nomni (`d`, `x`) oʻzgartirdingiz;
+- magic number'ni nomli konstantaga aylantirdingiz;
+- tuzatgan bugingiz uchun test qoʻshdingiz;
+- yonidagi ishlatilmaydigan importni oʻchirdingiz.
+
+Hammasi **oʻsha joyda**, bitta kichik PR'da va review'chi uchun tushunarli.
+
+## Yaxshi "skaut" oʻzgarishlari
+
+- Rename: oʻzgaruvchi, funksiya va fayl nomlari.
+- Kichik Extract Function.
+- Eskirgan izohni oʻchirish yoki "nima uchun" izohini qoʻshish.
+- Dead code va ishlatilmaydigan importlarni olib tashlash.
+- `any`'ni aniq type bilan almashtirish.
+- Yetishmayotgan testni qoʻshish.
+
+<Callout kind="warning" title="Doirani saqlang">
+Boy Scout Rule — butun faylni yoki modulni qayta yozishga ruxsat emas. Katta, aloqasiz tozalash PR'ni review qilib boʻlmas holga keltiradi va bug fix'ni ham kechiktiradi. Agar katta tozalash kerak boʻlsa, uni **alohida** PR yoki vazifaga ajrating.
+</Callout>
+
+## Nima uchun ishlaydi
+
+- **Broken windows nazariyasi:** iflos kod yanada iflos kodni "taklif qiladi". Toza kod esa tozalikni saqlashga undaydi.
+- Eng koʻp oʻzgaradigan joylar eng koʻp tozalanadi. Aynan ularda tozalikdan eng katta foyda olinadi.
+- Kichik qadamlar xavfsiz: review oson, rollback oson.
+
+## Intervyuda
+
+<QA q="Bug fix PR'ida refactoring qilish kerakmi?" level="mid">
+
+Kichik, oʻsha joyga tegishli tozalash, masalan nom yoki kichik extract, bugni tushunishga yordam bersa, ha. Lekin uni alohida commit'da qilaman, shunda review'chi fix'ni tozalashdan ajrata oladi. Katta refactoring esa alohida PR'da boʻladi, ayniqsa hotfix'larda, chunki ular tez va xavfsiz chiqishi kerak.
+
+</QA>

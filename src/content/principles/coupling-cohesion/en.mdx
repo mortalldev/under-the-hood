@@ -1,0 +1,83 @@
+## TL;DR
+
+Module design has two key measures:
+
+- **Coupling** — how much modules **depend on each other**. If changing A forces changes in B, they are tightly coupled. The goal: **low coupling**.
+- **Cohesion** — how **related** the things inside one module are. If every part of a module serves one purpose, cohesion is high. The goal: **high cohesion**.
+
+The two usually move together: gather things that change together (cohesion), and connections between modules shrink (coupling).
+
+## Animation
+
+See how a `utils.ts` that everything imports ties the whole project together, and how splitting it into cohesive modules fixes it:
+
+<PrincipleViz id="coupling-cohesion" />
+
+## The problem
+
+```ts
+// utils.ts — low cohesion: unrelated things
+export const formatDate = (d: Date) => d.toLocaleDateString("en-US");
+export const addTax = (n: number) => Math.round(n * 1.12);
+export const $ = (sel: string) => document.querySelector(sel);
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const API_URL = "https://api.example.com";
+```
+
+```ts
+// cart.ts
+import { addTax, $ } from "./utils"; // tight coupling: cart knows the DOM
+export function renderTotal(items: Item[]) {
+  $("#total")!.textContent = String(addTax(sum(items)));
+}
+```
+
+- When `utils.ts` changes, everything depending on it is at risk.
+- `cart.ts` knows the DOM as well as the maths, so it can't run on the server.
+
+## The fix
+
+```ts
+// money.ts — one topic
+export const TAX_RATE = 0.12;
+export const addTax = (n: number) => Math.round(n * (1 + TAX_RATE));
+
+// date.ts
+export const formatDate = (d: Date) => d.toLocaleDateString("en-US");
+
+// cart.ts — only calculates, knows nothing about the DOM
+import { addTax } from "./money";
+export const cartTotal = (items: Item[]) => addTax(sum(items));
+
+// CartTotal.tsx — presentation lives apart
+export const CartTotal = ({ items }: { items: Item[] }) => <output>{cartTotal(items)}</output>;
+```
+
+## Kinds of coupling
+
+From worst to best:
+
+| Kind | Meaning |
+| --- | --- |
+| **Content** | One module directly changes another's internal fields. |
+| **Common** | Several modules share a global variable. |
+| **Control** | One module tells another *how* to work through a flag (`render(true, false)`). |
+| **Stamp** | A whole object is passed, but only one field is used. |
+| **Data** | Only the simple data needed is passed. This is the best. |
+
+<Callout kind="tip" title="Quick test">
+How many files must you open for one requirement change? If it's always "many", cohesion is low. How many tests break when you change one file? If they're in unrelated places, coupling is high.
+</Callout>
+
+## Don't overdo it
+
+- **Zero coupling** is impossible: modules have to work together. The goal is to make dependencies **explicit and narrow** — through a small interface.
+- Microservices don't reduce coupling by themselves. Wrong boundaries lead to a "distributed monolith", where one change means deploying five services.
+
+## In interviews
+
+<QA q="Why can a utils or helpers folder be a problem?" level="mid">
+
+It leads to low cohesion: everything that "didn't fit anywhere else" ends up there. Almost every module imports it, and it becomes a coupling hub. Better to put a function next to the topic it serves (`money.ts`, `date.ts`) or inside the feature folder that uses it.
+
+</QA>

@@ -21,6 +21,7 @@
     "resources": "Resources",
     "search": "Search",
     "glossary": "Glossary",
+    "principles": "Principles",
     "filterLessons": "Find a lesson",
     "noMatches": "No lessons match",
     "overview": "Section overview"
@@ -171,6 +172,7 @@
     "lesson": "Lesson",
     "term": "Term",
     "section": "Section",
+    "principle": "Principle",
     "close": "Close"
   },
   "Resources": {
@@ -205,6 +207,20 @@
     "reset": "Reset",
     "solution": "Show a solution",
     "limit": "Code is checked on the server with the TypeScript compiler; it is never executed."
+  },
+  "Principles": {
+    "title": "Programming principles",
+    "lead": "SOLID, DRY, KISS, YAGNI and the other principles behind code that is easy to change. Every principle comes with a step-by-step animation, a bad and a good TypeScript example, and when not to apply it.",
+    "stats": "{principles} principles · {categories} categories · every one animated",
+    "start": "Start with SOLID",
+    "categories": "Categories",
+    "count": "{count, plural, one {# principle} other {# principles}}",
+    "tabs": "Parts of the page",
+    "related": "Related principles",
+    "nav": "Principles navigation",
+    "all": "All principles",
+    "solidLead": "Five letters, one goal: classes that are small, replaceable and safe to extend.",
+    "open": "Open"
   },
   "Glossary": {
     "title": "Glossary",

@@ -1,0 +1,72 @@
+## Qisqacha
+
+**Premature optimization:** samaradorlik muammosi **oʻlchanmasdan** turib kodni tezlashtirishga urinish.
+
+Donald Knuth'ning mashhur iborasi toʻliq holda shunday: *"Biz kichik samaradorlik haqida, taxminan 97% holatda, unutishimiz kerak: erta optimallashtirish — barcha yovuzliklarning ildizi. Lekin oʻsha muhim 3% imkoniyatni qoʻldan boy bermasligimiz kerak."* Ya'ni gap optimallashtirishdan voz kechish haqida emas, uni **toʻgʻri joyga** qaratish haqida.
+
+## Animatsiya
+
+Dasturchi taxmin qilib optimallashtirgan funksiya va profiler koʻrsatgan haqiqiy "issiq nuqta"ni solishtiring:
+
+<PrincipleViz id="premature-optimization" />
+
+## Muammo
+
+```ts
+// "tezroq" deb qoʻlda yozilgan loop — oʻqish qiyin, foyda ~0.5 ms
+function formatRow(r: Row) {
+  let s = "";
+  for (let i = 0, n = r.cells.length; i < n; i++) s += r.cells[i] + "\t";
+  return s;
+}
+
+// haqiqiy muammo esa boshqa joyda
+for (const order of orders) {
+  order.customer = await db.query("SELECT * FROM customers WHERE id = $1", [order.customerId]); // N+1
+}
+```
+
+Inson intuitsiyasi sekin joyni topishda yomon ishlaydi. Vaqt koʻpincha kutilmagan joyda ketadi: tarmoq, baza, keraksiz qayta render yoki katta JSON'ni parse qilish.
+
+## Yechim
+
+Toʻgʻri tartib: **ishlatib koʻring → toʻgʻri qiling → tez qiling** ("Make it work, make it right, make it fast").
+
+```ts
+// 1. Oʻlchang
+console.time("orders");
+const orders = await loadOrders();
+console.timeEnd("orders"); // orders: 480ms
+
+// 2. Profiler'da issiq nuqtani toping (Chrome DevTools Performance, node --cpu-prof)
+// 3. Faqat uni tuzating — bitta soʻrov bilan JOIN
+const rows = await db.query(`
+  SELECT o.*, c.name AS customer_name
+  FROM orders o JOIN customers c ON c.id = o.customer_id
+`); // 35ms
+
+// 4. Yana oʻlchang va natijani tasdiqlang
+```
+
+Asboblar:
+
+- **Brauzer:** DevTools Performance paneli, Lighthouse, React DevTools Profiler.
+- **Node.js:** `node --cpu-prof`, `performance.now()`, `--inspect` bilan flame graph.
+- **Baza:** `EXPLAIN ANALYZE` va slow query log.
+
+<Callout kind="note" title="Bu erta optimallashtirish emas">
+Algoritmni toʻgʻri tanlash, masalan qidiruv uchun `O(n²)` oʻrniga `Map` ishlatish, odatda arzon va oʻqishni qiyinlashtirmaydi. Bu yaxshi muhandislik. Erta optimallashtirish esa aniqlikni **qurbon qilib**, oʻlchanmagan foyda izlash.
+</Callout>
+
+## Haddan oshirmang
+
+- Ba'zi qarorlar arxitektura darajasida va keyin oʻzgartirish qiyin: ma'lumotlar modeli, keshlash strategiyasi, sinxron va asinxron chegaralar. Ular haqida erta oʻylang.
+- Performance budjeti belgilang, masalan "LCP 2.5 soniyadan kam". Shunda "qachon optimallashtirish kerak" degan savolga oʻlchov javob beradi.
+
+## Intervyuda
+
+<QA q="Sahifa sekin. Qanday boshlaysiz?" level="mid">
+
+Avval oʻlchayman va sekinlik qayerda ekanini aniqlayman: tarmoqmi (waterfall), JavaScript'mi (long task) yoki render'mi. Profiler bilan issiq nuqtani topaman va eng katta ta'sirli bitta muammoni tuzataman. Keyin yana oʻlchab, natijani raqam bilan tasdiqlayman. Taxmin bilan kodni oʻzgartirmayman.
+
+</QA>

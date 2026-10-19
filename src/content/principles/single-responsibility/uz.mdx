@@ -1,0 +1,89 @@
+## Qisqacha
+
+**Single Responsibility Principle (SRP):** class yoki modulning oʻzgarishi uchun **faqat bitta sabab** boʻlishi kerak.
+
+Bu koʻpincha notoʻgʻri tushuniladi: gap "class faqat bitta metodga ega boʻlsin" haqida emas. Robert C. Martin'ning aniqroq ta'rifi: modul **bitta aktor** oldida javobgar boʻlishi kerak, ya'ni bitta jamoa yoki bitta manfaatdor tomon oldida. Agar buxgalteriya, DBA va marketing — uch xil odam — bir faylni oʻzgartirishni soʻrasa, bu faylda uchta mas'uliyat bor.
+
+## Animatsiya
+
+Uch jamoaning talablari bitta class'ga qanday urilishini, keyin esa ajratilgan class'larga qanday taqsimlanishini kuzating:
+
+<PrincipleViz id="single-responsibility" />
+
+## Muammo
+
+```ts
+class InvoiceService {
+  // 1) Buxgalteriya qoidalari
+  total(items: Item[]) {
+    const sum = items.reduce((s, i) => s + i.price * i.qty, 0);
+    return sum * (1 + TAX_RATE);
+  }
+  // 2) Saqlash tafsilotlari
+  async save(invoice: Invoice) {
+    await db.query("INSERT INTO invoices (id, total) VALUES ($1, $2)", [invoice.id, invoice.total]);
+  }
+  // 3) Yetkazish va dizayn
+  async email(invoice: Invoice) {
+    await smtp.send(invoice.customerEmail, `<h1>Invoice ${invoice.id}</h1>...`);
+  }
+}
+```
+
+Uchta mustaqil sabab bitta faylga yigʻilgan. Natijada:
+
+- Email shablonini tahrirlagan dasturchi tasodifan soliq hisobini buzib qoʻyishi mumkin.
+- `total()`'ni test qilish uchun baza va SMTP'ni ham mock qilish kerak boʻladi.
+- Ikki jamoa bir vaqtda shu faylni oʻzgartiradi va merge conflict'lar paydo boʻladi.
+
+## Yechim
+
+```ts
+class InvoiceCalculator {
+  constructor(private readonly taxRate: number) {}
+  total(items: Item[]) {
+    const sum = items.reduce((s, i) => s + i.price * i.qty, 0);
+    return sum * (1 + this.taxRate);
+  }
+}
+
+class InvoiceRepository {
+  constructor(private readonly db: Db) {}
+  save(invoice: Invoice) {
+    return this.db.query("INSERT INTO invoices (id, total) VALUES ($1, $2)", [invoice.id, invoice.total]);
+  }
+}
+
+class InvoiceMailer {
+  constructor(private readonly mail: MailClient) {}
+  send(invoice: Invoice) {
+    return this.mail.send(invoice.customerEmail, renderInvoice(invoice));
+  }
+}
+```
+
+Endi har bir class bitta sabab bilan oʻzgaradi. Ularni bir joyga yigʻuvchi kichik "orkestr" funksiya (masalan, `issueInvoice()`) faqat ketma-ketlikni biladi, tafsilotlarni emas.
+
+<Callout kind="tip" title="Tez tekshiruv">
+Class nima qilishini **"va" soʻzisiz** bir gapda ayta olasizmi? "Hisob-fakturani hisoblaydi **va** saqlaydi **va** yuboradi" — bu uchta mas'uliyat. Yana bir belgi: nomida `Manager`, `Helper` yoki `Utils` bor.
+</Callout>
+
+## Haddan oshirmang
+
+- **Har bir metod uchun class yaratmang.** Birga oʻzgaradigan narsalar birga turishi kerak, bu high cohesion deyiladi. Juda mayda boʻlish ham kodni kezishni qiyinlashtiradi.
+- Kichik skript yoki prototipda SRP'ni qat'iy qoʻllash shart emas. Tamoyil kod oʻsib, bir necha odam bilan ishlay boshlaganda foyda beradi.
+- Savol "nechta metod?" emas, balki **"buni oʻzgartirishni kim soʻraydi?"**
+
+## Intervyuda
+
+<QA q="SRP class faqat bitta ish qilishi kerak degani emasmi?" level="mid">
+
+Yoʻq. SRP — oʻzgarish **sababi** haqida. `InvoiceCalculator`'da `subtotal()`, `discount()` va `total()` boʻlishi mumkin, ularning hammasi bitta aktorga (buxgalteriyaga) xizmat qiladi. Metodlar soni emas, ularni oʻzgartirishni talab qiladigan tomonlar soni muhim.
+
+</QA>
+
+<QA q="React component'da SRP qanday koʻrinadi?" level="junior">
+
+Ma'lumot olish (custom hook), biznes qoidalar (pure function) va koʻrinish (component) alohida boʻladi. Component faqat props'ni render qiladi. Shunda dizayn oʻzgarishi API chaqiruviga, API oʻzgarishi esa markup'ga tegmaydi.
+
+</QA>

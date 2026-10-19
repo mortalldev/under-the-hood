@@ -1,0 +1,75 @@
+## TL;DR
+
+**Composition over inheritance:** build behaviour by **combining** small pieces rather than through deep `extends` chains.
+
+The advice comes from the 1994 "Design Patterns" (Gang of Four) book. Inheritance models an "**is-a**" relationship ("a Duck is a Bird"); composition models "**has-a**" or "**can-do**" ("a Duck has the abilities to fly and swim"). Inheritance creates tight coupling: a subclass inherits **all** of the parent's details, its internal behaviour, and its future changes too.
+
+## Animation
+
+Watch the inheritance tree explode with a new requirement, and composing capabilities simplify it:
+
+<PrincipleViz id="composition-over-inheritance" />
+
+## The problem
+
+```ts
+class Bird { fly() { /* … */ } }
+class Duck extends Bird { swim() { /* … */ } }
+class Penguin extends Bird {
+  fly() { throw new Error("Penguins can't fly"); } // breaks LSP
+  swim() { /* … */ }
+}
+// Now: a flying robot? a swimming fish? a duck that flies and swims, a peacock that can't swim?
+// class FlyingSwimmingBird extends Bird … class NonFlyingSwimmingBird … — a "class explosion"
+```
+
+The problems with inheritance:
+
+- **Fragile base class:** a small change in the parent can break every subclass.
+- **One axis:** a class inherits from a single parent, but capabilities have many dimensions.
+- **Unwanted baggage:** the subclass gets things it doesn't need.
+
+## The fix
+
+```ts
+type Flyer = { fly(): string };
+type Swimmer = { swim(): string };
+
+const canFly = (name: string): Flyer => ({ fly: () => `${name} is flying` });
+const canSwim = (name: string): Swimmer => ({ swim: () => `${name} is swimming` });
+
+const duck = { name: "Duck", ...canFly("Duck"), ...canSwim("Duck") };
+const penguin = { name: "Penguin", ...canSwim("Penguin") };
+const drone = { model: "DJI", ...canFly("Drone") }; // not a bird — no problem
+
+function race(flyers: Flyer[]) { return flyers.map((f) => f.fly()); }
+race([duck, drone]); // ✅  race([penguin]) — compile error
+```
+
+The same works with classes: keep the dependency as a **field** and hand the work to it (delegation).
+
+```ts
+class Car {
+  constructor(private engine: Engine, private nav: Navigator) {}
+  start() { this.engine.start(); }
+  route(to: string) { return this.nav.route(to); }
+}
+new Car(new ElectricEngine(), new OfflineNavigator()); // any combination
+```
+
+<Callout kind="note" title="React is the best example of composition">
+The React team advises against inheritance between components. Instead you use `children`, components passed as props, and custom hooks. For example, `useAuth()` and `useTheme()` can be combined in any component.
+</Callout>
+
+## Don't overdo it
+
+- Inheritance isn't bad. For a real, stable "is-a" relationship with shared behaviour (`class HttpError extends Error`), it's the simplest solution.
+- Shallow inheritance (one or two levels) and `abstract` base classes are normal in frameworks. The trouble is **deep** hierarchies and inheritance used only to reuse code.
+
+## In interviews
+
+<QA q="When do you choose inheritance, and when composition?" level="mid">
+
+I use inheritance when the subclass can keep **all** of the parent's promises (LSP), the relationship is stable, and it's the idiomatic way in the language or framework (`extends Error`). When the goal is only code reuse, or capabilities are needed in varying combinations, I choose composition.
+
+</QA>

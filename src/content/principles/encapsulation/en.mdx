@@ -1,0 +1,74 @@
+## TL;DR
+
+**Encapsulation (information hiding):** hide the internal structure of an object or module, and expose only a **small, safe** interface.
+
+There are two ideas here. First, **data and the rules that change it live together**. Second, **outside code doesn't depend on internal details**. In 1972 David Parnas proposed splitting modules by "hiding the decisions likely to change".
+
+## Animation
+
+See an open field get corrupted from anywhere, and then a single "door" stop the invalid value:
+
+<PrincipleViz id="encapsulation" />
+
+## The problem
+
+```ts
+class Account {
+  balance = 0;            // anyone can change it
+  history: Tx[] = [];     // anyone can change it
+}
+
+// refund.ts
+account.balance -= 500;           // no history entry
+// checkout.ts
+account.balance = account.balance + price; // no negative check
+account.history.length = 0;       // history wiped by accident
+```
+
+The rules "the balance is never negative" and "every change is recorded" (the invariants) exist nowhere. They depend on every caller remembering them.
+
+## The fix
+
+```ts
+class Account {
+  #balance = 0;
+  #history: Tx[] = [];
+
+  deposit(amount: number) {
+    if (!(amount > 0)) throw new RangeError("amount must be > 0");
+    this.#apply(amount, "deposit");
+  }
+
+  withdraw(amount: number) {
+    if (amount > this.#balance) throw new Error("Insufficient funds");
+    this.#apply(-amount, "withdraw");
+  }
+
+  get balance() { return this.#balance; }                 // read-only
+  get history(): readonly Tx[] { return this.#history; }  // can't be mutated
+
+  #apply(delta: number, kind: Tx["kind"]) {
+    this.#balance += delta;
+    this.#history.push({ kind, delta, at: new Date() });
+  }
+}
+```
+
+The invariants are now guarded **in one place**. If you later store the balance in cents or move to a ledger, not a single caller changes.
+
+<Callout kind="note" title="Ways to hide things in JavaScript">
+`#private` fields are truly hidden at runtime; TypeScript's `private` works only at compile time. Closures are powerful too: `function createCounter() { let n = 0; return { inc: () => ++n }; }`. At module level only what you `export` is visible, so don't export everything.
+</Callout>
+
+## Don't overdo it
+
+- Mechanically adding `getX()/setX()` for every field isn't encapsulation; it's a longer way of writing a public field. The goal is **meaningful operations** (`withdraw`), not setters.
+- Plain data carriers (DTOs, API responses, React props) are fine with public `readonly` fields.
+
+## In interviews
+
+<QA q="If I add getters and setters, is that encapsulation?" level="junior">
+
+Not always. If a setter writes the value without any checks, outside code still controls the internal state. Encapsulation means keeping the rule next to the data, so business operations like `deposit(amount)` and `withdraw(amount)` beat `setBalance(x)`.
+
+</QA>

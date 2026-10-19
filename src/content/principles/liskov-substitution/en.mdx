@@ -1,0 +1,91 @@
+## TL;DR
+
+**Liskov Substitution Principle (LSP):** putting a subtype object **anywhere** its parent is expected must keep the program correct.
+
+Barbara Liskov put it in 1987 as: a subtype must keep the parent's **contract**. In practice that means three rules:
+
+- **Don't strengthen preconditions.** Whatever input the parent accepted, the subclass accepts too.
+- **Don't weaken postconditions.** Whatever result the parent promised, the subclass delivers.
+- **Preserve invariants** and don't throw unexpected exceptions.
+
+## Animation
+
+Watch the same `stretch()` function give the right answer with a Rectangle and the wrong one with a Square, step by step:
+
+<PrincipleViz id="liskov-substitution" />
+
+## The problem
+
+```ts
+class Rectangle {
+  constructor(protected width: number, protected height: number) {}
+  setWidth(w: number) { this.width = w; }
+  setHeight(h: number) { this.height = h; }
+  area() { return this.width * this.height; }
+}
+
+class Square extends Rectangle {
+  constructor(side: number) { super(side, side); }
+  setWidth(w: number) { this.width = w; this.height = w; }
+  setHeight(h: number) { this.width = h; this.height = h; }
+}
+
+function stretch(r: Rectangle) {
+  r.setWidth(10);
+  console.assert(r.area() === 10 * 5, "expected 50"); // 100 for Square(5)!
+}
+```
+
+In maths a square is a kind of rectangle, but not in terms of **behaviour**. `Rectangle` promises "width and height are independent"; `Square` breaks that promise. The type checker says nothing, and the bug shows up at runtime.
+
+Another common example:
+
+```ts
+class ReadOnlyList<T> extends Array<T> {
+  push(): number { throw new Error("read-only"); } // ❌ breaks Array's contract
+}
+```
+
+## The fix
+
+```ts
+interface Shape {
+  area(): number;
+}
+
+class Rect implements Shape {
+  constructor(readonly width: number, readonly height: number) {}
+  withWidth(w: number) { return new Rect(w, this.height); }
+  area() { return this.width * this.height; }
+}
+
+class Sq implements Shape {
+  constructor(readonly side: number) {}
+  area() { return this.side ** 2; }
+}
+```
+
+Drop the false "is-a". The shared part — `area()` — moves into an interface, and `setWidth` stays only where it makes sense. For a read-only list, use a **smaller** interface such as `ReadonlyArray<T>`.
+
+<Callout kind="tip" title="Signs LSP is broken">
+A subclass has `throw new Error("Not supported")`; calling code checks types with `instanceof`; a subclass leaves a parent method empty; tests pass only with the parent.
+</Callout>
+
+## Don't overdo it
+
+- LSP doesn't forbid inheritance. It only asks you to choose inheritance by **behaviour**, not by real-world taxonomy.
+- If a subclass can't keep all of the parent's promises, composition or a separate interface is the better tool.
+
+## In interviews
+
+<QA q="Does TypeScript check LSP automatically?" level="mid">
+
+Partly. TypeScript checks signatures: parameter and return types must be compatible. It can't check **semantics** — a promise like "changing the width doesn't touch the height". Only tests and design catch that. A good practice is to run the parent's test suite against every subclass.
+
+</QA>
+
+<QA q="How are LSP and OCP related?" level="senior">
+
+OCP suggests extending through abstractions; LSP guarantees those extensions are **safe** — a new implementation doesn't break old callers. Without LSP, OCP's promise of "extend without touching old code" is a lie.
+
+</QA>

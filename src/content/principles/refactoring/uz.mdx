@@ -1,0 +1,85 @@
+## Qisqacha
+
+**Refactoring** — kodning **tashqi xatti-harakatini oʻzgartirmasdan** ichki tuzilishini yaxshilash.
+
+Martin Fowler ta'rifida ikki muhim soʻz bor: **kichik qadamlar** va **xatti-harakat saqlanadi**. Refactoring "katta qayta yozish" emas. U har biri xavfsiz va tekshiriladigan mayda oʻzgarishlar ketma-ketligi. Har bir qadamdan keyin dastur ishlab turadi.
+
+## Animatsiya
+
+Yashil testlar himoyasi ostida funksiya qadamma-qadam qanday tozalanishini va refactoring yangi imkoniyat bilan aralashganda nima boʻlishini koʻring:
+
+<PrincipleViz id="refactoring" />
+
+## Jarayon
+
+1. **Testlar yashil boʻlsin.** Agar test boʻlmasa, avval mavjud xatti-harakatni qayd etadigan "characterization test" yozing.
+2. **Bitta kichik qadam** qiling: nomni oʻzgartiring, funksiyani ajrating yoki oʻzgaruvchini inline qiling.
+3. **Testlarni ishga tushiring.** Yashil boʻlsa commit qiling, qizil boʻlsa qadamni bekor qiling.
+4. Takrorlang.
+
+## Misol: qadamma-qadam
+
+```ts
+// Boshlanish: 60 qatorli funksiya
+function calcPrice(order: Order) {
+  let total = 0;
+  for (const i of order.items) total += i.price * i.qty;
+  if (order.coupon === "SALE10") total *= 0.9;
+  else if (order.coupon === "SALE20") total *= 0.8;
+  if (order.region === "UZ") total *= 1.12;
+  else if (order.region === "KZ") total *= 1.12;
+  // …
+  return Math.round(total);
+}
+```
+
+```ts
+// 1-qadam: Extract Function — subtotal
+const subtotal = (o: Order) => o.items.reduce((s, i) => s + i.price * i.qty, 0);
+
+// 2-qadam: Replace Conditional with Lookup — chegirmalar ma'lumotga aylanadi
+const COUPONS: Record<string, number> = { SALE10: 0.1, SALE20: 0.2 };
+const applyDiscount = (sum: number, coupon?: string) => sum * (1 - (COUPONS[coupon ?? ""] ?? 0));
+
+// 3-qadam: Extract Function — soliq
+const TAX: Record<Region, number> = { UZ: 0.12, KZ: 0.12 };
+const addTax = (sum: number, region: Region) => sum * (1 + TAX[region]);
+
+// Natija: retsept kabi oʻqiladi
+function calcPrice(order: Order) {
+  return Math.round(addTax(applyDiscount(subtotal(order), order.coupon), order.region));
+}
+```
+
+Har bir qadamdan keyin testlar ishga tushirildi va natija bir xil qoldi.
+
+## Asosiy refactoring'lar
+
+| Nomi | Nima qiladi |
+| --- | --- |
+| **Rename** | Nomni ma'noga moslaydi (IDE'da F2 — eng xavfsiz va eng foydali) |
+| **Extract Function / Variable** | Kod boʻlagiga nom beradi |
+| **Inline Function / Variable** | Keraksiz qatlamni olib tashlaydi |
+| **Move Function** | Funksiyani u koʻproq ishlatadigan ma'lumot yoniga koʻchiradi |
+| **Introduce Parameter Object** | Birga yuradigan parametrlarni guruhlaydi |
+| **Replace Conditional with Polymorphism / Lookup** | Uzun `if/switch`'ni almashtiradi |
+| **Split Phase** | "Parse, keyin hisobla" kabi bosqichlarni ajratadi |
+
+<Callout kind="warning" title="Ikki shlyapa qoidasi">
+Kent Beck: bir vaqtning oʻzida yo **refactoring** shlyapasini, yo **yangi imkoniyat** shlyapasini kiying, hech qachon ikkalasini birga emas. Aralash commit'da test yiqilsa, sababini topib boʻlmaydi. Review qilish ham qiyinlashadi.
+</Callout>
+
+## Qachon refactoring qilish kerak
+
+- **Yangi imkoniyat qoʻshishdan oldin:** "avval oʻzgarishni oson qiling, keyin oson oʻzgarishni qiling" (Kent Beck).
+- **Kodni tushunganingizda:** tushunganingizni yaxshiroq nom yoki funksiya shaklida kodga qaytaring.
+- **Code review'da** yoki bug tuzatayotganda, Boy Scout Rule bilan.
+- **Qilmang:** testlar yoʻq va yozib boʻlmaydigan joyda katta refactoring; deadline'dan bir kun oldin; yoki tez orada oʻchiriladigan kodda.
+
+## Intervyuda
+
+<QA q="Refactoring va rewrite farqi nima?" level="mid">
+
+Refactoring — kichik, xatti-harakatni saqlaydigan qadamlar. Dastur doim ishlab turadi va istalgan payt toʻxtatish mumkin. Rewrite — eskisini tashlab, yangisini noldan yozish. Bu uzoq vaqt qiymat bermaydi va eski koddagi yashirin bilimlarni (edge case'lar va bug fix'lar) yoʻqotish xavfi katta. Shuning uchun koʻpincha "strangler fig" usuli afzal: yangi qism eskisini asta-sekin almashtiradi.
+
+</QA>

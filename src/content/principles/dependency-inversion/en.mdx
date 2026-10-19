@@ -1,0 +1,93 @@
+## TL;DR
+
+The **Dependency Inversion Principle (DIP)** has two parts:
+
+1. High-level modules (business logic) should not depend on low-level modules (database, HTTP, file system). **Both depend on abstractions.**
+2. Abstractions should not depend on details; details depend on abstractions.
+
+Why "inversion": normally the dependency arrow points down, from business logic to the database. Under DIP the **high level owns the interface**, the low level implements it, and the arrow flips.
+
+## Animation
+
+Watch the arrow flip, and how easily a different implementation plugs in for tests:
+
+<PrincipleViz id="dependency-inversion" />
+
+## The problem
+
+```ts
+import { Pool } from "pg";
+
+class SignupService {
+  private db = new Pool({ connectionString: process.env.DATABASE_URL });
+
+  async signup(email: string) {
+    const exists = await this.db.query("SELECT 1 FROM users WHERE email = $1", [email]);
+    if (exists.rowCount) throw new Error("Email taken");
+    await this.db.query("INSERT INTO users (email) VALUES ($1)", [email]);
+  }
+}
+```
+
+- A unit test needs a real Postgres, or mocking the `pg` module.
+- Switching to another store means editing a business-logic file.
+- The business rule ("no duplicate emails") is buried among SQL details.
+
+## The fix
+
+```ts
+// The abstraction — states what the business side needs
+interface UserStore {
+  exists(email: string): Promise<boolean>;
+  add(email: string): Promise<void>;
+}
+
+class SignupService {
+  constructor(private readonly users: UserStore) {}
+
+  async signup(email: string) {
+    if (await this.users.exists(email)) throw new Error("Email taken");
+    await this.users.add(email);
+  }
+}
+
+// The detail — implements the abstraction
+class PostgresUserStore implements UserStore {
+  constructor(private readonly db: Pool) {}
+  async exists(email: string) {
+    return Boolean((await this.db.query("SELECT 1 FROM users WHERE email = $1", [email])).rowCount);
+  }
+  async add(email: string) {
+    await this.db.query("INSERT INTO users (email) VALUES ($1)", [email]);
+  }
+}
+
+// Composition root — everything is wired in one place
+const signup = new SignupService(new PostgresUserStore(pool));
+```
+
+And the test becomes trivial:
+
+```ts
+const emails = new Set<string>();
+const fake: UserStore = { exists: async (e) => emails.has(e), add: async (e) => void emails.add(e) };
+await new SignupService(fake).signup("a@b.uz");
+```
+
+<Callout kind="note" title="DIP, DI and IoC">
+**Dependency Inversion** is the design principle: depend on abstractions. **Dependency Injection** is the technique: pass dependencies in through the constructor or parameters. **Inversion of Control** is the broader idea: a framework or container creates and calls your objects ("the Hollywood principle: don't call us, we'll call you").
+</Callout>
+
+## Don't overdo it
+
+- Don't create an interface for every class. Stable code without side effects, like `formatDate()` or `Math`, needs no abstraction.
+- Apply DIP at the **boundaries**: database, network, time (`Date.now()`), randomness, file system. Those are what make testing hard and what gets swapped.
+- You don't need a DI container. Plain constructor parameters are often enough.
+
+## In interviews
+
+<QA q="Why should the high level, not the low level, own the interface?" level="senior">
+
+Because the interface expresses a **need** — what the business logic requires. If the interface is defined inside the database module, it mirrors the database's capabilities, and the business side is coupled to a detail again. Define it in the business module and have the database module import it; that is what actually flips the dependency arrow.
+
+</QA>

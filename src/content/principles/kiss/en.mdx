@@ -1,0 +1,64 @@
+## TL;DR
+
+**KISS (Keep It Simple, Stupid):** choose the **simplest** solution that solves the problem.
+
+The phrase comes from US Navy engineers: an aircraft had to be repairable in the field with basic tools. Code is the same — someone reading it at night, in a hurry, without context, should still understand it. Complexity is where bugs like to live.
+
+## Animation
+
+Compare a "clever" and a simple answer to the same question, and count how many steps of thinking each asks of the reader:
+
+<PrincipleViz id="kiss" />
+
+## The problem
+
+```ts
+// "clever" — but every reader has to decode it again
+const isWeekend = (d: Date) => !!((1 << d.getDay()) & 0b1000001);
+
+// a one-line "trick"
+const result = data.reduce((a, x) => ({ ...a, [x.k]: [...(a[x.k] ?? []), x] }), {} as Record<string, Item[]>);
+
+// generalised just in case
+class AbstractStrategyFactoryProvider<T extends BaseConfig> { /* … */ }
+```
+
+All three work. But the next reader — including you in three months — spends time decoding them, and a bug is even harder to spot.
+
+## The fix
+
+```ts
+const SUNDAY = 0;
+const SATURDAY = 6;
+const isWeekend = (d: Date) => d.getDay() === SUNDAY || d.getDay() === SATURDAY;
+
+// grouping — with the standard function
+const result = Object.groupBy(data, (x) => x.k);
+
+// generalise only when a second real case shows up
+function loadConfig(path: string): Config { /* … */ }
+```
+
+Practical ways to keep things simple:
+
+- Use the standard library: `Object.groupBy`, `structuredClone`, `Array.prototype.at`.
+- Break long expressions into **named variables**: `const isExpired = now > token.expiresAt;`.
+- Use early `return` instead of deeply nested `if`s.
+- If a function doesn't fit on a screen, split it.
+
+<Callout kind="tip" title="Simple ≠ easy">
+Writing simple code is often **harder**: it takes real understanding of the problem. Rich Hickey separates "simple" from "easy". *Easy* is familiar and at hand; *simple* is untangled, not braided together. KISS is about the second.
+</Callout>
+
+## Don't overdo it
+
+- KISS doesn't mean "write primitive code". Simple-looking code that hides a genuinely hard problem — ignoring a race condition, say — isn't simplicity, it's incompleteness.
+- Sometimes the right abstraction **simplifies** code: one `api.get()` instead of ten similar `fetch` calls.
+
+## In interviews
+
+<QA q="How do you judge whether your code is simple?" level="mid">
+
+I ask a few questions. Would a new team member understand it without comments? Can I describe the function in one sentence? How many files must I open for one change? Is the test simple? Another good signal is how many "what does this do?" questions come up in code review.
+
+</QA>

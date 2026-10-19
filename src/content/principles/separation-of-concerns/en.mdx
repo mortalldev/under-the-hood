@@ -1,0 +1,82 @@
+## TL;DR
+
+**Separation of Concerns (SoC):** split a program into parts that each handle **one concern** — presentation, business rules, data access, networking, authentication and so on.
+
+Edsger Dijkstra used the term in 1974. The idea is simple: people think well about one thing at a time. SoC is to the whole program and its architecture what SRP is to a class.
+
+## Animation
+
+See one do-everything component split into layers, each doing its own job:
+
+<PrincipleViz id="separation-of-concerns" />
+
+## The problem
+
+```tsx
+function Orders() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    fetch("/api/orders", { headers: { Authorization: `Bearer ${localStorage.token}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(setOrders)
+      .catch(() => setError("Could not load"));
+  }, []);
+
+  const paid = orders
+    .filter((o) => o.status === "paid" && o.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 10);
+
+  return error ? <p>{error}</p> : <ul>{paid.map((o) => <li key={o.id}>${o.total}</li>)}</ul>;
+}
+```
+
+One function holds four concerns: authentication, HTTP, a business rule ("top 10 paid orders") and presentation. Testing the sort rule means mocking fetch and rendering React. If token storage changes, you edit a UI file.
+
+## The fix
+
+```ts
+// api.ts — networking and auth
+export const api = { orders: () => http.get<Order[]>("/api/orders") };
+
+// orders.rules.ts — the business rule, a pure function
+export const topPaid = (orders: Order[], n = 10) =>
+  orders.filter((o) => o.status === "paid" && o.total > 0).sort((a, b) => b.total - a.total).slice(0, n);
+
+// useOrders.ts — data state
+export const useOrders = () => useQuery({ queryKey: ["orders"], queryFn: api.orders });
+```
+
+```tsx
+// OrdersList.tsx — presentation only
+export function OrdersList({ orders }: { orders: Order[] }) {
+  return <ul>{orders.map((o) => <li key={o.id}>{formatMoney(o.total)}</li>)}</ul>;
+}
+
+// OrdersPage.tsx — wires the layers together
+export function OrdersPage() {
+  const { data = [], error } = useOrders();
+  return error ? <ErrorMessage /> : <OrdersList orders={topPaid(data)} />;
+}
+```
+
+Now `topPaid()` can be tested with a plain array, `OrdersList` renders fake data in Storybook, and authentication changes in one `http` module.
+
+<Callout kind="note" title="SoC all around you">
+HTML/CSS/JS, MVC, frontend vs backend, Server vs Client Components in Next.js, middleware — all of these are SoC. Approaches like Tailwind are a reminder that you separate **concerns**, not files: styling may live inside the component, but it's still only about presentation.
+</Callout>
+
+## Don't overdo it
+
+- A small component doesn't need four files. Separation pays off when code **grows** or a part needs testing on its own.
+- Grouping folders by **feature** (`orders/`, `checkout/`) rather than by file type (`components/`, `hooks/`, `utils/`) often improves cohesion.
+
+## In interviews
+
+<QA q="How do layered architecture and SoC relate?" level="mid">
+
+Layered architecture is a well-known form of SoC: presentation, application (use cases), domain and infrastructure layers. Each layer handles one concern, and dependencies point one way — usually inward, towards the domain. Combined with DIP, swapping the database or the UI doesn't touch domain logic.
+
+</QA>

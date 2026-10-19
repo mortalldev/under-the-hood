@@ -1,0 +1,64 @@
+## TL;DR
+
+**DRY (Don't Repeat Yourself):** every piece of **knowledge** in a system — a rule, a formula, a constant, a decision — should be written in **exactly one place**.
+
+The definition comes from "The Pragmatic Programmer", and it's about duplicated **knowledge**, not duplicated text. Two identical-looking lines don't always break DRY, while two different-looking places may be repeating the same rule.
+
+## Animation
+
+See what happens when one rule is copied into three files, and how it becomes manageable once it moves to a single source:
+
+<PrincipleViz id="dry" />
+
+## The problem
+
+```ts
+// signup.tsx
+if (form.password.length < 8) setError("Password must be at least 8 characters");
+
+// api/signup.ts
+if (body.password.length < 8) return Response.json({ error: "weak" }, { status: 400 });
+
+// reset-password.ts
+const ok = input.password.length >= 8;
+```
+
+When the rule changes — say, 12 characters — all three places must be found and edited. One gets missed, and the system **contradicts itself**: sign-up demands 12 characters while reset accepts 8.
+
+## The fix
+
+```ts
+// password-policy.ts — the single source of truth
+export const MIN_PASSWORD = 12;
+export function validatePassword(p: string): string | null {
+  if (p.length < MIN_PASSWORD) return `Password must be at least ${MIN_PASSWORD} characters`;
+  return null;
+}
+
+// everywhere
+const error = validatePassword(form.password);
+```
+
+DRY is not only about code. Knowledge gets duplicated elsewhere too:
+
+- **Types:** instead of hand-writing the same type on server and client, derive it from one schema (for example, Zod).
+- **Configuration:** a URL shouldn't appear in three files; read it from one environment variable.
+- **Docs and code:** don't restate in a comment what the code does. Write **why** it does it.
+
+<Callout kind="warning" title="The wrong abstraction costs more than duplication">
+"Customer address" and "warehouse address" validation may look the same today, but they change **for different reasons**. Merge them, and over time the function fills up with `if (type === "warehouse")`. Sandi Metz's advice: duplication is far cheaper than the wrong abstraction.
+</Callout>
+
+## When to merge
+
+- **Rule of three:** write it once. Note it when it repeats a second time. Extract an abstraction on the third. Three examples show clearly what is really shared.
+- The key question: "If one changes, **must** the other change too?" If yes, merge them. If "maybe" or "no", keep them apart.
+- The opposite is called **WET**: "Write Everything Twice" or "We Enjoy Typing".
+
+## In interviews
+
+<QA q="You see two identical functions. Do you merge them right away?" level="mid">
+
+Not necessarily. First I check whether they express **the same knowledge** or just happen to look alike. If they belong to different teams or requirements, they'll change differently tomorrow, and merging would couple them. I follow the rule of three and extract the abstraction on the third example.
+
+</QA>

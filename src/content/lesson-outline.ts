@@ -25,7 +25,18 @@ export async function lessonOutline(section: SectionSlug, lesson: string, locale
   "use cache";
   cacheLife("max");
   const file = path.join(process.cwd(), "src/content/lessons", section, lesson, `${locale}.mdx`);
-  const src = await readFile(file, "utf8");
+  return outlineOf(await readFile(file, "utf8"));
+}
+
+/** Same as `lessonOutline` for a principle page (`content/principles/<slug>/<locale>.mdx`). */
+export async function principleOutline(slug: string, locale: Locale): Promise<LessonOutline> {
+  "use cache";
+  cacheLife("max");
+  const file = path.join(process.cwd(), "src/content/principles", slug, `${locale}.mdx`);
+  return outlineOf(await readFile(file, "utf8"));
+}
+
+function outlineOf(src: string): LessonOutline {
   const slugger = new GithubSlugger();
   const headings: OutlineItem[] = [];
   let inFence = false;

@@ -1,0 +1,64 @@
+## Qisqacha
+
+**DRY (Don't Repeat Yourself):** tizimdagi har bir **bilim**, ya'ni qoida, formula, konstanta yoki qaror, **aniq bitta joyda** yozilgan boʻlishi kerak.
+
+Bu ta'rif "The Pragmatic Programmer" kitobidan olingan. Unda gap matnning emas, **bilimning** takrorlanishi haqida. Bir xil koʻrinadigan ikki qator har doim ham DRY'ni buzmaydi. Har xil koʻrinadigan ikki joy esa bitta qoidani takrorlayotgan boʻlishi mumkin.
+
+## Animatsiya
+
+Bitta qoida uch faylga nusxalanganda nima boʻlishini va bitta manbaga koʻchirilgach qanday boshqarilishini koʻring:
+
+<PrincipleViz id="dry" />
+
+## Muammo
+
+```ts
+// signup.tsx
+if (form.password.length < 8) setError("Parol kamida 8 belgi boʻlsin");
+
+// api/signup.ts
+if (body.password.length < 8) return Response.json({ error: "weak" }, { status: 400 });
+
+// reset-password.ts
+const ok = input.password.length >= 8;
+```
+
+Qoida oʻzgarganda, masalan 12 belgi talab qilinganda, uchala joyni topib tahrirlash kerak. Bittasi albatta unutiladi va tizim ichida **qarama-qarshilik** paydo boʻladi: roʻyxatdan oʻtish 12 belgini, tiklash esa 8 belgini talab qiladi.
+
+## Yechim
+
+```ts
+// password-policy.ts — yagona haqiqat manbai (single source of truth)
+export const MIN_PASSWORD = 12;
+export function validatePassword(p: string): string | null {
+  if (p.length < MIN_PASSWORD) return `Parol kamida ${MIN_PASSWORD} belgi boʻlsin`;
+  return null;
+}
+
+// hamma joyda
+const error = validatePassword(form.password);
+```
+
+DRY faqat koddagi takrorlanish emas. Bilim boshqa joylarda ham takrorlanadi:
+
+- **Type'lar:** server va client'da bir xil type'ni qoʻlda yozish oʻrniga, bitta schema'dan (masalan, Zod) type'ni chiqarib oling.
+- **Konfiguratsiya:** bitta URL uch faylda yozilmasin, bitta environment variable'dan olinsin.
+- **Hujjat va kod:** izohda kod nima qilishini takrorlamang. Izohda **nima uchun** shunday qilinganini yozing.
+
+<Callout kind="warning" title="Notoʻgʻri abstraksiya takrorlanishdan qimmatroq">
+"Mijoz manzili" va "ombor manzili" validatsiyasi bugun bir xil koʻrinishi mumkin. Lekin ular **har xil sabablarga koʻra** oʻzgaradi. Birlashtirsangiz, vaqt oʻtib funksiya `if (type === "warehouse")` bilan toʻlib ketadi. Sandi Metz'ning maslahati: notoʻgʻri abstraksiyadan koʻra takrorlanish arzonroq.
+</Callout>
+
+## Qachon birlashtirish kerak
+
+- **Rule of three:** kod birinchi marta yoziladi. Ikkinchi marta takrorlanganda buni qayd eting. Uchinchi marta takrorlansa, abstraksiyaga ajrating. Uch misol umumiy narsani aniq koʻrsatadi.
+- Asosiy savol: "Ulardan biri oʻzgarsa, ikkinchisi ham **albatta** oʻzgarishi kerakmi?" Javob "ha" boʻlsa, birlashtiring. "Ehtimol" yoki "yoʻq" boʻlsa, alohida qoldiring.
+- Teskari holat **WET** deb ataladi: "Write Everything Twice" yoki "We Enjoy Typing".
+
+## Intervyuda
+
+<QA q="Ikkita bir xil funksiya koʻrsangiz, darhol birlashtirasizmi?" level="mid">
+
+Shart emas. Avval ular **bitta bilimni** ifodalaydimi yoki tasodifan oʻxshashmi, shuni tekshiraman. Agar ular turli jamoalarga yoki turli talablarga tegishli boʻlsa, ertaga turlicha oʻzgaradi. Birlashtirish esa ularni bir-biriga bogʻlab qoʻyadi. Rule of three'ga amal qilaman va abstraksiyani uchinchi misolda ajrataman.
+
+</QA>

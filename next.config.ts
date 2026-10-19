@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/*/learn/*/*": ["./src/content/lessons/**/*.mdx"],
     "/*/glossary": ["./src/content/lessons/**/en.mdx"],
+    "/*/principles/*/*": ["./src/content/principles/**/*.mdx"],
     "/**/opengraph-image*": ["./src/assets/fonts/*.ttf"],
   },
   experimental: {

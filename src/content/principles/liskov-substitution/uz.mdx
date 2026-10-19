@@ -1,0 +1,91 @@
+## Qisqacha
+
+**Liskov Substitution Principle (LSP):** subtype obyektini parent kutilgan **istalgan joyga** qoʻyganda dastur toʻgʻri ishlashda davom etishi kerak.
+
+Barbara Liskov 1987-yilda bu gʻoyani shunday ifodalagan: subtype parent'ning **shartnomasini** saqlashi kerak. Amalda bu uchta qoidaga keladi:
+
+- **Precondition'larni kuchaytirmang.** Parent qabul qilgan input'ni subclass ham qabul qilsin.
+- **Postcondition'larni zaiflashtirmang.** Parent va'da qilgan natijani subclass ham bersin.
+- **Invariant'larni saqlang** va kutilmagan exception tashlamang.
+
+## Animatsiya
+
+Bir xil `stretch()` funksiyasi Rectangle bilan toʻgʻri, Square bilan esa notoʻgʻri natija beradi. Buni qadamma-qadam koʻring:
+
+<PrincipleViz id="liskov-substitution" />
+
+## Muammo
+
+```ts
+class Rectangle {
+  constructor(protected width: number, protected height: number) {}
+  setWidth(w: number) { this.width = w; }
+  setHeight(h: number) { this.height = h; }
+  area() { return this.width * this.height; }
+}
+
+class Square extends Rectangle {
+  constructor(side: number) { super(side, side); }
+  setWidth(w: number) { this.width = w; this.height = w; }
+  setHeight(h: number) { this.width = h; this.height = h; }
+}
+
+function stretch(r: Rectangle) {
+  r.setWidth(10);
+  console.assert(r.area() === 10 * 5, "expected 50"); // Square(5) uchun 100!
+}
+```
+
+Matematikada kvadrat toʻrtburchakning bir turi, lekin **xatti-harakat** jihatidan emas. `Rectangle` "kenglik va balandlik mustaqil" deb va'da beradi, `Square` esa bu va'dani buzadi. Type checker hech narsa demaydi, xato esa runtime'da chiqadi.
+
+Yana bir keng tarqalgan misol:
+
+```ts
+class ReadOnlyList<T> extends Array<T> {
+  push(): number { throw new Error("read-only"); } // ❌ Array shartnomasini buzadi
+}
+```
+
+## Yechim
+
+```ts
+interface Shape {
+  area(): number;
+}
+
+class Rect implements Shape {
+  constructor(readonly width: number, readonly height: number) {}
+  withWidth(w: number) { return new Rect(w, this.height); }
+  area() { return this.width * this.height; }
+}
+
+class Sq implements Shape {
+  constructor(readonly side: number) {}
+  area() { return this.side ** 2; }
+}
+```
+
+Soxta "is-a" munosabatidan voz keching. Umumiy narsa — `area()` — interface'ga chiqariladi. `setWidth` faqat ma'noli boʻlgan joyda qoladi. Read-only roʻyxat uchun esa `ReadonlyArray<T>` kabi **kichikroq** interface ishlating.
+
+<Callout kind="tip" title="LSP buzilishi belgilari">
+Subclass'da `throw new Error("Not supported")` bor; chaqiruvchi kod `instanceof` bilan turini tekshiradi; subclass parent metodini boʻsh qoldiradi; testlar faqat parent bilan oʻtadi.
+</Callout>
+
+## Haddan oshirmang
+
+- LSP merosni taqiqlamaydi. U faqat merosni **xatti-harakat** asosida tanlashni talab qiladi, real hayotdagi taksonomiya asosida emas.
+- Agar subclass parent'ning barcha va'dalarini bajara olmasa, composition yoki alohida interface yaxshiroq.
+
+## Intervyuda
+
+<QA q="TypeScript LSP'ni avtomatik tekshiradimi?" level="mid">
+
+Qisman. TypeScript imzolarni tekshiradi: parametr va return type'lar mos kelishi kerak. Lekin **semantikani**, ya'ni "kenglikni oʻzgartirish balandlikka tegmaydi" degan va'dani tekshira olmaydi. Buni faqat testlar va dizayn ushlaydi. Parent uchun yozilgan testlarni har bir subclass ustida ishga tushirish yaxshi amaliyot.
+
+</QA>
+
+<QA q="LSP va OCP qanday bogʻliq?" level="senior">
+
+OCP abstraksiya orqali kengaytirishni taklif qiladi. LSP esa bu kengaytmalarning **xavfsiz** boʻlishini kafolatlaydi: yangi implementatsiya eski chaqiruvchi kodni buzmaydi. LSP boʻlmasa, OCP bergan "eski kodga tegmasdan kengaytirish" va'dasi yolgʻon boʻlib qoladi.
+
+</QA>

@@ -1,0 +1,68 @@
+## TL;DR
+
+**Law of Demeter (LoD)**, or the **Principle of Least Knowledge:** an object should talk only to its **immediate friends**, not to strangers.
+
+Formally, a method `m` may only call methods of:
+
+1. the object itself (`this`);
+2. `m`'s parameters;
+3. objects created inside `m`;
+4. the object's direct fields.
+
+The tell-tale sign is **long dot chains**: `a.getB().getC().doSomething()`. Code like that learns the whole structure inside `a`.
+
+## Animation
+
+See what happens when `checkout.ts` reaches into three classes, and how asking one "friend" absorbs a structural change:
+
+<PrincipleViz id="law-of-demeter" />
+
+## The problem
+
+```ts
+// checkout.ts
+const city = order.getCustomer().getAddress().getCity();
+const zip = order.getCustomer().getAddress().getZip();
+const fee = shippingRates[city] ?? DEFAULT_FEE;
+
+// customers can now have several addresses → these lines break all over the codebase
+```
+
+`checkout.ts` is coupled to the internals of `Order`, `Customer` and `Address`. This is called a "train wreck". Every link in the chain is a change risk, and the test needs a three-level mock.
+
+## The fix
+
+```ts
+class Order {
+  constructor(private customer: Customer, private shippingAddressId?: string) {}
+
+  shippingAddress(): Address {
+    return this.customer.addressById(this.shippingAddressId) ?? this.customer.primaryAddress();
+  }
+
+  shippingCity(): string {
+    return this.shippingAddress().city;
+  }
+}
+
+// checkout.ts — talks to its immediate friend only
+const fee = shippingRates[order.shippingCity()] ?? DEFAULT_FEE;
+```
+
+Knowledge of how the address is found now lives in `Order`. If Customer's structure changes, only one method is edited.
+
+<Callout kind="note" title="It's not about counting dots">
+`arr.map(f).filter(g).slice(0, 3)` or `query.where().orderBy().limit()` do **not** break LoD. A fluent API returns the same kind of value each time, and you aren't reaching into a stranger's internals. Reading plain data structures (`config.db.host`, JSON) is usually fine too.
+</Callout>
+
+## Don't overdo it
+
+Creating dozens of "delegate" methods like `order.getCustomerAddressCityName()` to hide every chain leads to a wrapper explosion. Ask: "What does the caller actually **need** to know?" Usually it needs a result, not the data. That's where Tell, Don't Ask helps.
+
+## In interviews
+
+<QA q="Why does the Law of Demeter make testing easier?" level="mid">
+
+Because each object uses only its direct dependencies, a test mocks one level: `order.shippingCity()` returns "Tashkent". You don't have to build the whole `order → customer → address → city` chain. Nested mocks are usually a sign LoD is being broken.
+
+</QA>

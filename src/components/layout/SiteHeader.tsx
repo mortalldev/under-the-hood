@@ -1,5 +1,6 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { glossary } from "@/content/glossary";
+import { principles } from "@/content/principles/registry";
 import { lessons, sectionSlugs } from "@/content/registry";
 import { LogoMark } from "@/components/Logo";
 import { Link } from "@/i18n/navigation";
@@ -29,6 +30,12 @@ export async function SiteHeader() {
       subtitle: t(`Sections.${section}.description`),
       href: `/learn/${section}`,
     })),
+    ...principles.map((p) => ({
+      kind: "principle" as const,
+      title: p.expansion && p.expansion !== p.name ? `${p.name} — ${p.expansion}` : p.name,
+      subtitle: p.tagline[locale],
+      href: `/principles/${p.category}/${p.slug}`,
+    })),
     ...Object.entries(glossary).map(([id, g]) => ({
       kind: "term" as const,
       title: g.term,
@@ -41,6 +48,7 @@ export async function SiteHeader() {
     { href: "/learn", label: t("Nav.learn"), nested: true },
     { href: "/review", label: t("Nav.review"), nested: false },
     { href: "/resources", label: t("Nav.resources"), nested: false },
+    { href: "/principles", label: t("Nav.principles"), nested: false },
     { href: "/glossary", label: t("Nav.glossary"), nested: false },
   ];
 

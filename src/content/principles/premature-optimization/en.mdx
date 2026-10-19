@@ -1,0 +1,72 @@
+## TL;DR
+
+**Premature optimization:** trying to make code faster **before measuring** whether there is a performance problem.
+
+Donald Knuth's famous line in full: *"We should forget about small efficiencies, say about 97% of the time: premature optimization is the root of all evil. Yet we should not pass up our opportunities in that critical 3%."* It's not about skipping optimisation; it's about aiming it at **the right place**.
+
+## Animation
+
+Compare a function a developer optimised on a hunch with the real hot spot the profiler reveals:
+
+<PrincipleViz id="premature-optimization" />
+
+## The problem
+
+```ts
+// a hand-written "faster" loop — harder to read, gains ~0.5 ms
+function formatRow(r: Row) {
+  let s = "";
+  for (let i = 0, n = r.cells.length; i < n; i++) s += r.cells[i] + "\t";
+  return s;
+}
+
+// while the real problem is elsewhere
+for (const order of orders) {
+  order.customer = await db.query("SELECT * FROM customers WHERE id = $1", [order.customerId]); // N+1
+}
+```
+
+Human intuition is bad at finding slow spots. Time usually goes somewhere unexpected: the network, the database, needless re-renders, parsing a huge JSON.
+
+## The fix
+
+The right order: **make it work → make it right → make it fast**.
+
+```ts
+// 1. Measure
+console.time("orders");
+const orders = await loadOrders();
+console.timeEnd("orders"); // orders: 480ms
+
+// 2. Find the hot spot in a profiler (Chrome DevTools Performance, node --cpu-prof)
+// 3. Fix only that — one query with a JOIN
+const rows = await db.query(`
+  SELECT o.*, c.name AS customer_name
+  FROM orders o JOIN customers c ON c.id = o.customer_id
+`); // 35ms
+
+// 4. Measure again and confirm the result
+```
+
+Tools:
+
+- **Browser:** the DevTools Performance panel, Lighthouse, the React DevTools Profiler.
+- **Node.js:** `node --cpu-prof`, `performance.now()`, flame graphs via `--inspect`.
+- **Database:** `EXPLAIN ANALYZE` and the slow query log.
+
+<Callout kind="note" title="This is not premature optimisation">
+Choosing the right algorithm — a `Map` instead of an `O(n²)` search — is usually cheap and doesn't hurt readability. That's good engineering. Premature optimisation **sacrifices** clarity for an unmeasured gain.
+</Callout>
+
+## Don't overdo it
+
+- Some decisions are architectural and hard to change later: the data model, the caching strategy, sync and async boundaries. Think about those early.
+- Set a performance budget, such as "LCP under 2.5 seconds". Then measurement, not opinion, decides when to optimise.
+
+## In interviews
+
+<QA q="A page is slow. Where do you start?" level="mid">
+
+I measure first and find where the slowness is: the network (waterfall), JavaScript (long tasks) or rendering. I use a profiler to find the hot spot and fix the single problem with the biggest impact. Then I measure again and confirm the result with numbers. I don't change code on a hunch.
+
+</QA>

@@ -1,0 +1,78 @@
+## TL;DR
+
+**Open/Closed Principle (OCP):** software parts should be **open for extension, closed for modification**.
+
+Adding a behaviour should mean **adding new code**, not opening up code that already works and is tested. The usual tool is an abstraction — an interface, a callback, a strategy object — behind which the varying part hides.
+
+## Animation
+
+See an `if/else` chain grow with every payment method, then an interface accept new methods without touching the old code:
+
+<PrincipleViz id="open-closed" />
+
+## The problem
+
+```ts
+function checkout(method: "card" | "paypal" | "click", amount: number) {
+  if (method === "card") {
+    return stripe.charge(amount);
+  } else if (method === "paypal") {
+    return paypal.createOrder(amount);
+  } else if (method === "click") {
+    return click.invoice(amount); // new method = editing an old function
+  }
+  throw new Error("Unknown method");
+}
+```
+
+Each new payment method means opening and editing `checkout()`. A `switch` like this is usually repeated in several places — `refund()`, `fee()`, `label()` — and missing one is easy.
+
+## The fix
+
+```ts
+interface PaymentMethod {
+  readonly id: string;
+  pay(amount: number): Promise<Receipt>;
+  refund(receipt: Receipt): Promise<void>;
+}
+
+class CardPayment implements PaymentMethod { /* … */ }
+class PaypalPayment implements PaymentMethod { /* … */ }
+class ClickPayment implements PaymentMethod { /* … a new file; old code untouched */ }
+
+const methods = new Map<string, PaymentMethod>(
+  [new CardPayment(), new PaypalPayment(), new ClickPayment()].map((m) => [m.id, m]),
+);
+
+function checkout(methodId: string, amount: number) {
+  const method = methods.get(methodId);
+  if (!method) throw new Error(`Unknown payment method: ${methodId}`);
+  return method.pay(amount);
+}
+```
+
+Adding a method now means writing a class and registering it. `checkout()` is closed: it never needs editing again.
+
+<Callout kind="note" title="A lighter option in JavaScript">
+You don't always need classes. A map of functions satisfies OCP too: `const handlers: Record<string, (amount: number) => Promise<Receipt>> = { card, paypal }`. A new method is a new key.
+</Callout>
+
+## Don't overdo it
+
+- **For two or three variants a plain `if` is better.** An abstraction has a cost: more indirection, harder to follow.
+- Apply OCP where variants **really keep multiplying**: payment methods, export formats, notification channels.
+- In TypeScript a discriminated union with a `switch` can also be a good choice. With an exhaustive `never` check, the compiler points out every case you forgot.
+
+## In interviews
+
+<QA q="Which design patterns are related to OCP?" level="mid">
+
+Strategy (swappable algorithms), Template Method (varying steps in subclasses), Decorator (extend behaviour by wrapping) and plugin architectures. They share one idea: hide the varying part behind a stable interface.
+
+</QA>
+
+<QA q="So code should never change?" level="junior">
+
+No. Bugs get fixed and requirements change. OCP is about **expected** kinds of extension: adding a new variant shouldn't force you to open old, tested code.
+
+</QA>

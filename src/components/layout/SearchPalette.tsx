@@ -5,7 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "@/i18n/navigation";
 
 export interface SearchItem {
-  kind: "lesson" | "section" | "term";
+  kind: "lesson" | "section" | "term" | "principle";
   title: string;
   subtitle: string;
   href: string;

@@ -1,0 +1,83 @@
+## Qisqacha
+
+Modul dizaynini baholashning ikki asosiy oʻlchovi bor:
+
+- **Coupling** — modullar bir-biriga **qanchalik bogʻliq**. Agar A'ni oʻzgartirish B'ni ham oʻzgartirishni talab qilsa, ular kuchli bogʻlangan. Maqsad — **low coupling**.
+- **Cohesion** — bitta modul ichidagi narsalar bir-biriga **qanchalik aloqador**. Agar modulning barcha qismlari bitta maqsadga xizmat qilsa, cohesion yuqori. Maqsad — **high cohesion**.
+
+Bu ikkisi odatda birga harakatlanadi: birga oʻzgaradigan narsalarni bir joyga yigʻsangiz (cohesion), modullar orasidagi bogʻlanishlar kamayadi (coupling).
+
+## Animatsiya
+
+Hamma import qiladigan `utils.ts` qanday qilib butun loyihani bir-biriga bogʻlab qoʻyishini, keyin cohesive modullarga ajratish buni qanday tuzatishini koʻring:
+
+<PrincipleViz id="coupling-cohesion" />
+
+## Muammo
+
+```ts
+// utils.ts — past cohesion: bir-biriga aloqasi yoʻq narsalar
+export const formatDate = (d: Date) => d.toLocaleDateString("uz-UZ");
+export const addTax = (n: number) => Math.round(n * 1.12);
+export const $ = (sel: string) => document.querySelector(sel);
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const API_URL = "https://api.example.uz";
+```
+
+```ts
+// cart.ts
+import { addTax, $ } from "./utils"; // kuchli coupling: cart DOM'ni biladi
+export function renderTotal(items: Item[]) {
+  $("#total")!.textContent = String(addTax(sum(items)));
+}
+```
+
+- `utils.ts` oʻzgarganda unga bogʻliq hamma narsa xavf ostida qoladi.
+- `cart.ts` hisob-kitob bilan birga DOM'ni ham biladi, shuning uchun uni serverda ishlatib boʻlmaydi.
+
+## Yechim
+
+```ts
+// money.ts — bitta mavzu
+export const TAX_RATE = 0.12;
+export const addTax = (n: number) => Math.round(n * (1 + TAX_RATE));
+
+// date.ts
+export const formatDate = (d: Date) => d.toLocaleDateString("uz-UZ");
+
+// cart.ts — faqat hisoblaydi, DOM'ni bilmaydi
+import { addTax } from "./money";
+export const cartTotal = (items: Item[]) => addTax(sum(items));
+
+// CartTotal.tsx — koʻrinish alohida
+export const CartTotal = ({ items }: { items: Item[] }) => <output>{cartTotal(items)}</output>;
+```
+
+## Coupling turlari
+
+Eng yomonidan eng yaxshisigacha:
+
+| Tur | Ma'nosi |
+| --- | --- |
+| **Content** | Bir modul boshqasining ichki maydonlarini toʻgʻridan-toʻgʻri oʻzgartiradi. |
+| **Common** | Bir nechta modul umumiy global oʻzgaruvchidan foydalanadi. |
+| **Control** | Bir modul boshqasiga "qanday ishlash"ni flag orqali aytadi (`render(true, false)`). |
+| **Stamp** | Butun obyekt uzatiladi, lekin uning bitta maydoni ishlatiladi. |
+| **Data** | Faqat kerakli oddiy ma'lumotlar uzatiladi. Bu eng yaxshisi. |
+
+<Callout kind="tip" title="Tez test">
+Bitta talab oʻzgarishi uchun nechta faylni ochish kerak? Agar javob doim "koʻp" boʻlsa, cohesion past. Bitta faylni oʻzgartirish nechta testni yiqitadi? Agar ular bogʻliq boʻlmagan joylarda boʻlsa, coupling yuqori.
+</Callout>
+
+## Haddan oshirmang
+
+- **Zero coupling** mumkin emas: modullar baribir birga ishlashi kerak. Maqsad — bogʻliqlikni **aniq va tor** qilish, ya'ni kichik interface orqali.
+- Microservice'lar coupling'ni avtomatik kamaytirmaydi. Notoʻgʻri chegaralar "distributed monolith"ga olib keladi: bitta oʻzgarish uchun beshta servisni deploy qilish kerak boʻladi.
+
+## Intervyuda
+
+<QA q="Utils yoki helpers papkasi nima uchun muammo boʻlishi mumkin?" level="mid">
+
+U past cohesion'ga olib keladi: "boshqa joyga sigʻmagan" hamma narsa shu yerga tushadi. Natijada deyarli har bir modul uni import qiladi va u coupling markaziga aylanadi. Yaxshisi — funksiyani u xizmat qiladigan mavzu yoniga qoʻyish (`money.ts`, `date.ts`) yoki ishlatiladigan imkoniyat papkasiga joylashtirish.
+
+</QA>
