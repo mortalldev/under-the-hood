@@ -1,0 +1,59 @@
+## TL;DR
+
+**Branching workflow** — ish production'ga qanday yetib borishi haqidagi jamoa kelishuvi. Bugun koʻp mahsulot jamoalari **trunk-based development** yoki unga yaqin **GitHub flow**'dan foydalanadi: qisqa umrli branch'lar, review va majburiy CI tekshiruvlari bilan pull request, bir-ikki kun ichida `main`'ga merge, `main`'ni uzluksiz deploy qilish, tugallanmagan ishni **feature flag**'lar ortida yashirish.
+
+## Animatsiya
+
+<GitViz id="workflows" />
+
+## Keng tarqalgan workflow'lar
+
+| Workflow | Branch'lar | Kimga mos |
+| --- | --- | --- |
+| Trunk-based | `main` + soatlab yoki bir-ikki kun yashaydigan branch'lar | Continuous delivery, veb-service'lar, katta jamoalar |
+| GitHub flow | `main` + har oʻzgarishga bitta branch, PR orqali merge, `main` doim deploy'ga tayyor | Koʻp veb-mahsulotlar |
+| Release branch'lar | `main` + barqarorlashtirish va patch'lar uchun ajratiladigan `release/x.y` | Mobil ilovalar, on-prem, versiyali kutubxonalar |
+| Git flow | `main`, `develop`, `feature/*`, `release/*`, `hotfix/*` | Kamdan-kam, aniq versiyalarda chiqariladigan dasturlar |
+
+Git flow muallifi 2020-yilda asl maqolaga izoh qoʻshgan: uzluksiz yetkaziladigan dasturlar uchun GitHub flow kabi soddaroq workflow yaxshiroq mos keladi.
+
+## Trunk-based development'dagi bir kun
+
+```bash
+git fetch && git switch -c feat/passkeys origin/main
+# …kichik commit'lar; kerak boʻlsa origin/main ustiga rebase…
+git push -u origin feat/passkeys
+gh pr create --fill                      # GitHub CLI
+# CI + bitta tasdiqlovchi review → squash merge yoki merge queue
+git switch main && git pull
+git branch -D feat/passkeys              # squash-merge qilingan, shuning uchun -d uni tanimaydi
+```
+
+Buni xavfsiz qiladigan himoyalar:
+
+- **Branch protection**: `main`'ga toʻgʻridan-toʻgʻri push yoʻq, majburiy review'lar, majburiy status check'lar, squash qilsangiz chiziqli tarix.
+- **CODEOWNERS** review'larni har bir yoʻl egalariga yoʻnaltiradi.
+- **Merge queue**: har bir PR'ni oldindagilar bilan birga test qiladi, shunda alohida oʻtadigan ikki PR tufayli `main` hech qachon buzilmaydi.
+- **Feature flag'lar** deploy'ni release'dan ajratadi.
+- **Conventional Commits** (`feat:`, `fix:`, breaking uchun `feat!:`) tool'larga changelog va semantik versiyalarni generatsiya qilish imkonini beradi.
+
+## Tuzoqlar
+
+- "Qisqa umrli" — butun mohiyat shunda. Bir haftalik branch'lari boʻlgan trunk-based jamoada Git flow'ning tuzilmasi yoʻq, lekin merge ogʻrigʻi bor.
+- Flag'lar — qarz: rollout'dan keyin ularni olib tashlang.
+- Squash merge branch commit chegaralarini yoʻqotadi; ular kerak boʻlsa, commit'larni toza saqlang va rebase-merge yoki merge commit'lardan foydalaning.
+
+## Interview'da
+
+<QA q="40 dasturchili veb-jamoa uchun qanday branching strategiyasini oʻrnatgan boʻlardingiz va nima uchun?" level="senior">
+
+Qisqa umrli PR branch'lari bilan trunk-based. Majburiy CI va review'li branch protection, CODEOWNERS va main yashil qolishi uchun merge queue; tugallanmagan ish uchun feature flag'lar va xavfli oʻzgarishlar uchun canary release'lar bilan main'ni uzluksiz deploy qilish. Bu integratsiyani uzluksiz saqlaydi — kichik diff'lar, kamroq conflict, tez feedback — DORA tadqiqotlari aynan shuni yuqori yetkazish samaradorligi bilan bogʻlaydi. Release branch'larni faqat mobil ilovalar kabi versiyali artefaktlar chiqarsak qoʻshgan boʻlardim.
+
+</QA>
+
+## Manbalar
+
+- [Trunk Based Development](https://trunkbaseddevelopment.com/) · [DORA — Trunk-based development](https://dora.dev/capabilities/trunk-based-development/)
+- [GitHub flow — GitHub Docs](https://docs.github.com/en/get-started/using-github/github-flow)
+- [A successful Git branching model (2020-yilgi izoh bilan)](https://nvie.com/posts/a-successful-git-branching-model/)
+- [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)

@@ -1,0 +1,62 @@
+## TL;DR
+
+Big monorepos make a plain `git clone` and `git status` slow. Git has built-in tools to download and check out **only what you need**:
+
+- **Partial clone** (`--filter=blob:none`) — all commits and trees, file contents fetched on demand.
+- **Sparse checkout** (cone mode) — only the directories you work on appear in the working tree.
+- **Shallow clone** (`--depth 1`) — just the latest commit; for throwaway CI builds.
+- **Background maintenance**, the **commit-graph** and the **fsmonitor** daemon keep everyday commands fast.
+- **`scalar`** (built by Microsoft, shipped with Git) sets all of this up in one command.
+
+## Animation
+
+<GitViz id="large-repos" />
+
+## Commands
+
+```bash
+# developer machine: full history, lazy file contents, only your folders
+git clone --filter=blob:none --sparse https://github.com/acme/monorepo
+cd monorepo
+git sparse-checkout set apps/web packages/ui      # cone mode is the default
+git sparse-checkout add packages/config
+git sparse-checkout list
+git sparse-checkout disable                       # back to the full tree
+
+# CI: build the latest commit and throw the clone away
+git clone --depth 1 --branch main https://github.com/acme/monorepo
+
+# keep a big repo fast
+git maintenance start                             # scheduled prefetch, commit-graph, repacking
+git config core.fsmonitor true                    # file-system watcher for git status
+git config core.untrackedCache true
+
+# or all of the above
+scalar clone https://github.com/acme/monorepo
+```
+
+## Under the hood
+
+- **Partial clone** relies on the server supporting filters (GitHub, GitLab and Bitbucket do). Missing blobs are fetched when a command needs them — checkout, diff, blame. History commands like `git log` stay local.
+- **Cone mode** restricts patterns to whole directories, which lets Git match paths quickly; arbitrary glob patterns (non-cone) are slower and discouraged.
+- **Shallow clones** cut history, so `git log`, `blame` and merge-base calculations can be wrong or fail; prefer blobless partial clones for humans. (`--filter=tree:0` "treeless" clones are even smaller but slow down history commands, so they suit CI more than people.)
+- Scalar grew out of Microsoft's work on very large repositories and became part of Git in 2.38.
+
+## Pitfalls
+
+- Sparse checkout hides directories but doesn't change dependencies: if `apps/web` imports `packages/auth`, you need that directory too.
+- A blobless clone needs network access when you open old versions of files.
+- Git LFS is still the right answer for large binary assets; the tools above don't make big binaries cheap.
+
+## In interviews
+
+<QA q="Engineers complain that cloning the monorepo takes 40 minutes and git status takes 10 seconds. What do you change?" level="senior">
+
+Clone with --filter=blob:none (or scalar clone) so only commits and trees come down, plus sparse-checkout in cone mode for the directories each team works on. Turn on git maintenance, the commit-graph, fsmonitor and the untracked cache to make status and log fast. Move large binaries to LFS. In CI use shallow or treeless clones and cache the repository between jobs. Then measure again with GIT_TRACE2_PERF to see what's left.
+
+</QA>
+
+## Docs
+
+- [git sparse-checkout](https://git-scm.com/docs/git-sparse-checkout) · [scalar](https://git-scm.com/docs/scalar) · [git maintenance](https://git-scm.com/docs/git-maintenance)
+- [Get up to speed with partial clone and shallow clone — GitHub Blog](https://github.blog/open-source/git/get-up-to-speed-with-partial-clone-and-shallow-clone/)

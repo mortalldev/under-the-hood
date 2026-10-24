@@ -1,0 +1,52 @@
+## TL;DR
+
+Every change in Git moves through three places:
+
+1. **Working tree** — the files you edit.
+2. **Index** (the staging area) — a draft of the next commit.
+3. **Repository** — committed snapshots, with `HEAD` pointing at the current one.
+
+`git add` copies working tree → index, `git commit` turns the index into a commit, and `git restore` moves things back. Since Git 2.23, **`git restore`** and **`git switch`** replace the overloaded `git checkout` for these jobs.
+
+## Animation
+
+<GitViz id="three-areas" />
+
+## Commands
+
+| I want to… | Command |
+| --- | --- |
+| See what changed and what is staged | `git status -sb` |
+| Diff working tree vs. index | `git diff` |
+| Diff index vs. last commit (what will be committed) | `git diff --staged` |
+| Stage part of a file, hunk by hunk | `git add -p <file>` |
+| Stage everything, including deletions | `git add -A` |
+| Unstage a file but keep the edits | `git restore --staged <file>` |
+| Discard edits in the working tree | `git restore <file>` |
+| Get a file as it was in another commit | `git restore --source=main~3 <file>` |
+| Commit | `git commit -m "feat: …"` |
+| Add forgotten changes to the last (unpushed) commit | `git commit --amend --no-edit` |
+
+## Under the hood
+
+- The index is a binary file, `.git/index`, listing every tracked path with the blob hash and file metadata. `git add` writes the blob into the object store **immediately**; the commit only adds trees and the commit object.
+- Because of that, even content you added but never committed can sometimes be found later with `git fsck --lost-found` — but changes you never `add`-ed exist nowhere in Git.
+- `git commit -a` stages modified **tracked** files and commits, skipping the index step; new files still need `git add`.
+
+## Pitfalls
+
+- `git restore <file>` (and the old `git checkout -- <file>`) **cannot be undone**: uncommitted edits aren't in any commit or the reflog.
+- Committing with `git add .` habitually pulls in debug code and unrelated changes. `git add -p` plus `git diff --staged` before each commit keeps commits small and reviewable.
+- `--amend` creates a new commit. Fine before pushing; after pushing it rewrites shared history.
+
+## In interviews
+
+<QA q="Why does Git have a staging area at all?" level="mid">
+
+So you can build a commit deliberately instead of committing whatever is on disk. You can stage one logical change out of several in the same file (add -p), review exactly what will go in (diff --staged), and keep unrelated edits for a later commit. Small, focused commits make review, revert, bisect and cherry-pick far easier.
+
+</QA>
+
+## Docs
+
+- [git restore](https://git-scm.com/docs/git-restore) · [git add](https://git-scm.com/docs/git-add) · [git status](https://git-scm.com/docs/git-status)

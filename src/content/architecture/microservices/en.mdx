@@ -1,0 +1,74 @@
+## TL;DR
+
+**Microservices** split a system into small services, each **owned by one team**, **deployed independently** and **owning its own data**. They talk over the network (HTTP/gRPC or events). The benefit is organisational scale — many teams shipping without coordinating every release. The price is everything a network brings: partial failure, latency, eventual consistency and a lot of platform work.
+
+## Animation
+
+<ArchitectureViz id="microservices" />
+
+## How it works
+
+- **Database per service**: no other service reads your tables. Shared databases turn services back into a "distributed monolith".
+- **Smart endpoints, dumb pipes**: logic lives in services; the transport just moves messages.
+- **Design for failure**: every call has a **timeout**; retries use **exponential backoff with jitter**; a **circuit breaker** stops calling a service that keeps failing; writes carry an **idempotency key** so a retry can't double-charge.
+- **Observability is mandatory**: a trace id propagated through every hop (OpenTelemetry), structured logs, per-service dashboards and alerts.
+- **Contracts**: versioned APIs (OpenAPI, protobuf), backward-compatible changes, consumer-driven contract tests.
+
+## Code
+
+```ts
+// a resilient call from orders → payments
+async function charge(orderId: string, amount: number) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(PAYMENTS_URL + "/charges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": orderId },
+        body: JSON.stringify({ orderId, amount }),
+        signal: AbortSignal.timeout(2_000),          // never wait forever
+      });
+      if (res.ok) return await res.json();
+      if (res.status < 500) throw new PaymentRejected(await res.text());   // don't retry 4xx
+    } catch (e) {
+      if (e instanceof PaymentRejected) throw e;
+    }
+    await sleep(2 ** attempt * 200 + Math.random() * 100);   // backoff + jitter
+  }
+  throw new PaymentUnavailable(orderId);   // caller marks the order "payment pending"
+}
+```
+
+## When to use it — and when not
+
+**Use it** when many teams (tens to hundreds of engineers) need independent release cycles, when parts of the system have very different scaling or reliability needs, and when you already have the platform: CI/CD per service, container orchestration, tracing, on-call.
+
+**Don't start with it.** For a new product or a single team, microservices multiply operational work and slow you down. Begin with a modular monolith with clean boundaries; extract a service when a specific module needs it.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Independent deploys, team autonomy | Network failures and latency on every call |
+| Scale and choose technology per service | No cross-service transactions (sagas instead) |
+| Failures can be isolated | Distributed tracing, contracts, versioning, infra cost |
+
+Amazon describes its service-owning teams as "two-pizza teams": small enough to be fed by two pizzas, owning a service end to end.
+
+## In interviews
+
+<QA q="Service A calls service B, which is slow. A's thread pool fills up and A goes down too. How do you prevent this?" level="senior">
+
+That's a cascading failure. Put a short timeout on every outbound call, limit concurrency to B (a bulkhead), and add a circuit breaker so after repeated failures A fails fast instead of queuing. Retry only idempotent operations, with exponential backoff and jitter, and cap the total retry budget. Then degrade gracefully: return cached data or a partial response, or accept the request and finish asynchronously through a queue.
+
+</QA>
+
+<QA q="Why is a shared database between microservices a problem?" level="mid">
+
+Because the schema becomes a hidden API. Any team changing a table can break others, so deploys need coordination again, and nobody can change their storage independently. Each service should own its data and expose it through its API or events.
+
+</QA>
+
+## Sources
+
+- [Microservices — James Lewis and Martin Fowler](https://martinfowler.com/articles/microservices.html)
+- [microservices.io — pattern catalogue by Chris Richardson](https://microservices.io/patterns/data/saga.html)

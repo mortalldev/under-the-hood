@@ -1,0 +1,62 @@
+## Tez boshlash
+
+Faqat noutbukingiz koʻrsatgan narsani emas, **real foydalanuvchilar** sezadigan narsani oʻlchang. Google'ning **Core Web Vitals**'i — umumiy oʻlchov:
+
+| Metrika | Nimani oʻlchaydi | Yaxshi (sahifa yuklanishlarining 75-persentilida) |
+| --- | --- | --- |
+| LCP — Largest Contentful Paint | yuklanish: asosiy kontent qachon paydo boʻladi | ≤ 2.5 s |
+| INP — Interaction to Next Paint | javob berish: bosish yoki tugmadan keyingi kechikish | ≤ 200 ms |
+| CLS — Cumulative Layout Shift | vizual barqarorlik: kontentning sakrashi | ≤ 0.1 |
+
+Ularni `web-vitals` kutubxonasi bilan real foydalanuvchilardan yigʻing va analytics'ingizga yuboring:
+
+```ts
+import { onCLS, onINP, onLCP, type Metric } from "web-vitals";
+
+function send(metric: Metric) {
+  const body = JSON.stringify({ name: metric.name, value: metric.value, rating: metric.rating, id: metric.id });
+  navigator.sendBeacon("/api/vitals", body);     // sahifa yopilsa ham yetib boradi
+}
+
+onCLS(send);
+onINP(send);
+onLCP(send);
+```
+
+Next.js'da `next/web-vitals`'dagi `useReportWebVitals` kutubxonani oʻzingiz ulamasdan xuddi shu metrikalarni beradi.
+
+Production xatolarini source map'li stack trace'lar bilan ushlang:
+
+```ts
+// instrumentation-client.ts (Next.js) yoki ilova kirish nuqtasi
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  tracesSampleRate: 0.1,          // performance tracing uchun transaction'larning 10%'ini olish
+});
+```
+
+## Qanday tanlash
+
+| Ehtiyoj | Tanlov |
+| --- | --- |
+| Field ma'lumot: foydalanuvchilar nimani boshdan kechiradi | web-vitals → analytics'ingiz (yoki host dashboard'i) |
+| Lab audit va CI'dagi regression tekshiruvlari | Lighthouse |
+| Komponent nima uchun qayta render boʻladi | React DevTools Profiler |
+| Uzun task'lar, layout, paint, tarmoq | Chrome DevTools Performance paneli |
+| Production'dagi crash va sekin transaction'lar | Sentry (yoki OpenTelemetry + oʻz backend'ingiz) |
+
+## Tuzoqlar
+
+- Lab natijalari (Lighthouse) va field ma'lumot farq qiladi: lab bitta tarmoqda bitta qurilmani ishga tushiradi. Qarorni field ma'lumotning 75-persentili asosida qabul qiling, sabablarni topish uchun esa lab'dan foydalaning.
+- 2024-yilda INP javob berish boʻyicha Core Web Vital sifatida FID oʻrnini egalladi. Odatiy sabab — input'dan keyingi uzun JavaScript task'lari: ularni boʻling, shoshilinch boʻlmagan ishni keyinga qoldiring, ulkan re-render'lardan qoching.
+- CLS asosan joyi ajratilmagan rasm va reklamalardan hamda kech yuklanadigan shriftlardan kelib chiqadi. `width`/`height` yoki `aspect-ratio` belgilang va shrift fallback'larini oʻlchamlang.
+
+## Interview'da
+
+<QA q="Mahsulot sahifasining mobil LCP'si 4 soniya. Uni tuzatish jarayonini tushuntirib bering." level="senior">
+
+Avval field ma'lumot va DevTools trace bilan LCP elementini toping (odatda hero rasm yoki sarlavha), keyin har bir bosqichni qisqartiring: birinchi baytgacha vaqt (HTML'ni CDN'da cache qilish, server waterfall'laridan qochish), resurs yuklanish kechikishi (rasmni HTML'da topiladigan qilish, fetchpriority high, birinchi ekranda lazy-loading yoʻq), yuklanish vaqti (zamonaviy formatlar, srcset orqali toʻgʻri oʻlchamlar) va render kechikishi (render'ni bloklaydigan CSS va JS kamroq, hero'ni faqat client'da render qilmaslik). Release'dan keyin faqat Lighthouse bilan emas, field ma'lumot bilan tekshiring.
+
+</QA>

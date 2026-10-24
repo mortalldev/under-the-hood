@@ -1,0 +1,52 @@
+## TL;DR
+
+Git — toʻrt turdagi object va ularning ustidagi nomlar toʻplamiga ega **content-addressable baza**:
+
+- **blob** — bitta fayl baytlari (nom ham, ruxsatlar ham yoʻq).
+- **tree** — papka roʻyxati: nomlar → blob'lar yoki boshqa tree'lar.
+- **commit** — bitta root tree (**toʻliq snapshot**), parent commit(lar), author, committer, xabar.
+- **tag** (annotated) — commit'ga imzolangan yoki izohli pointer.
+
+Har bir object **tarkibining hash'i** bilan nomlanadi. **Ref**'lar — branch'lar, tag'lar, `HEAD` — shunchaki hash'larga ishora qiladigan nomlar. Buni koʻrganingizdan keyin merge, rebase, reset va reflog sehr boʻlmay qoladi.
+
+## Animatsiya
+
+<GitViz id="object-model" />
+
+## Ichkariga qarash
+
+```bash
+git cat-file -t HEAD          # commit
+git cat-file -p HEAD          # tree, parent, author, xabar
+git cat-file -p 'HEAD^{tree}' # root papka roʻyxati
+git ls-tree -r HEAD --name-only | head
+git rev-parse main            # main ishora qiladigan hash
+cat .git/HEAD                 # ref: refs/heads/main
+git count-objects -vH         # object store qanchalik katta
+```
+
+## Ichkarida
+
+- **Diff emas, snapshot.** Commit butun tree'ni saqlaydi. Oʻzgarmagan fayl va papkalar hash'larini saqlab qoladi, shuning uchun ular commit'lar orasida bepul boʻlishiladi — yangi commit faqat oʻzgargan object'lar narxiga tushadi.
+- **Hash = identifikator.** Commit'dagi biror narsani (xabar, parent, fayl) oʻzgartirish uning hash'ini va har bir avlodining hash'ini oʻzgartiradi. Shuning uchun "tarixni qayta yozish" eskilarini tahrirlash oʻrniga yangi commit'lar yaratadi va imzolangan tag yoki commit undan pastdagi hamma narsani himoya qiladi.
+- **Branch'lar arzon.** Branch — ref: `.git/refs/heads/` ostidagi bitta hash'li loose fayl yoki `.git/packed-refs`'dagi yozuv (yangi Git `reftable` formatini ham ishlata oladi). Uni yaratish bir necha bayt yozadi.
+- **Packfile'lar.** Diskda Git oxir-oqibat object'larni pack qiladi va oʻxshashlarini delta sifatida saqlaydi (`git gc`, `git maintenance`). Bu saqlash optimizatsiyasi; model "snapshot'lar"ligicha qoladi.
+- **Hash funksiyasi.** Repository'lar standart holatda SHA-1 ishlatadi (collision aniqlash bilan); SHA-256 repository'lar `git init --object-format=sha256` orqali mavjud.
+
+## Tuzoqlar
+
+- Commit "diff saqlaydi" deb oʻylash cherry-pick va rebase haqida chalkashlikka olib keladi: Git kerak boʻlganda commit va uning parent'i orasidagi diff'ni *hisoblaydi*.
+- Katta binary fayllar oʻzgargan har bir versiyasi uchun toʻliq saqlanadi — asset'lar uchun Git LFS'dan yoki iste'molchi tomonida partial clone'dan foydalaning.
+
+## Interview'da
+
+<QA q="git commit ishga tushirilganda diskda aslida nima sodir boʻladi?" level="senior">
+
+Git hali mavjud boʻlmagan har bir staged fayl tarkibi uchun blob yozadi, roʻyxati oʻzgargan har bir papka uchun tree object'larini yozadi, keyin yangi root tree'ga ishora qiladigan va parent sifatida joriy HEAD commit'ga ega commit object'ini yozadi. Oxirida HEAD ishora qilayotgan ref'ni — masalan refs/heads/main — yangi commit hash'iga yangilaydi va bu siljishni reflog'ga yozadi. Hech bir eski narsa oʻzgartirilmaydi.
+
+</QA>
+
+## Hujjatlar
+
+- [Pro Git — Git Internals: Git Objects](https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)
+- [git cat-file](https://git-scm.com/docs/git-cat-file)

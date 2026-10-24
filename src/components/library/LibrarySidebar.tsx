@@ -1,23 +1,24 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { AutoCloseDetails } from "@/components/layout/AutoCloseDetails";
 import { NavLink } from "@/components/layout/NavLink";
-import { categories, hueClass, principlesIn } from "@/content/principles/registry";
+import { entriesIn, entryHref, hueClass, libraryNs, type Library } from "@/content/library";
 import type { Locale } from "@/i18n/routing";
 
-/** Category → principle navigation for every page under /principles. */
-export async function PrinciplesSidebar() {
-  const t = await getTranslations("Principles");
-  const locale = (await getLocale()) as Locale;
+/** Category → entry navigation for every page of a library (/principles, /architecture, /git). */
+export async function LibrarySidebar({ lib }: { lib: Library }) {
+  const [tr, locale] = await Promise.all([getTranslations(), getLocale() as Promise<Locale>]);
+  const ns = libraryNs[lib.id];
+  const t = (key: "all" | "categories" | "nav") => tr(`${ns}.${key}`);
 
   const tree = (
     <div className="space-y-4">
-      <NavLink href="/principles" className="block rounded-lg px-2.5 py-1.5 text-[0.9rem] font-semibold text-fg-muted hover:bg-surface-2 hover:text-fg" activeClassName="!bg-accent-soft !text-accent">
+      <NavLink href={lib.base} className="block rounded-lg px-2.5 py-1.5 text-[0.9rem] font-semibold text-fg-muted hover:bg-surface-2 hover:text-fg" activeClassName="!bg-accent-soft !text-accent">
         {t("all")}
       </NavLink>
-      {categories.map((c) => (
+      {lib.categories.map((c) => (
         <div key={c.slug}>
           <NavLink
-            href={`/principles/${c.slug}`}
+            href={`${lib.base}/${c.slug}`}
             className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[0.82rem] font-semibold tracking-wide text-fg-muted uppercase hover:bg-surface-2 hover:text-fg"
             activeClassName="!text-fg"
           >
@@ -25,14 +26,14 @@ export async function PrinciplesSidebar() {
             {c.title[locale]}
           </NavLink>
           <ul className="mt-1 ml-[0.95rem] border-l border-border">
-            {principlesIn(c.slug).map((p) => (
+            {entriesIn(lib, c.slug).map((p) => (
               <li key={p.slug}>
                 <NavLink
-                  href={`/principles/${c.slug}/${p.slug}`}
+                  href={entryHref(lib, p)}
                   className="-ml-px flex items-center gap-2 border-l-2 border-transparent py-1.5 pr-2 pl-3 text-[0.86rem] leading-snug text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg"
                   activeClassName="!border-accent !bg-accent-soft !text-accent font-medium rounded-r-lg"
                 >
-                  <span className={`min-w-9 shrink-0 rounded px-1 text-center font-mono text-[0.65rem] font-bold ${hueClass[c.hue].badge}`}>{p.short}</span>
+                  <span className={`min-w-9 max-w-16 shrink-0 truncate rounded px-1 text-center font-mono text-[0.65rem] font-bold ${hueClass[c.hue].badge}`}>{p.short}</span>
                   <span className="min-w-0 flex-1">{p.name}</span>
                 </NavLink>
               </li>

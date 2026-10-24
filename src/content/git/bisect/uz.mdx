@@ -1,0 +1,50 @@
+## TL;DR
+
+`git bisect` bug'ni olib kirgan commit'ni **binary search** bilan topadi: siz bitta commit'ni good, bittasini bad deb belgilaysiz, Git oʻrtadagisini ochadi, siz uni test qilasiz va har safar oraliq ikkiga boʻlinadi. Ming commit uchun taxminan oʻnta test kerak — `git bisect run` bilan esa qoʻlda birorta ham emas.
+
+## Animatsiya
+
+<GitViz id="bisect" />
+
+## Buyruqlar
+
+```bash
+git bisect start
+git bisect bad                    # joriy commit buzuq
+git bisect good v1.4.0            # bu tag yaxshi edi
+# Git oʻrtadagi commit'ni ochadi; uni test qiling, keyin:
+git bisect good                   # yoki: git bisect bad
+git bisect skip                   # bu commit'ni test qilib boʻlmaydi (build boʻlmaydi)
+git bisect log                    # hozirgacha nimalarni belgilaganingiz
+git bisect reset                  # boshlagan joyingizga qaytish
+
+# toʻliq avtomatik
+git bisect start main v1.4.0
+git bisect run npm test -- src/cart.test.ts
+```
+
+`bisect run`'ga berilgan skript exit code bilan hal qiladi: **0** = good, **125** = skip, **125'dan boshqa 1–127** = bad, **128 va undan yuqori** har qanday kod bisect'ni toʻxtatadi.
+
+## Ichkarida
+
+- Har bir qadam qolgan nomzodlarni taxminan teng ikkiga boʻladigan commit'ni tanlaydi, shuning uchun testlar soni taxminan `log₂ n`.
+- U merge'lar orqali ham ishlaydi: Git toʻgʻri roʻyxat emas, commit grafi haqida fikr yuritadi. `git bisect start --first-parent` faqat asosiy chiziqqa ergashadi — main'ga har bir merge bitta PR boʻlganda qulay.
+- Bug boʻlmagan qidiruvlar uchun atamalarni oʻzgartirishingiz mumkin: performance regression'ni topish uchun `git bisect start --term-old=fast --term-new=slow`.
+
+## Tuzoqlar
+
+- Bisect tarix qanchalik yaxshi boʻlsa, shunchalik yaxshi: ulkan commit'lar sizni "bug shu 4000 qatorli commit'ning qayeridadir" holatida qoldiradi. Kichik commit'lar shu yerda oʻzini oqlaydi.
+- Build boʻlmaydigan commit'lar bisect'ni koʻp skip qilishga majbur qiladi — main'dagi har bir commit'ni yashil saqlashga yana bir sabab.
+- Avval testni yozing, bad commit'ga qarshi, shunda `bisect run` aynan sizga kerakli xatti-harakatni tekshiradi.
+
+## Interview'da
+
+<QA q="Main'da oxirgi 300 commit ichida qachondir test yiqila boshladi. Sababni qanday tez topasiz?" level="mid">
+
+Oxirgi ma'lum yaxshi release'ni good, main'ni bad qilib git bisect; faqat shu testni ishga tushiradigan buyruq bilan git bisect run orqali avtomatlashtirilgan. 300 commit uchun taxminan toʻqqizta qadam. Agar ayrim commit'lar build boʻlmasa, skript ular uchun 125 bilan chiqadi va ular skip qilinadi. Keyin birinchi bad commit diff'ini oʻqing va test CI'da boʻlmagan boʻlsa, uni qoʻshing.
+
+</QA>
+
+## Hujjatlar
+
+- [git bisect](https://git-scm.com/docs/git-bisect)

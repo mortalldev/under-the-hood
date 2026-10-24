@@ -1,0 +1,60 @@
+## Tez boshlash
+
+Kutubxonaga qoʻl choʻzishdan oldin **state qayerga tegishli** ekanini soʻrang:
+
+1. Unga faqat bitta komponent muhtoj → `useState` / `useReducer`.
+2. U URL'ga tegishli (filter, tab, pagination, qidiruv) → **nuqs** yoki router.
+3. Bu server ma'lumoti → store emas, TanStack Query (oldingi kategoriya).
+4. Uni koʻp uzoq komponentlar boʻlishadi → **Zustand** kabi kichik store.
+
+```ts
+import { create } from "zustand";
+
+interface CartState {
+  items: Record<string, number>;
+  add: (sku: string) => void;
+  clear: () => void;
+}
+
+export const useCart = create<CartState>()((set) => ({
+  items: {},
+  add: (sku) => set((s) => ({ items: { ...s.items, [sku]: (s.items[sku] ?? 0) + 1 } })),
+  clear: () => set({ items: {} }),
+}));
+
+// komponent oʻzi tanlagan qismga obuna boʻladi va faqat u oʻzgarganda qayta render boʻladi
+const count = useCart((s) => Object.values(s.items).reduce((a, b) => a + b, 0));
+```
+
+nuqs bilan URL state — ulashsa, bookmark qilsa boʻladi, sahifa qayta yuklanganda saqlanadi:
+
+```tsx
+import { parseAsInteger, useQueryState } from "nuqs";
+
+const [q, setQ] = useQueryState("q", { defaultValue: "" });
+const [page, setPage] = useQueryState("page", parseAsInteger.withDefault(1));   // ?q=shoes&page=2
+```
+
+## Qanday tanlash
+
+| Vaziyat | Tanlov |
+| --- | --- |
+| Umumiy ilova state'i, minimal API | Zustand |
+| Koʻp kichik, oʻzaro bogʻliq boʻlaklar (editor, canvas) | Jotai |
+| Qat'iy, kuzatiladigan yangilanishlar va devtools xohlaydigan katta jamoa | Redux Toolkit |
+| Aniq holatli oqimlar (checkout, wizard, qoʻngʻiroq) | XState |
+| Filter, qidiruv, tab, pagination | nuqs / URL |
+
+## Tuzoqlar
+
+- Tor tanlang: `useCart((s) => s.items)` savatdagi har bir oʻzgarishda qayta render boʻladi; koʻrsatadigan qiymatingizni tanlang.
+- Next.js App Router'da modul darajasidagi store serverdagi har bir so'rov uchun umumiy. Agar server ularni render qilsa, store'larni har bir so'rov uchun yarating (`useRef`'li provider) yoki store'larni faqat client'da saqlang.
+- Context state manager emas: qiymat oʻzgarganda har bir iste'molchi qayta render boʻladi. U kam oʻzgaradigan qiymatlar uchun (theme, joriy foydalanuvchi) ajoyib, tez oʻzgaradigan state uchun emas.
+
+## Interview'da
+
+<QA q="React context, store kutubxonasi va URL orasida qanday tanlaysiz?" level="senior">
+
+Egalik va oʻzgarish chastotasi boʻyicha. Server egalik qiladigan ma'lumot server-state cache'iga boradi. Foydalanuvchi ulashishi yoki qaytishi kerak boʻlgan har narsa URL'ga boradi. Theme yoki locale kabi kam oʻzgaradigan, butun daraxt boʻylab qiymatlar context'ga mos. Koʻp komponent oʻqiydigan tez-tez oʻzgaradigan state selector obunalari bor store'ga boradi, shunda faqat qismi oʻzgargan komponentlar qayta render boʻladi. Lokal UI state lokal qoladi.
+
+</QA>

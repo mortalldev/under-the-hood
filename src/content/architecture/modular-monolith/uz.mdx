@@ -1,0 +1,69 @@
+## TL;DR
+
+**Modular monolith** — ichkaridan **chegaralari majburiy boʻlgan modullarga** boʻlingan bitta deploy qilinadigan ilova: har bir modul oʻz ma'lumotiga egalik qiladi va kichik public API ochadi, hech narsa boshqa modulning ichki qismlariga kirmaydi. Siz microservices'ning tashkiliy foydasining koʻp qismini tarmoqsiz olasiz.
+
+Bu koʻp jamoalar boshlashi kerak boʻlgan arxitektura — va toʻgʻri qilinsa, keyinchalik boʻlish eng oson boʻlgani.
+
+## Animatsiya
+
+<ArchitectureViz id="modular-monolith" />
+
+## Qanday ishlaydi
+
+1. Texnik layer emas, **biznes imkoniyati boʻyicha boʻling**: `catalog`, `orders`, `billing`, `shipping`. Har bir modulning ichida oʻz layer'lari bor.
+2. **Faqat public API**: boshqa modullar `@/modules/billing`'ni (uning `index.ts`'ini) import qiladi, hech qachon `@/modules/billing/internal/*`'ni emas.
+3. **Ma'lumotga egalik**: har bir modul oʻz jadvallariga egalik qiladi (har modulga schema yoki jadval prefiksi). Modullararo join yoʻq, boshqa modul jadvallarini oʻqish yoʻq.
+4. **Aloqa**: public API orqali toʻgʻridan-toʻgʻri funksiya chaqiruvi yoki chaqiruvchi kutmasligi kerak boʻlganda jarayon ichidagi domen event'lari.
+5. **CI'da majburlash**: lint qoidasi taqiqlangan import'da build'ni yiqitadi, shunda chegaralar deadline bosimi ostida yemirilmaydi.
+
+## Kod
+
+```text
+src/modules/
+  billing/
+    index.ts           ← public API: boshqalar import qiladigan yagona fayl
+    internal/
+      invoices.repo.ts
+      charge.service.ts
+  orders/
+  catalog/
+```
+
+```ts
+// src/modules/billing/index.ts
+export { charge, refund } from "./internal/charge.service";
+export type { ChargeResult } from "./internal/types";
+
+// src/modules/orders/internal/checkout.ts
+import { charge } from "@/modules/billing";                 // ✓ ruxsat etilgan
+// import { invoicesRepo } from "@/modules/billing/internal/invoices.repo";   ✗ lint'dan oʻtmaydi
+```
+
+Chegara tool'lari: TypeScript uchun `eslint-plugin-boundaries`, `dependency-cruiser` yoki Nx module boundary qoidalari; Shopify xuddi shu ish uchun Ruby'da **Packwerk**'ni yaratgan.
+
+## Qachon kerak va qachon kerak emas
+
+Bir yoki bir necha jamoali deyarli har bir yangi mahsulot uchun **ishlating**. Uni ishlab chiqish va deploy qilish tez, debug qilish oson (bitta jarayon, bitta stack trace), transaction'lar lokal, modullararo refactoring esa IDE'dagi rename.
+
+Agar bitta modulni mustaqil kengaytirish yoki deploy qilish kerak boʻlsa (ogʻir video pipeline), unga boshqa texnologiya kerak boʻlsa yoki uning jamoasining release ritmi qolganlar tufayli toʻsilsa, **undan keyingi bosqichga oʻting**. Toza modul chegaralari bunday ajratishni mexanik oʻzgarishga aylantiradi.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Oddiy ops: bitta deploy, bitta baza | Butun ilova bitta birlik sifatida kengayadi |
+| Lokal transaction'lar, oson debugging | Chegaralarga tool kerak, aks holda ular yemiriladi |
+| Modullararo arzon refactor | Bitta yomon deploy har bir modulga ta'sir qiladi |
+
+## Interview'da
+
+<QA q="Startup microservices bilan boshlash kerakmi deb soʻraydi. Nima deysiz?" level="senior">
+
+Odatda yoʻq: modular monolith bilan boshlang. Microservices jamoa hajmi va mustaqil deploy ehtiyojlari kelishuv imkoniyatidan oshib ketganda oʻzini oqlaydi, lekin ular boshidanoq tarmoq xatolari, taqsimlangan ma'lumot va katta platforma ishini talab qiladi. Modul chegaralarini biznes imkoniyatlari boʻyicha chizing, har bir modulga oʻz ma'lumoti va public API'sini bering, buni CI'da majburlang — shunda keyinroq service ajratish ma'lum, mexanik qadam boʻladi va faqat raqamlar oqlagan joyda qilinadi.
+
+</QA>
+
+## Manbalar
+
+- [Deconstructing the Monolith — Shopify Engineering (2019)](https://shopify.engineering/deconstructing-monolith-designing-software-maximizes-developer-productivity)
+- [MonolithFirst — Martin Fowler](https://martinfowler.com/bliki/MonolithFirst.html)

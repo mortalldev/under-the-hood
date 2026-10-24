@@ -1,0 +1,44 @@
+## TL;DR
+
+`git stash` saves your uncommitted changes (staged and unstaged, optionally untracked) and gives you a clean working tree, so you can switch tasks. `git stash pop` brings them back. Stashes are a stack — `stash@{0}` is the newest.
+
+## Animation
+
+<GitViz id="stash" />
+
+## Commands
+
+| I want to… | Command |
+| --- | --- |
+| Stash everything, including new files, with a name | `git stash push -u -m "wip: filters"` |
+| Stash only some files | `git stash push -m "css" -- src/styles.css` |
+| Stash only unstaged changes, keep staged ones | `git stash push --keep-index` |
+| List stashes | `git stash list` |
+| Look at a stash | `git stash show -p stash@{1}` |
+| Re-apply and remove the newest | `git stash pop` |
+| Re-apply but keep it | `git stash apply stash@{1}` |
+| Turn a stash into a branch | `git stash branch feat/filters stash@{0}` |
+| Delete one / all | `git stash drop stash@{1}` / `git stash clear` |
+
+## Under the hood
+
+A stash is stored as commits: one for the index state, one for the working tree (and one for untracked files with `-u`), referenced from `refs/stash`, whose reflog is the stash list. That's why `git stash clear` is not the end of the world: dropped stashes can be found with `git fsck --unreachable | grep commit` until garbage collection.
+
+## Pitfalls
+
+- Plain `git stash` skips **untracked** files — new files stay behind and follow you to the other branch. Use `-u`.
+- `pop` with a conflict leaves the stash in the list; resolve, then `git stash drop`.
+- Stashes are easy to forget and have no branch context. For anything longer than a quick interruption, commit a WIP on a branch or open a second worktree.
+- Pull with uncommitted changes? `git pull --rebase --autostash` (or `rebase.autoStash = true`) stashes and restores for you.
+
+## In interviews
+
+<QA q="You're mid-change on a feature and must fix production now. Which Git options do you have?" level="mid">
+
+Three: stash (git stash push -u, switch, fix, come back, pop) for a short interruption; a WIP commit on the feature branch that you later amend or fixup; or git worktree add to open the hotfix in a separate folder without touching the feature's files at all — best when you have a dev server or long build running.
+
+</QA>
+
+## Docs
+
+- [git stash](https://git-scm.com/docs/git-stash)

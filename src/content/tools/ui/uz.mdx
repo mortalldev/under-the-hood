@@ -1,0 +1,52 @@
+## Tez boshlash
+
+Accessible widget'lar qiyin: dialog'ga focus trap, Escape bilan yopish, focus'ni trigger'ga qaytarish, `aria-modal`, scroll'ni bloklash va screen reader e'lonlari kerak. Ularni qoʻlda yozmang. Xatti-harakat uchun **headless primitive**'lardan foydalaning va oʻz stillaringizni qoʻshing — yoki **shadcn/ui** siz egalik qiladigan bezalgan komponentlarni generatsiya qilsin.
+
+```bash
+npx shadcn@latest init            # Tailwind token'lari, cn() helper va components.json'ni sozlaydi
+npx shadcn@latest add button dialog table
+```
+
+Komponentlar repository'ingizga tushadi (`components/ui/button.tsx`), shuning uchun ularni oʻz kodingiz kabi oʻqiysiz va tahrirlaysiz:
+
+```tsx
+import { Button } from "@/components/ui/button";
+
+export function SaveBar({ pending }: { pending: boolean }) {
+  return (
+    <div className="flex gap-2">
+      <Button variant="outline">Cancel</Button>
+      <Button disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
+    </div>
+  );
+}
+```
+
+Katta data jadvallari uchun mantiqni TanStack Table boshqaradi, markup'ni esa siz render qilasiz:
+
+```tsx
+const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel() });
+```
+
+## Qanday tanlash
+
+| Vaziyat | Tanlov |
+| --- | --- |
+| Yangi ilova, egalik qiladigan chiroyli komponentlar kerak | shadcn/ui |
+| Stilsiz primitive'lar ustida oʻz design system'ingizni quryapsiz | Base UI yoki Radix |
+| Qat'iy accessibility yoki i18n talablari, date picker'lar | React Aria |
+| Saralanadigan, filtrlanadigan data grid'lar | TanStack Table (+ uzun roʻyxatlar uchun TanStack Virtual) |
+
+## Tuzoqlar
+
+- shadcn/ui — koʻchirilgan kod: yangilanishlar `npm update` bilan kelmaydi. Upstream tuzatishlari kerak boʻlganda komponent uchun `add`'ni qayta ishga tushiring va diff'ni koʻrib chiqing.
+- Nimani tanlasangiz ham, faqat klaviatura va screen reader bilan test qiling. Primitive'lar accessibility'ni mumkin qiladi; label'laringiz va tuzilmangiz baribir muhim.
+- Bitta ilovada bir turdagi widget uchun ikki primitive kutubxonasini aralashtirmang — focus va portal xatti-harakati toʻqnashishi mumkin.
+
+## Interview'da
+
+<QA q="Accessible modal dialog yarating. Nimalar bajarilishi kerak?" level="senior">
+
+Dialog ochilganda focus uning ichiga oʻtadi va u yerda ushlab turiladi; Escape va aniq yopish tugmasi uni yopadi; focus uni ochgan elementga qaytadi; orqa fon inert va scroll boʻlmaydi; dialog'da aria-modal bilan role dialog bor va u sarlavhasi bilan nomlangan. showModal'li native dialog elementi buning koʻp qismini bepul beradi; Radix, Base UI yoki React Aria kabi primitive'lar qolganini, jumladan ichma-ich qatlamlar va portal'larni qamraydi.
+
+</QA>

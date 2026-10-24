@@ -1,0 +1,66 @@
+## TL;DR
+
+**Backend for Frontend (BFF)** — *bitta* client (web ilova, iOS ilova) uchun qurilgan yupqa server qatlami: u umumiy backend service'larini chaqiradi va aynan shu client ekranlariga kerakli narsani qaytaradi. Koʻp so'rov oʻrniga har bir ekranga bitta so'rov, shu UI'ga moslangan va UI'ga egalik qiladigan jamoaga tegishli.
+
+Pattern SoundCloud'da ommalashgan va Sam Newman tomonidan nomlangan.
+
+## Animatsiya
+
+<ArchitectureViz id="bff" />
+
+## Qanday ishlaydi
+
+- Client **har bir ekranga bitta chaqiruv** qiladi (`GET /api/home`). BFF `users`, `orders`, `catalog`'ga **data markaz ichida** tarqaladi, u yerda har bir qadam mobil borib-kelish oʻrniga taxminan bir millisekund turadi.
+- U **yigʻadi va qisqartiradi**: natijalarni birlashtiradi, ekran render qilmaydigan maydonlarni tashlaydi, sana va pulni shu client uchun formatlaydi.
+- U **client hayot siklige moslashadi**: mobil BFF telefonlarda hali oʻrnatilgan ilova versiyalari uchun eski maydonlarni saqlaydi; web BFF esa har bir deploy bilan oʻzgarishi mumkin.
+- Hamma uchun bir xil boʻlgan umumiy vazifalar — TLS, rate limit, umumiy auth — hamma narsaning oldida turadigan **API gateway**'ga tegishli; BFF'lar esa client'ga xos.
+
+## Kod
+
+```ts
+// app/api/home/route.ts — web BFF vazifasini bajaradigan Next.js route handler
+export async function GET(req: Request) {
+  const userId = await requireUser(req);
+  const [user, orders, picks] = await Promise.all([
+    users.get(userId),
+    orders.recent(userId, { limit: 3 }),
+    catalog.recommended(userId),
+  ]);
+
+  return Response.json({
+    greeting: user.firstName,
+    orders: orders.map((o) => ({ id: o.id, status: o.status, total: formatMoney(o.total) })),
+    picks: picks.slice(0, 8).map((p) => ({ id: p.id, title: p.title, image: p.thumbnailUrl })),
+  });
+}
+```
+
+`Promise.all` kechikishni yigʻindi emas, eng sekin chaqiruv darajasida ushlab turadi. React Server Components ilovasida koʻpincha sahifaning oʻzi BFF *boʻladi*: server component service'larni toʻgʻridan-toʻgʻri chaqiradi va brauzerga faqat HTML va serialize qilingan prop'lar yetib boradi.
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar client'lar juda farq qilsa (web, mobil, TV), ekranlarga bir nechta service'dan ma'lumot kerak boʻlsa yoki mobil jamoa API'ni qayta shakllantirish uchun backend jamoasini kutmasligi kerak boʻlsa.
+
+Bitta client va unga allaqachon mos bitta backend boʻlsa, **qoʻshmang** — bu ishga tushiriladigan yana bir service. BFF'ga biznes qoidalarni ham qoʻshmang: u narx yoki ruxsatlarni hal qila boshlasa, har bir BFF ularni takrorlashi kerak boʻladi. Uni kompozitsiya va formatlash bilan cheklang.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Kamroq borib-kelish, kichikroq payload | Har bir client uchun yana bitta deploy |
+| UI jamoalari backend oʻzgarishisiz harakat qiladi | Mantiq BFF'lar boʻylab takrorlanishi mumkin |
+| Client boʻyicha versiyalash va caching | Yana bitta qadam va xato nuqtasi |
+
+GraphQL shunga oʻxshash muammoni boshqacha hal qiladi: bitta schema, client'lar oʻz maydonlarini tanlaydi. Keng tarqalgan yechim — umumiy BFF vazifasini bajaradigan GraphQL qatlami.
+
+## Interview'da
+
+<QA q="Foydalanuvchini, uning oxirgi buyurtmalarini va tavsiyalarni koʻrsatadigan mobil bosh ekran uchun API loyihalang." level="senior">
+
+Telefonni uchta service'ni chaqirishga majburlamang. Oldiga server tomonida parallel oladigan va ekran uchun bitta ixcham payload qaytaradigan BFF (yoki GraphQL query) qoʻying. Qisman xatoni muhokama qiling: tavsiyalar timeout boʻlsa, sahifani yiqitish oʻrniga oʻsha boʻlimni boʻsh qilib, qolganini qaytaring. Foydalanuvchi boʻyicha caching, mobil tarmoqlarda payload hajmi va eski ilova versiyalari uchun orqaga moslikni ayting.
+
+</QA>
+
+## Manbalar
+
+- [Backends For Frontends — Sam Newman](https://samnewman.io/patterns/architectural/bff/)

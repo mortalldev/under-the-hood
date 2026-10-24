@@ -1,4 +1,5 @@
 import { getTranslations } from "next-intl/server";
+import { handbook } from "@/content/handbook";
 import { LogoMark } from "@/components/Logo";
 import { Link } from "@/i18n/navigation";
 
@@ -19,7 +20,9 @@ export async function SiteFooter() {
           <Link href="/learn" className="inline-flex min-h-10 items-center px-2 hover:text-fg">{t("Nav.learn")}</Link>
           <Link href="/review" className="inline-flex min-h-10 items-center px-2 hover:text-fg">{t("Nav.review")}</Link>
           <Link href="/resources" className="inline-flex min-h-10 items-center px-2 hover:text-fg">{t("Nav.resources")}</Link>
-          <Link href="/principles" className="inline-flex min-h-10 items-center px-2 hover:text-fg">{t("Nav.principles")}</Link>
+          {handbook.map((h) => (
+            <Link key={h.href} href={h.href} className="inline-flex min-h-10 items-center px-2 hover:text-fg">{t(`Nav.${h.key}`)}</Link>
+          ))}
           <Link href="/glossary" className="inline-flex min-h-10 items-center px-2 hover:text-fg">{t("Nav.glossary")}</Link>
         </nav>
       </div>

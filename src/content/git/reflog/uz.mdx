@@ -1,0 +1,44 @@
+## TL;DR
+
+**Reflog** — `HEAD` va har bir branch qayerga ishora qilganining Git'dagi lokal kundaligi: har bir commit, reset, rebase, merge, switch va amend yozib boriladi. Yomon `reset --hard` yoki rebase'dan keyin commit yoʻqolgandek tuyulsa, u deyarli aniq hali joyida — uni `git reflog`'dan toping va unga branch qarating.
+
+## Animatsiya
+
+<GitViz id="reflog" />
+
+## Buyruqlar
+
+```bash
+git reflog                          # HEAD tarixi: HEAD@{0}, HEAD@{1}, …
+git reflog show feature             # bitta branch tarixi
+git log -g --oneline                # xuddi shu, grep qilsa boʻladigan log sifatida
+git show HEAD@{2}                   # eski pozitsiyani koʻrish
+git reset --hard HEAD@{1}           # joriy branch'ni u yerga qaytarish
+git branch rescue HEAD@{3}          # yoki uni yangi branch'da saqlash
+git switch -c rescue 9d2e4f1        # xuddi shu, hash boʻyicha
+git reflog show main@{yesterday}    # vaqt boʻyicha: kecha main qayerda edi?
+git fsck --lost-found               # oxirgi chora: osilib qolgan commit va blob'lar
+```
+
+## Ichkarida
+
+- Har bir ref'ning `.git/logs/` ostida "eski hash → yangi hash, kim, qachon, nima uchun" yozilgan log fayli bor.
+- Object'lar ularga hali biror narsa (ref yoki reflog yozuvi) ishora qilar ekan, store'da qoladi. Garbage collection yetib boʻlmaydigan object'larni faqat reflog yozuvlari muddati tugagandan keyin oʻchiradi.
+- Standart qiymatlar: endi yetib boʻlmaydigan commit'lar yozuvlari **30 kundan** (`gc.reflogExpireUnreachable`), qolganlari **90 kundan** (`gc.reflogExpire`) keyin muddati tugaydi.
+
+## Tuzoqlar
+
+- Reflog **lokal**. U push qilinmaydi, yangi clone'da esa boʻsh. U jamoadoshning commit'larini tiklay olmaydi — lekin uning oʻz reflog'i tiklay oladi.
+- U faqat commit qilingan holatlarni yozadi. Hech qachon commit (yoki stash) qilinmagan oʻzgarishlar unda yoʻq.
+
+## Interview'da
+
+<QA q="Jamoadosh git reset --hard qildi va bir kunlik commit'larini yoʻqotdi. Yordam bera olasizmi?" level="mid">
+
+Ha, agar ish commit qilingan boʻlsa. Uning kompyuterida git reflog'ni ishga tushiring, reset'dan oldingi yozuvni toping (masalan HEAD@{1}: commit: …) va unga git reset --hard qiling yoki u yerda branch yarating. 30 kundan kam vaqt oʻtgan boʻlsa, commit'lar hali object store'da. Agar ish hech qachon commit qilinmagan boʻlsa, Git yordam bera olmaydi — bu kichik va tez-tez commit qilish foydasiga dalil.
+
+</QA>
+
+## Hujjatlar
+
+- [git reflog](https://git-scm.com/docs/git-reflog) · [Pro Git — Data Recovery](https://git-scm.com/book/en/v2/Git-Internals-Maintenance-and-Data-Recovery)

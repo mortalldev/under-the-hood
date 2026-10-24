@@ -1,0 +1,66 @@
+## TL;DR
+
+**Interactive rebase** (`git rebase -i`) branch'ingiz commit'larining todo roʻyxatini ochadi va review'dan oldin ularni **qayta tartiblash, squash, fixup, reword, edit yoki drop** qilish imkonini beradi. **`git commit --fixup`** va **`--autosquash`** bilan birga u "wip / fix typo / address review" shovqinini bir nechta toza, ma'noli commit'larga aylantiradi.
+
+## Animatsiya
+
+<GitViz id="interactive-rebase" />
+
+## Buyruqlar
+
+```bash
+# ishlayotganda: oldingi commit'ga tegishli tuzatish qilish
+git commit --fixup=a1b2c3d          # xabar "fixup! <a1b2c3d mavzusi>" boʻladi
+git commit --fixup=reword:a1b2c3d   # faqat shu commit xabarini oʻzgartirish
+
+# review oldidan: fixup'larni maqsadlariga qoʻshish
+git rebase -i --autosquash origin/main
+
+# interactive rebase uchun standart qilish
+git config --global rebase.autoSquash true
+# qayta yozilgan oraliqqa ishora qiladigan stacked branch'larni ham koʻchirish
+git config --global rebase.updateRefs true
+
+git push --force-with-lease
+```
+
+Git ochadigan todo roʻyxati (yuqorida — eng eskisi):
+
+```text
+pick   a1b2c3d feat: login form
+fixup  e4f5a6b fixup! feat: login form
+pick   9c8d7e6 feat: logout
+drop   1f2e3d4 wip
+```
+
+| Fe'l | Ta'siri |
+| --- | --- |
+| `pick` | Commit'ni oʻz holicha qoldirish |
+| `reword` | Oʻzgarishlarni saqlash, xabarni tahrirlash |
+| `edit` | Qoʻllangandan keyin toʻxtash, uni amend yoki boʻlish uchun |
+| `squash` | Oldingi commit'ga qoʻshish, xabarlarni birlashtirish |
+| `fixup` | Oldingi commit'ga qoʻshish, bu xabarni tashlab yuborish |
+| `drop` | Commit'ni olib tashlash |
+| `exec` | Buyruq ishga tushirish, masalan har bir commit'dan keyin `exec npm test` |
+
+## Ichkarida
+
+Bu oddiy rebase bilan bir xil qayta qoʻyish, faqat siz tahrirlagan reja boʻyicha boshqariladi. Har bir qator yangi commit (yangi hash) boʻladi. `--update-refs` qoʻshimcha ravishda oraliqdagi commit'larga ishora qilgan boshqa lokal branch'larni ham koʻchiradi — bu **stacked PR**'lar (A branch ustiga qurilgan B branch) uchun juda muhim.
+
+## Tuzoqlar
+
+- Buni boshqalar ustiga ish qurishidan oldin, oʻz branch'ingizda qiling. Push'dan keyin `--force-with-lease` bilan yangilang.
+- Rebase oʻrtasida siz vaqtinchalik holatdasiz; `git status` keyin nima ekanini aytadi, `git rebase --abort` sizni chiqaradi, `git reflog` esa har narsani tiklaydi.
+- Reviewer'lar "oxirgi review'dan keyingi oʻzgarishlar"ga tayansa, review *paytida* tarixni qayta yozmang — fixup commit'larni push qiling, keyin merge oldidan autosquash qiling.
+
+## Interview'da
+
+<QA q="Review uchun yaxshi commit tarixi qanday boʻladi va uni qanday hosil qilasiz?" level="mid">
+
+Har bir commit — nima uchunligini tushuntiradigan xabarli bitta mantiqiy, build boʻladigan oʻzgarish: reviewer branch'ni commit'ma-commit oʻqiy oladi, keyinroq esa aniq bisect yoki revert qilish mumkin. Ishlayotganda men erkin commit qilaman, oldingi commit'lar uchun tuzatishlarda commit --fixup'dan foydalanaman; PR ochishdan oldin ularni joyiga qoʻshish, xabarlarni reword qilish va tajribalarni drop qilish uchun rebase -i --autosquash ishga tushiraman, keyin --force-with-lease bilan push qilaman.
+
+</QA>
+
+## Hujjatlar
+
+- [git rebase — interactive mode](https://git-scm.com/docs/git-rebase#_interactive_mode) · [git commit --fixup](https://git-scm.com/docs/git-commit)

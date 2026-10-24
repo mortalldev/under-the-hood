@@ -1,0 +1,46 @@
+## TL;DR
+
+`git cherry-pick <sha>` bitta commit kiritgan **oʻzgarishni** (uning parent'iga nisbatan diff'ini) oladi va uni joriy branch ustiga **yangi commit** sifatida qoʻllaydi. Odatiy holat: hotfix'ni `main`'dan `release/*` branch'iga atrofidagi feature'larsiz backport qilish.
+
+## Animatsiya
+
+<GitViz id="cherry-pick" />
+
+## Buyruqlar
+
+```bash
+git switch release/1.2
+git cherry-pick -x 7f3c9e1         # -x "(cherry picked from commit 7f3c9e1)" yozadi
+git cherry-pick 7f3c9e1 9a8b7c6    # bir nechta commit, tartib bilan qoʻllanadi
+git cherry-pick A..B               # A'dan keyingi B'gacha har bir commit (A kirmaydi)
+git cherry-pick -n 7f3c9e1         # oʻzgarishlarni qoʻllash, lekin commit qilmaslik (faqat stage)
+git cherry-pick -m 1 <merge-sha>   # merge commit'ni olish, 1-parent'ga nisbatan diff bilan
+
+# conflict boʻlsa
+git status
+git add <file> && git cherry-pick --continue
+git cherry-pick --skip | --abort
+```
+
+## Ichkarida
+
+- Git `parent(H) → H` diff'ini hisoblaydi va uni `parent(H)`'ni base sifatida olib, branch'ingizga three-way merge qiladi. Shuning uchun conflict boʻlishi mumkin: branch'ingizdagi atrofdagi kod farq qilishi mumkin.
+- Yangi `H′` commit'ning author'i va xabari bir xil (va `-x` qatori), lekin parent'i boshqa, demak hash'i ham boshqa.
+- Keyinroq `main` release branch'ga merge qilinganda Git odatda bir xil oʻzgarishni sezadi va conflict bermaydi. `git log --cherry-pick` va `git cherry` qaysi commit'lar patch boʻyicha ikkala tomonda ham borligini koʻrsata oladi.
+
+## Tuzoqlar
+
+- Uzoq yashaydigan branch'lar orasida butun feature'larni cherry-pick qilish takroriy commit'lar va ogʻriqli merge'lar yaratadi. Oqimning bitta yoʻnalishini afzal koʻring (masalan, main'da tuzatib release'ga cherry-pick qilish yoki release'da tuzatib oldinga merge qilish).
+- Oldingi commit'larga bogʻliq tuzatish conflict beradi yoki, undan battari, qoʻllanadi-yu kompilyatsiya boʻlmaydi. Maqsad branch'da testlarni ishga tushiring.
+
+## Interview'da
+
+<QA q="Production release/1.2'da ishlayapti, main esa oldinga ketgan. Muhim bug main'da tuzatildi. Tuzatishni qanday chiqarasiz?" level="mid">
+
+release/1.2'dan branch oching, tuzatishni kuzatsa boʻladigan qilib -x bilan cherry-pick qiling, release branch'ining CI'sini ishga tushiring, release/1.2'ga PR oching va 1.2.1 patch'ni deploy qiling. Agar tuzatish yangiroq kodga bogʻliq boʻlsa, feature'larni olib kirish oʻrniga release branch uchun minimal versiyasini yozing. Koʻp jamoalar natijani tag qiladi (v1.2.1) va changelog yozuvini qoldiradi.
+
+</QA>
+
+## Hujjatlar
+
+- [git cherry-pick](https://git-scm.com/docs/git-cherry-pick)

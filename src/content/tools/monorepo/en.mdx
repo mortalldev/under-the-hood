@@ -1,0 +1,55 @@
+## Quick start
+
+A JavaScript monorepo needs two things: a **package manager with workspaces** to link local packages, and a **task runner** that runs scripts in dependency order and caches the results. The common pair is **pnpm + Turborepo**:
+
+```bash
+npx create-turbo@latest           # scaffolds apps/ and packages/ with pnpm workspaces
+```
+
+```yaml
+# pnpm-workspace.yaml
+packages:
+  - "apps/*"
+  - "packages/*"
+```
+
+```bash
+pnpm install                                   # one lockfile for the whole repo
+pnpm --filter ./apps/web add zod               # add a dependency to one package
+pnpm add -D typescript -w                      # a dev dependency at the root
+pnpm turbo run build                           # build everything in dependency order, cached
+pnpm turbo run test --filter=...@acme/ui       # ui and everything that depends on it
+```
+
+Publishing packages from the monorepo? Each PR adds a changeset, and the release step bumps versions and writes changelogs:
+
+```bash
+npx changeset                     # describe the change and pick patch/minor/major per package
+npx changeset version             # apply version bumps + CHANGELOG.md
+npx changeset publish             # publish changed packages to npm
+```
+
+## How to choose
+
+| Situation | Pick |
+| --- | --- |
+| Package manager for a monorepo or CI | pnpm (npm and Yarn workspaces also work) |
+| Task running and caching for JS/TS | Turborepo |
+| Generators, module-boundary rules, mixed stacks, very large repos | Nx |
+| Versioning and changelogs for published packages | Changesets |
+
+The monorepo architecture itself — when it pays off and how boundaries work — is in the [Monorepo](/architecture/frontend/monorepo) architecture page.
+
+## Gotchas
+
+- pnpm's strict `node_modules` fails on **phantom dependencies** — imports of packages you never declared. That's a feature: add the dependency to that package's `package.json`.
+- A task cache is only correct if inputs are declared: environment variables that change output must be listed (`env` in `turbo.json`), or you'll restore a stale build.
+- Pin the package manager version with the `packageManager` field so CI and every developer use the same one.
+
+## In interviews
+
+<QA q="CI for the monorepo takes 45 minutes. How do you bring it down?" level="senior">
+
+Stop doing work that didn't change: run only tasks affected by the PR (graph-based filtering), enable a remote cache shared by CI and developers so unchanged packages restore in seconds, and declare task inputs and outputs precisely so cache hits are safe. Parallelise across machines, cache the package store, and split slow end-to-end suites so they run only for apps that changed. Then measure which tasks dominate and fix those.
+
+</QA>

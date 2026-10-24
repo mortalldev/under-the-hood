@@ -3,7 +3,8 @@
 // 2. every MDX file compiles,
 // 3. every <Term id="…"> exists in the glossary,
 // 4. both locales of a lesson use the same components (same depth),
-// 5. the same for every principle page, whose <PrincipleViz id> must be its own slug.
+// 5. the same for every library page (principles, architecture, git), whose
+//    <PrincipleViz|ArchitectureViz|GitViz id> must be its own slug, and every tools page.
 import { compile } from "@mdx-js/mdx";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -65,42 +66,74 @@ for (const section of await readdir(lessonsDir)) {
 }
 for (const id of onDisk) if (!registered.includes(id)) fail(`${id}: on disk but not in registry.ts`);
 
-// Principles: `p("category", "slug", …)` rows in principles/registry.ts.
-const principlesDir = path.join(root, "src/content/principles");
-const principleSrc = await readFile(path.join(principlesDir, "registry.ts"), "utf8");
-const principleSlugs = [...principleSrc.matchAll(/^\s+p\("[\w-]+", "([\w-]+)",/gm)].map((m) => m[1]);
-for (const slug of principleSlugs) {
-  const sources = {};
-  for (const locale of ["en", "uz"]) {
-    let src;
-    try {
-      src = await readFile(path.join(principlesDir, slug, `${locale}.mdx`), "utf8");
-    } catch {
-      fail(`principles/${slug}: missing ${locale}.mdx`);
-      continue;
-    }
-    sources[locale] = src;
-    try {
-      await compile(src, { remarkPlugins: [remarkGfm] });
-    } catch (e) {
-      fail(`principles/${slug}/${locale}.mdx: ${e.message}`);
-    }
-    for (const m of src.matchAll(/<Term id="([^"]+)"/g)) {
-      if (!glossaryIds.has(m[1])) fail(`principles/${slug}/${locale}.mdx: unknown glossary id "${m[1]}"`);
-    }
-    for (const m of src.matchAll(/<PrincipleViz id="([^"]+)"/g)) {
-      if (m[1] !== slug) fail(`principles/${slug}/${locale}.mdx: PrincipleViz id "${m[1]}" is not this page's slug`);
-    }
+// Libraries (principles, architecture, git): `p("category", "slug", …)` rows in
+// <dir>/registry.ts; each page's <Viz id> must be its own slug.
+const libraries = [
+  { dir: "principles", viz: "PrincipleViz" },
+  { dir: "architecture", viz: "ArchitectureViz" },
+  { dir: "git", viz: "GitViz" },
+];
+const checkPage = async (label, file, sources, locale, rules = () => {}) => {
+  let src;
+  try {
+    src = await readFile(file, "utf8");
+  } catch {
+    fail(`${label}: missing ${locale}.mdx`);
+    return;
   }
+  sources[locale] = src;
+  try {
+    await compile(src, { remarkPlugins: [remarkGfm] });
+  } catch (e) {
+    fail(`${label}/${locale}.mdx: ${e.message}`);
+  }
+  for (const m of src.matchAll(/<Term id="([^"]+)"/g)) {
+    if (!glossaryIds.has(m[1])) fail(`${label}/${locale}.mdx: unknown glossary id "${m[1]}"`);
+  }
+  rules(src);
+};
+const sameDepth = (label, sources) => {
   if (sources.en && sources.uz && components(sources.en) !== components(sources.uz)) {
-    fail(`principles/${slug}: en/uz use different components
+    fail(`${label}: en/uz use different components
   en: ${components(sources.en)}
   uz: ${components(sources.uz)}`);
   }
-}
-for (const dir of await readdir(principlesDir, { withFileTypes: true })) {
-  if (dir.isDirectory() && !principleSlugs.includes(dir.name)) fail(`principles/${dir.name}: on disk but not in principles/registry.ts`);
+};
+
+let entryCount = 0;
+for (const { dir, viz } of libraries) {
+  const libDir = path.join(root, "src/content", dir);
+  const src = await readFile(path.join(libDir, "registry.ts"), "utf8");
+  const slugs = [...src.matchAll(/^\s+p\("[\w-]+", "([\w-]+)",/gm)].map((m) => m[1]);
+  entryCount += slugs.length;
+  for (const slug of slugs) {
+    const sources = {};
+    for (const locale of ["en", "uz"]) {
+      await checkPage(`${dir}/${slug}`, path.join(libDir, slug, `${locale}.mdx`), sources, locale, (text) => {
+        const ids = [...text.matchAll(new RegExp(`<${viz} id="([^"]+)"`, "g"))].map((m) => m[1]);
+        if (ids.length === 0) fail(`${dir}/${slug}/${locale}.mdx: no <${viz}>`);
+        for (const id of ids) if (id !== slug) fail(`${dir}/${slug}/${locale}.mdx: ${viz} id "${id}" is not this page's slug`);
+      });
+    }
+    sameDepth(`${dir}/${slug}`, sources);
+  }
+  for (const d of await readdir(libDir, { withFileTypes: true })) {
+    if (d.isDirectory() && !slugs.includes(d.name)) fail(`${dir}/${d.name}: on disk but not in ${dir}/registry.ts`);
+  }
 }
 
-console.log(`${registered.length} lessons and ${principleSlugs.length} principles checked, ${failures} problem(s).`);
+// Tools: one MDX page per category in tools/registry.ts.
+const toolsDir = path.join(root, "src/content/tools");
+const toolsSrc = await readFile(path.join(toolsDir, "registry.ts"), "utf8");
+const toolCats = [...toolsSrc.match(/toolCategorySlugs = \[([\s\S]*?)\]/)[1].matchAll(/"([\w-]+)"/g)].map((m) => m[1]);
+for (const cat of toolCats) {
+  const sources = {};
+  for (const locale of ["en", "uz"]) await checkPage(`tools/${cat}`, path.join(toolsDir, cat, `${locale}.mdx`), sources, locale);
+  sameDepth(`tools/${cat}`, sources);
+}
+for (const d of await readdir(toolsDir, { withFileTypes: true })) {
+  if (d.isDirectory() && !toolCats.includes(d.name)) fail(`tools/${d.name}: on disk but not a tools category`);
+}
+
+console.log(`${registered.length} lessons, ${entryCount} library pages and ${toolCats.length} tool pages checked, ${failures} problem(s).`);
 process.exit(failures ? 1 : 0);

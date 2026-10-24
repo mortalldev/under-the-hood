@@ -1,0 +1,80 @@
+## TL;DR
+
+**Git hooks** are scripts Git runs at fixed points — before a commit is created, when a message is written, before a push. A non-zero exit code stops the operation. Teams use them for fast local checks (lint and format staged files, validate commit messages) and share them through **Husky** or **Lefthook**, because hooks themselves are never cloned.
+
+This page also lists the **config settings** worth turning on everywhere.
+
+## Animation
+
+<GitViz id="hooks" />
+
+## The hooks you'll actually use
+
+| Hook | Runs | Typical job |
+| --- | --- | --- |
+| `pre-commit` | before the commit is created | lint/format staged files, block secrets |
+| `prepare-commit-msg` | before the editor opens | prefill the ticket id from the branch name |
+| `commit-msg` | after the message is written | enforce Conventional Commits |
+| `pre-push` | before anything is sent | fast unit tests, type check |
+| `post-checkout` / `post-merge` | after switching or pulling | reinstall dependencies if the lockfile changed |
+
+## Code
+
+```yaml
+# lefthook.yml — install with: npx lefthook install
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      glob: "*.{ts,tsx}"
+      run: npx eslint {staged_files}
+    format:
+      glob: "*.{ts,tsx,css,md,json}"
+      run: npx prettier --check {staged_files}
+commit-msg:
+  commands:
+    commitlint:
+      run: npx commitlint --edit {1}
+pre-push:
+  commands:
+    types:
+      run: npx tsc --noEmit
+```
+
+Config worth setting once:
+
+```bash
+git config --global init.defaultBranch main
+git config --global pull.rebase true
+git config --global push.autoSetupRemote true
+git config --global fetch.prune true
+git config --global rebase.autoSquash true
+git config --global rebase.updateRefs true
+git config --global rerere.enabled true          # reuse recorded conflict resolutions
+git config --global merge.conflictStyle zdiff3   # show the base version in conflicts
+git config --global diff.algorithm histogram
+git config --global commit.verbose true          # see the diff while writing the message
+```
+
+## Under the hood
+
+- Hooks live in `.git/hooks/` by default, or in the directory set by `core.hooksPath`. That folder is never part of a clone — running code just because you cloned a repository would be a security hole. Husky and Lefthook install hooks from a tracked config when you run their install step.
+- `git commit --no-verify` and `git push --no-verify` skip `pre-commit`, `commit-msg` and `pre-push`. Hooks are a convenience, not enforcement: **CI must run the same checks** and branch protection must require them.
+
+## Pitfalls
+
+- Slow hooks get skipped. Check only staged files, run in parallel, and keep the full test suite in CI.
+- Hooks that modify files (auto-format) must re-stage them, or the commit won't include the fix.
+
+## In interviews
+
+<QA q="Your team keeps merging code that fails lint. Hooks or CI?" level="mid">
+
+Both, with different jobs. A pre-commit hook gives instant feedback on the files you touched, which catches most issues before review. But hooks can be skipped with --no-verify and aren't installed on every machine, so a required CI check on the PR is the real gate, enforced by branch protection.
+
+</QA>
+
+## Docs
+
+- [githooks](https://git-scm.com/docs/githooks) · [git config](https://git-scm.com/docs/git-config)
+- [Lefthook](https://lefthook.dev/) · [Husky](https://typicode.github.io/husky/)

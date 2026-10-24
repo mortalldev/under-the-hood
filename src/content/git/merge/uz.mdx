@@ -1,0 +1,54 @@
+## TL;DR
+
+`git merge feature` feature commit'larini joriy branch'ga olib keladi:
+
+- **Fast-forward** — agar feature ajralganidan beri joriy branch siljimagan boʻlsa, Git pointer'ni shunchaki oldinga suradi. Yangi commit yoʻq.
+- **Three-way merge** — ikkala tomonda ham yangi commit'lar boʻlsa, Git ularni **merge base** (oxirgi umumiy ajdod) yordamida birlashtiradi va **ikki parent'li merge commit** yozadi.
+
+Merge mavjud commit'larni hech qachon qayta yozmaydi, shuning uchun umumiy branch'larda har doim xavfsiz.
+
+## Animatsiya
+
+<GitViz id="merge" />
+
+## Buyruqlar
+
+```bash
+git switch main
+git merge feature              # iloji boʻlsa fast-forward, aks holda merge commit
+git merge --no-ff feature      # doim merge commit yaratish (feature guruhlangan qoladi)
+git merge --ff-only feature    # fast-forward boʻlmasa rad etish
+git merge --squash feature     # feature'ning umumiy oʻzgarishlarini stage qiladi; siz ularni bitta commit qilasiz
+
+# conflict'lar
+git status                     # "both modified: src/app.ts"
+git diff                       # conflict hunk'larini koʻrsatadi
+git add src/app.ts             # <<<<<<< ======= >>>>>>> ni tahrirlab olib tashlagandan keyin
+git commit                     # merge'ni tugatish
+git merge --abort              # yoki merge'dan oldingi holatga qaytish
+```
+
+## Ichkarida
+
+- Git merge base'ni topadi (`git merge-base main feature`), base→ours va base→theirs farqlarini hisoblaydi va ikkalasini qoʻllaydi. Faqat bir tomonda oʻzgargan qatorlar avtomatik birlashadi; ikkala tomonda turlicha oʻzgargan qatorlar — **conflict**.
+- Standart strategiya — **ort** (Git 2.34'da standart sifatida `recursive` oʻrnini egalladi): tezroq va rename'larni yaxshiroq ishlaydi.
+- Merge commit'ning ikkita parent'i bor. `main^1` — siz turgan branch, `main^2` — merge qilingan branch; shuning uchun `git revert -m 1 <merge>` parent raqamini talab qiladi.
+- `git config --global merge.conflictStyle zdiff3` conflict belgilari ichida base versiyani ham koʻrsatadi, bu esa koʻp conflict'larni hal qilishni ancha osonlashtiradi.
+- `git rerere` (**re**use **re**corded **re**solution) conflict'ni qanday hal qilganingizni eslab qoladi va keyingi safar qayta qoʻllaydi — uzun branch'ni qayta merge yoki rebase qilganda qulay.
+
+## Tuzoqlar
+
+- Har bir `git pull`'dan keladigan "Merge branch 'main' into feature" commit'lari tarixni ifloslantiradi; oʻz branch'ingizda `git pull --rebase` ishlating.
+- Squash merge (GitHub'ning "Squash and merge"i) branch commit'lariga aloqasi yoʻq yangi commit yaratadi. Shundan keyin Git branch merge boʻlganini bila olmaydi — uni qayta ishlatish oʻrniga oʻchiring.
+
+## Interview'da
+
+<QA q="Feature branch'ni birlashtirish uchun merge yoki rebase?" level="senior">
+
+Ikkalasi ham normal; jamoalar kelishuv tanlaydi. Merge aynan nima sodir boʻlganini saqlaydi va umumiy tarixni hech qachon qayta yozmaydi; rebase oʻqish va bisect qilish osonroq boʻlgan chiziqli tarix beradi. Keng tarqalgan qoida: yangilanib turish uchun oʻzingizning push qilinmagan yoki shaxsiy branch'ingizni main ustiga rebase qiling, keyin PR orqali main'ga squash merge yoki merge commit bilan birlashtiring — boshqalar ustiga ish qurgan branch'ni hech qachon rebase qilmang.
+
+</QA>
+
+## Hujjatlar
+
+- [git merge](https://git-scm.com/docs/git-merge) · [Pro Git — Basic Branching and Merging](https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging)

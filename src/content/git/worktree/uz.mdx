@@ -1,0 +1,50 @@
+## TL;DR
+
+`git worktree` bitta repository'ga **bir vaqtda bir nechta ishchi papka** berish imkonini beradi: har birida oʻz ochilgan branch'i, index'i va fayllari bor, hammasi bitta object store'ni boʻlishadi. PR'ni review qiling, hotfix build qiling va feature'ingiz dev server'ini ishlatib turing — uchta papkada, stash'siz va qayta clone qilmasdan.
+
+## Animatsiya
+
+<GitViz id="worktree" />
+
+## Buyruqlar
+
+```bash
+git worktree add ../app-hotfix -b hotfix/login origin/main   # yangi papkada yangi branch
+git worktree add ../app-review pr-812                         # mavjud branch
+git worktree add --detach ../app-build v1.4.0                 # tag, branch'siz
+git worktree list
+git worktree remove ../app-hotfix                             # papka va roʻyxatdan oʻchirish
+git worktree prune                                            # qoʻlda oʻchirilgan papkalarni tozalash
+git worktree lock ../app-review --reason "on USB drive"       # prune qilinishidan himoyalash
+```
+
+## Ichkarida
+
+- Asosiy repository `.git/`'ni saqlaydi; har bir qoʻshimcha worktree'da `.git/worktrees/<name>/`'ga ishora qiladigan kichik `.git` *fayli* bor, unda shu worktree'ning `HEAD`'i va index'i saqlanadi.
+- Object'lar, ref'lar va config umumiy: bir worktree'da qilingan commit boshqalarida darhol koʻrinadi (`git log hotfix/login` hamma joyda ishlaydi).
+- Bitta branch bir vaqtda **faqat bitta** worktree'da ochilishi mumkin — Git ikkinchisini rad etadi, shunda ikki papka bir branch'da jimgina ajralib keta olmaydi.
+
+## Qachon kerak
+
+- Uzoq build yoki test asosiy papkangizni band qilib turganda hotfix.
+- Jamoadoshning PR'ini oʻz ishingiz bilan yonma-yon review qilish yoki ishga tushirish.
+- Ikki versiya xatti-harakatini bir vaqtda solishtirish.
+- Bir nechta coding agent yoki skriptni parallel ishga tushirish, har birini oʻz worktree'sida izolyatsiya qilib.
+
+## Tuzoqlar
+
+- Har bir worktree'ga oʻz `node_modules`'i va build natijasi kerak; pnpm'ning umumiy store'i buni arzon qiladi, npm esa yoʻq.
+- Worktree papkasini `rm` bilan oʻchirish eskirgan metama'lumot qoldiradi — `git worktree prune` buni tuzatadi.
+- `.git` papka deb hisoblaydigan editor va tool'lar ba'zan `.git` fayli tufayli chalkashadi.
+
+## Interview'da
+
+<QA q="Joriy feature branch'ingizni buzmasdan shoshilinch tuzatish ustida qanday ishlaysiz?" level="mid">
+
+git worktree add ../hotfix -b hotfix/x origin/main yangi branch'da alohida papka beradi, feature papkasi, uning commit qilinmagan oʻzgarishlari va ishlab turgan dev server'i esa tegilmagan holda qoladi. U yerda tuzating, test qiling, push qiling va PR oching, tugagach git worktree remove. Bu stash'dan xavfsizroq, chunki feature working tree'sidagi hech narsa joyidan qoʻzgʻalmaydi.
+
+</QA>
+
+## Hujjatlar
+
+- [git worktree](https://git-scm.com/docs/git-worktree)

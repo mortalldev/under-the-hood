@@ -1,0 +1,76 @@
+## TL;DR
+
+**Monorepo** koʻplab loyihalarni — ilovalar, umumiy package'lar, tool'lar — bitta dependency graph bilan **bitta repository**'da saqlaydi. Umumiy package'dagi oʻzgarish va uni ishlatadigan har bir ilova **bitta atomic commit**'da tushadi, tool'lar esa faqat oʻzgarish ta'sir qilgan qismni qayta build qiladi.
+
+Google, Meta va Microsoft ulkan monorepo'lar yuritadi; JavaScript jamoalari uchun odatiy stack — **pnpm workspaces + Turborepo** (yoki Nx).
+
+## Animatsiya
+
+<ArchitectureViz id="monorepo" />
+
+## Qanday ishlaydi
+
+1. **Workspace**'lar lokal package'larni bogʻlaydi: `"@acme/ui": "workspace:*"` diskdagi `packages/ui`'ga ishora qiladi — nashr qilish yoʻq, versiya farqi yoʻq.
+2. **Task graph** package dependency'laridan kelib chiqadi: `apps/web`'ning `build`'i `@acme/ui`'ning `build`'iga bogʻliq (`"dependsOn": ["^build"]`).
+3. **Content hashing**: har bir task input'larining (source fayllar, dependency'lar, env) hash'i olinadi. Hash bir xil → ishga tushirish oʻrniga natija cache'dan tiklanadi.
+4. **Ta'sirlanganni aniqlash**: oʻzgargan fayllardan graph boʻylab orqaga yurib, nimani test qilish kerakligi topiladi.
+5. **Remote cache**: CI va har bir dasturchi natijalarni boʻlishadi, shuning uchun bir marta qilingan build hech qachon takrorlanmaydi.
+
+## Kod
+
+```yaml
+# pnpm-workspace.yaml
+packages:
+  - "apps/*"
+  - "packages/*"
+```
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**", "!.next/cache/**"] },
+    "lint": {},
+    "test": { "dependsOn": ["^build"] },
+    "dev": { "cache": false, "persistent": true }
+  }
+}
+```
+
+```bash
+pnpm turbo run build test lint          # butun graph, parallel, cache bilan
+pnpm turbo run test --filter=...@acme/ui   # ui va unga bogʻliq hamma narsa
+pnpm --filter ./apps/web add zod        # bitta package'ga dependency qoʻshish
+```
+
+<Callout kind="tip" title="Chegaralar baribir muhim">
+Bitta repository hamma narsa hamma narsani import qila oladi degani emas. Ichki qismlarni yashirish uchun package `exports`'dan, review egaligi uchun `CODEOWNERS`'dan va ilovalar bir-birini hech qachon import qilmasligi uchun lint qoidalaridan (yoki Nx module boundaries'dan) foydalaning.
+</Callout>
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar bir nechta ilova kod boʻlishsa (web + admin + mobil web + komponent kutubxonasi), package'lararo atomic oʻzgarishlar va yagona tool config'lari kerak boʻlsa.
+
+**Yana bir oʻylab koʻring**, agar loyihalar hech narsa boʻlishmasa, jamoalarga har bir loyiha uchun turli ruxsatlar kerak boʻlsa yoki tool'larga sarmoya kirita olmasangiz: caching va faqat ta'sirlanganni build qilishsiz CI vaqti oʻzgarish bilan emas, butun repo bilan birga oʻsadi.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Package'lar boʻylab atomic refactor | Kengayish uchun CI'ga caching va faqat ta'sirlanganni ishga tushirish kerak |
+| Har bir dependency'ning bitta versiyasi, bitta config | Ulkan repo'larda Git sekinlashadi (partial clone, sparse checkout yordam beradi) |
+| Kodni boʻlishish va topish oson | Ruxsatlarni boshqarish alohida repo'larga qaraganda qoʻpolroq |
+
+## Interview'da
+
+<QA q="Design system'ni boʻlishadigan beshta frontend ilovali kompaniya uchun monorepo yoki polyrepo?" level="senior">
+
+Monorepo, asosan design system oʻz iste'molchilari bilan birga oʻzgargani uchun: breaking change va uning migratsiyalari bitta PR'da tushadi, CI esa har bir ilova hali build boʻlishini isbotlaydi. Men pnpm workspaces, remote cache'li Turborepo yoki Nx ishlatib, CI'da faqat ta'sirlangan task'larni ishga tushirgan va chegaralarni package exports, CODEOWNERS va lint qoidalari bilan majburlagan boʻlardim. Agar ilovalar turli release va ruxsat ehtiyojlari boʻlgan alohida tashkilotlarga tegishli boʻlsa, polyrepo tanlardim.
+
+</QA>
+
+## Manbalar
+
+- [pnpm — Workspaces](https://pnpm.io/workspaces)
+- [Turborepo — dokumentatsiya](https://turborepo.dev/docs)
+- [Why Google Stores Billions of Lines of Code in a Single Repository (Google Research)](https://research.google/pubs/why-google-stores-billions-of-lines-of-code-in-a-single-repository/)

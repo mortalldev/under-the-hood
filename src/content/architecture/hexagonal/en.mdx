@@ -1,0 +1,77 @@
+## TL;DR
+
+**Hexagonal architecture** (Alistair Cockburn, 2005), also called **Ports and Adapters**, puts the business logic in the centre and makes it independent of everything outside: web frameworks, databases, queues, third-party APIs.
+
+- **Ports** are interfaces the core defines: what it *offers* (driving ports, e.g. `PlaceOrder`) and what it *needs* (driven ports, e.g. `OrderRepo`).
+- **Adapters** live outside and plug into ports: an HTTP controller, a Postgres repository, an in-memory fake for tests.
+
+## Animation
+
+<ArchitectureViz id="hexagonal" />
+
+## How it works
+
+- **Driving side** (left): things that call the app — HTTP, CLI, a message consumer, a test. Each adapter translates its input into a call on a driving port.
+- **Driven side** (right): things the app calls — storage, email, payment providers. The core calls a port; an adapter implements it.
+- **Dependency direction**: adapters depend on the core, never the reverse. The core compiles without the database driver installed.
+- The **composition root** (`main.ts`, a DI container, a Next.js server module) is the only place that knows which adapter goes into which port.
+
+## Code
+
+```ts
+// core/ports.ts
+export interface PlaceOrder { place(cmd: NewOrder): Promise<OrderId> }   // driving
+export interface OrderRepo { save(o: Order): Promise<void> }              // driven
+export interface Payments { charge(orderId: OrderId, cents: number): Promise<void> }
+
+// core/order-service.ts — no framework imports
+export class OrderService implements PlaceOrder {
+  constructor(private repo: OrderRepo, private payments: Payments) {}
+  async place(cmd: NewOrder) {
+    const order = Order.create(cmd);                 // business rules
+    await this.payments.charge(order.id, order.totalCents);
+    await this.repo.save(order);
+    return order.id;
+  }
+}
+```
+
+```ts
+// adapters/
+class PostgresOrderRepo implements OrderRepo { constructor(private db: Pool) {} async save(o: Order) { /* SQL */ } }
+class StripePayments implements Payments { async charge(id: OrderId, cents: number) { /* Stripe SDK */ } }
+
+// test: the same core with fakes, no network, no database
+const saved: Order[] = [];
+const service = new OrderService({ save: async (o) => void saved.push(o) }, { charge: async () => {} });
+await service.place({ items: [{ sku: "A1", qty: 2 }] });
+expect(saved).toHaveLength(1);
+```
+
+## When to use it — and when not
+
+**Use it** when the domain logic is the valuable, long-lived part (pricing, billing, scheduling), when you expect infrastructure to change, or when you want fast tests of business rules without a database.
+
+**Don't** wrap a thin CRUD service in ports for every table — you'll write three files per endpoint for no benefit. Apply it at the real boundaries: storage, network, time, randomness.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Business rules testable in milliseconds | More interfaces and wiring |
+| Swap infrastructure without touching the core | Mapping between domain objects and DB rows |
+| Framework upgrades don't reach the domain | Over-abstraction in simple services |
+
+Hexagonal, Onion and Clean Architecture are close relatives: all keep the domain in the middle with dependencies pointing inward.
+
+## In interviews
+
+<QA q="How do you unit-test business logic that charges a card and writes to a database?" level="senior">
+
+Make the core depend on ports, not on the Stripe SDK or the database client. In tests, pass in-memory or fake adapters and assert on behaviour: the order was saved, the charge was requested with the right amount, a failed charge leaves nothing saved. Cover the real adapters with a smaller set of integration tests against a test database and the provider's sandbox.
+
+</QA>
+
+## Sources
+
+- [Hexagonal Architecture — Alistair Cockburn](https://alistair.cockburn.us/hexagonal-architecture)

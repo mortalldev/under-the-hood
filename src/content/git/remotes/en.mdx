@@ -1,0 +1,62 @@
+## TL;DR
+
+Three different refs are involved whenever you sync:
+
+- the **branch on the server** (`main` on GitHub),
+- your **remote-tracking ref** `origin/main` — your *last snapshot* of the server, updated only by fetch,
+- your **local branch** `main`.
+
+`git fetch` updates `origin/*` and is always safe. `git pull` = fetch + merge (or rebase). `git push` asks the server to fast-forward its branch to yours. When you must overwrite, use **`--force-with-lease`**, never plain `--force`.
+
+## Animation
+
+<GitViz id="remotes" />
+
+## Commands
+
+```bash
+git remote -v                         # where origin points
+git fetch --prune                     # update origin/*, drop deleted remote branches
+git status                            # "ahead 1, behind 2" vs. upstream
+git log --oneline main..origin/main   # what they have that you don't
+git log --oneline origin/main..main   # what you have that they don't
+
+git pull --rebase                     # fetch, then replay your commits on top
+git push                              # fast-forward the server branch
+git push -u origin feat/login         # first push of a new branch: set upstream
+
+git push --force-with-lease --force-if-includes   # after rewriting a pushed branch
+git push origin --delete feat/login   # delete a remote branch
+```
+
+Useful defaults:
+
+```bash
+git config --global push.autoSetupRemote true   # first push sets the upstream automatically
+git config --global fetch.prune true             # always prune on fetch
+git config --global pull.rebase true             # pull rebases instead of merging
+```
+
+## Under the hood
+
+- A push is accepted only if it's a **fast-forward** of the server branch (or forced). That's why rebased branches are rejected.
+- `--force-with-lease` sends "overwrite only if the server branch is still at the commit my `origin/feat` says". If a teammate pushed since your last fetch, it's rejected instead of deleting their work.
+- `--force-if-includes` closes a remaining hole: a background `git fetch` (your IDE does this) can update `origin/feat` without you integrating it, which would make a bare lease pass. It also checks the remote tip is in your branch's reflog.
+
+## Pitfalls
+
+- `git pull` on a branch with local commits creates merge commits unless you rebase.
+- Force-pushing protected branches is (and should be) blocked by branch protection.
+- `origin/main` being old is the cause of most "but it worked locally" merge surprises — fetch first.
+
+## In interviews
+
+<QA q="What's the difference between git fetch and git pull, and which do you run more often?" level="mid">
+
+fetch downloads new commits and moves the remote-tracking refs (origin/*) without touching your branches or files. pull is fetch followed by integrating the upstream into the current branch — a merge by default or a rebase with pull.rebase. Many engineers fetch often to see what changed, then integrate deliberately, for example rebasing their feature branch on origin/main.
+
+</QA>
+
+## Docs
+
+- [git push](https://git-scm.com/docs/git-push) · [git fetch](https://git-scm.com/docs/git-fetch) · [git pull](https://git-scm.com/docs/git-pull)

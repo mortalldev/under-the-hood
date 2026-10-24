@@ -1,0 +1,52 @@
+## TL;DR
+
+Git is a **content-addressable database** with four object types and a set of names on top:
+
+- **blob** — the bytes of one file (no name, no permissions).
+- **tree** — a directory listing: names → blobs or other trees.
+- **commit** — one root tree (a **full snapshot**), parent commit(s), author, committer, message.
+- **tag** (annotated) — a signed or annotated pointer to a commit.
+
+Every object is named by the **hash of its content**. **Refs** — branches, tags, `HEAD` — are just names pointing at hashes. Once you see this, merge, rebase, reset and reflog stop being magic.
+
+## Animation
+
+<GitViz id="object-model" />
+
+## Look inside
+
+```bash
+git cat-file -t HEAD          # commit
+git cat-file -p HEAD          # tree, parent, author, message
+git cat-file -p 'HEAD^{tree}' # the root directory listing
+git ls-tree -r HEAD --name-only | head
+git rev-parse main            # the hash main points to
+cat .git/HEAD                 # ref: refs/heads/main
+git count-objects -vH         # how big the object store is
+```
+
+## Under the hood
+
+- **Snapshots, not diffs.** A commit stores a whole tree. Unchanged files and folders keep their hashes, so they're shared between commits for free — a new commit costs only the objects that changed.
+- **Hash = identity.** Changing anything in a commit (message, parent, a file) changes its hash and the hash of every descendant. That's why "rewriting history" creates new commits instead of editing old ones, and why a signed tag or commit protects everything below it.
+- **Branches are cheap.** A branch is a ref — a loose file under `.git/refs/heads/` containing one hash, or an entry in `.git/packed-refs` (newer Git can also use the `reftable` format). Creating one writes a few bytes.
+- **Packfiles.** On disk Git eventually packs objects and stores similar ones as deltas (`git gc`, `git maintenance`). That's a storage optimisation; the model stays "snapshots".
+- **Hash function.** Repositories use SHA-1 by default (with collision detection); SHA-256 repositories exist via `git init --object-format=sha256`.
+
+## Pitfalls
+
+- Thinking a commit "contains a diff" leads to confusion about cherry-pick and rebase: Git *computes* a diff between a commit and its parent when it needs one.
+- Large binary files are stored in full for every version that changes — use Git LFS for assets, or partial clone on the consumer side.
+
+## In interviews
+
+<QA q="What actually happens on disk when you run git commit?" level="senior">
+
+Git writes a blob for each staged file content that doesn't already exist, writes tree objects for every directory whose listing changed, then a commit object pointing at the new root tree with the current HEAD commit as parent. Finally it updates the ref HEAD points to — for example refs/heads/main — to the new commit's hash, and logs the move in the reflog. Nothing old is modified.
+
+</QA>
+
+## Docs
+
+- [Pro Git — Git Internals: Git Objects](https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)
+- [git cat-file](https://git-scm.com/docs/git-cat-file)

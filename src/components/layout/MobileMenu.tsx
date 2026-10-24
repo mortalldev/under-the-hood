@@ -1,9 +1,10 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef } from "react";
-import { usePathname } from "@/i18n/navigation";
+import { useRef } from "react";
+import { MenuIcon, type HandbookItem } from "./HandbookMenu";
 import { NavLink } from "./NavLink";
+import { useDetailsDismiss } from "./useDetailsDismiss";
 
 export interface MenuLink {
   href: string;
@@ -12,38 +13,14 @@ export interface MenuLink {
 }
 
 /**
- * Hamburger menu for small screens. Built on <details> so it still opens
- * without JavaScript; with JS it also closes on navigation, Escape and
- * outside taps.
+ * Hamburger menu for small screens: main links, then the handbook sections
+ * with their icons. Built on <details> so it still opens without JavaScript;
+ * with JS it also closes on navigation, Escape and outside taps.
  */
-export function MobileMenu({ links }: { links: MenuLink[] }) {
+export function MobileMenu({ links, handbook, handbookLabel }: { links: MenuLink[]; handbook: HandbookItem[]; handbookLabel: string }) {
   const t = useTranslations("Nav");
   const ref = useRef<HTMLDetailsElement>(null);
-  const pathname = usePathname();
-
-  useEffect(() => {
-    if (ref.current) ref.current.open = false;
-  }, [pathname]);
-
-  useEffect(() => {
-    const close = (e: Event) => {
-      const el = ref.current;
-      if (!el?.open) return;
-      if (e instanceof KeyboardEvent) {
-        if (e.key !== "Escape") return;
-        el.open = false;
-        el.querySelector("summary")?.focus();
-        return;
-      }
-      if (e.target instanceof Node && !el.contains(e.target)) el.open = false;
-    };
-    document.addEventListener("keydown", close);
-    document.addEventListener("pointerdown", close);
-    return () => {
-      document.removeEventListener("keydown", close);
-      document.removeEventListener("pointerdown", close);
-    };
-  }, []);
+  useDetailsDismiss(ref);
 
   return (
     <details ref={ref} className="group md:hidden">
@@ -58,7 +35,7 @@ export function MobileMenu({ links }: { links: MenuLink[] }) {
       </summary>
       <nav
         aria-label={t("primary")}
-        className="absolute inset-x-0 top-full border-b border-border bg-bg px-4 pb-4 pt-2 shadow-lg"
+        className="scroll-thin absolute inset-x-0 top-full max-h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-contain border-b border-border bg-bg px-4 pt-2 pb-4 shadow-lg"
       >
         <ul className="grid gap-1">
           {links.map((l) => (
@@ -70,6 +47,22 @@ export function MobileMenu({ links }: { links: MenuLink[] }) {
                 activeClassName="!bg-surface-2 !text-fg font-semibold"
               >
                 {l.label}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 border-t border-border px-3 pt-4 pb-1 text-xs font-semibold tracking-wider text-fg-subtle uppercase">{handbookLabel}</p>
+        <ul className="grid grid-cols-2 gap-1.5">
+          {handbook.map((i) => (
+            <li key={i.href}>
+              <NavLink
+                href={i.href}
+                matchNested
+                className="flex min-h-14 items-center gap-2.5 rounded-xl border border-border px-3 text-[0.95rem] text-fg-muted hover:bg-surface-2 hover:text-fg"
+                activeClassName="!border-accent/40 !bg-accent-soft !text-accent font-semibold"
+              >
+                <MenuIcon d={i.icon} className="size-[1.1rem] shrink-0 text-accent" />
+                <span className="min-w-0 truncate">{i.label}</span>
               </NavLink>
             </li>
           ))}

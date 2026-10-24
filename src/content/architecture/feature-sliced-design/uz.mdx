@@ -1,0 +1,97 @@
+## TL;DR
+
+**Feature-Sliced Design (FSD)** — frontend kod bazasini tashkil qilish uchun e'lon qilingan standart. U har bir oʻsib borayotgan React yoki Vue ilovada ertami-kechmi bahs boʻladigan ikki savolga javob beradi: *bu fayl qayerga boradi?* va *u nimani import qilishi mumkin?*
+
+- **Layer'lar** (yuqoridan pastga): `app` → `pages` → `widgets` → `features` → `entities` → `shared`. Modul faqat oʻzidan **pastdagi** layer'lardan import qila oladi.
+- **Slice'lar** layer'ni biznes domeni boʻyicha boʻladi: `features/auth`, `entities/user`.
+- **Segment'lar** slice'ni texnik vazifa boʻyicha boʻladi: `ui`, `model`, `api`, `lib`, `config`.
+- Har bir slice **public API** (`index.ts`) ochadi; hech kim uning ichki qismlarini import qilmaydi.
+
+## Animatsiya
+
+<ArchitectureViz id="feature-sliced-design" />
+
+## Qanday ishlaydi
+
+| Layer | U yerda nima yashaydi | Misol |
+| --- | --- | --- |
+| `app` | Provider'lar, router, global stillar, kirish nuqtasi | `QueryClientProvider`, theme |
+| `pages` | Har bir route'ga bitta slice; widget va feature'larni birlashtiradi | `pages/checkout` |
+| `widgets` | Katta, oʻzi yetarli UI bloklari | `widgets/header`, `widgets/cart-summary` |
+| `features` | Biznes qiymat beradigan foydalanuvchi amallari | `features/auth`, `features/add-to-cart` |
+| `entities` | Biznes obyektlari va ularning UI'i | `entities/user`, `entities/product` |
+| `shared` | Biznes ma'nosi yoʻq qayta ishlatiladigan kod | `shared/ui/Button`, `shared/api/client` |
+
+`app` va `shared`'da slice yoʻq — ularning har biri allaqachon bitta narsa. Tuzilmani foydali qiladigan ikki qoida bor:
+
+1. **Import faqat pastga.** `features/cart` `entities/product` va `shared/ui`'ni import qila oladi, lekin hech qachon `pages/*` yoki `widgets/*`'ni emas.
+2. **Bir layer'dagi slice'lar orasida cross-import yoʻq.** `features/cart` `features/auth`'ni import qilmaydi. Agar ikkalasi birga kerak boʻlsa, ularni yuqoridagi layer (widget yoki page) birlashtiradi.
+
+Eski `processes` layer'i deprecated qilingan; hozirgi FSD tavsiyasi bu mantiqni `features` yoki `app`'ga koʻchiradi.
+
+## Kod
+
+```ts
+// entities/user/index.ts — slice'ning public API'si
+export { UserAvatar } from "./ui/UserAvatar";
+export { useCurrentUser } from "./model/useCurrentUser";
+export type { User } from "./model/types";
+```
+
+```tsx
+// widgets/header/ui/Header.tsx — pastki layer'larni birlashtiradi
+import { LogoutButton } from "@/features/auth";
+import { CartBadge } from "@/features/cart";
+import { UserAvatar, useCurrentUser } from "@/entities/user";
+import { Logo } from "@/shared/ui";
+
+export function Header() {
+  const user = useCurrentUser();
+  return (
+    <header>
+      <Logo />
+      <CartBadge />
+      {user && <UserAvatar user={user} />}
+      <LogoutButton />
+    </header>
+  );
+}
+```
+
+Qoidalarni review'da emas, CI'da majburlang: **Steiger** — FSD'ning rasmiy linter'i, `eslint-plugin-boundaries` esa har qanday layer'li tuzilma uchun ishlaydi.
+
+<Callout kind="note" title="Next.js App Router bilan FSD">
+Next.js `app` va `pages` papka nomlarini routing uchun band qiladi, bu esa ikkita FSD layer'i bilan toʻqnashadi. FSD'ning Next.js qoʻllanmasi bu layer'larni `_app` va `_pages` deb qayta nomlaydi, Next'ning `app/` papkasini loyiha ildizida, FSD layer'larini esa `src/`'da saqlaydi. Har bir route fayli shunchaki page slice'ni qayta eksport qiladi: `export { CheckoutPage as default } from "@/_pages/checkout"`.
+</Callout>
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar bir frontend ustida bir necha dasturchi yillar davomida ishlasa, har bir review'da "bu qayerga boradi?" degan savol chiqsa yoki onboarding uchun umumiy lugʻat kerak boʻlsa.
+
+**Kerak emas** landing sahifa, prototip yoki bir kishi yuritadigan kichik ilova uchun: har birida ikkitadan fayl boʻlgan oltita layer — ortiqcha rasmiyatchilik. `components/`, `features/` va `lib/` bilan boshlang, papkalar tarqoq boʻla boshlaganda FSD'ga oʻting.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Har bir fayl uchun oldindan ma'lum joy | Oʻrganish vaqti; "bu feature'mi yoki entity'mi?" bahslari |
+| Past bogʻliqlik, feature'ni oʻchirish oson | Koʻproq fayl va `index.ts` barrel'lar |
+| Lint bilan majburlangan chegaralar | Hamma narsani qayta eksport qiladigan barrel fayllar tree-shaking va dev-server tezligiga zarar berishi mumkin |
+
+## Interview'da
+
+<QA q="Jamoalar bir-biriga xalal bermasligi uchun katta React kod bazasini qanday tuzgan boʻlardingiz?" level="senior">
+
+Avval biznes domeni, keyin texnik tur boʻyicha guruhlang va bogʻliqlik yoʻnalishini aniq qiling. FSD — aniq javoblardan biri: faqat pastga import qiladigan layer'lar, public API'li domen slice'lari, ichida segment'lar. Buni qanday majburlashingizni (CI'dagi lint qoidasi), feature qanday oʻchirilishini (bitta papkani oʻchirish) va narxini ayting: kichik ilova uchun oʻzini oqlamaydigan dastlabki rasmiyatchilik.
+
+</QA>
+
+<QA q="Ikki feature'ga bir xil mantiq kerak. U qayerga boradi?" level="mid">
+
+Feature'lardan biriga emas — bu bir layer ichidagi cross-import boʻladi. Agar u biznes ma'lumoti boʻlsa, entity'ga tushiring; biznes ma'nosi boʻlmasa, `shared`'ga. Agar gap aslida ikkala feature'ni birlashtirish haqida boʻlsa, ularni yuqoridagi widget yoki page birlashtiradi.
+
+</QA>
+
+## Manbalar
+
+- [Feature-Sliced Design — rasmiy dokumentatsiya](https://feature-sliced.design/)

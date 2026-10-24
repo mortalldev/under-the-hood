@@ -1,0 +1,59 @@
+## TL;DR
+
+A **branching workflow** is a team agreement on how work reaches production. Most product teams today use **trunk-based development** or its close cousin **GitHub flow**: short-lived branches, a pull request with review and required CI checks, merge into `main` within a day or two, deploy `main` continuously, hide unfinished work behind **feature flags**.
+
+## Animation
+
+<GitViz id="workflows" />
+
+## The common workflows
+
+| Workflow | Branches | Fits |
+| --- | --- | --- |
+| Trunk-based | `main` + branches that live hours to a couple of days | Continuous delivery, web services, large teams |
+| GitHub flow | `main` + one branch per change, merged via PR, `main` always deployable | Most web products |
+| Release branches | `main` + `release/x.y` cut for stabilisation and patches | Mobile apps, on-prem, versioned libraries |
+| Git flow | `main`, `develop`, `feature/*`, `release/*`, `hotfix/*` | Software shipped in rare, explicit versions |
+
+Git flow's author added a note to the original post in 2020: for continuously delivered software, a simpler workflow such as GitHub flow is the better fit.
+
+## A day in trunk-based development
+
+```bash
+git fetch && git switch -c feat/passkeys origin/main
+# …small commits; rebase on origin/main when needed…
+git push -u origin feat/passkeys
+gh pr create --fill                      # GitHub CLI
+# CI + one approving review → squash merge, or the merge queue
+git switch main && git pull
+git branch -D feat/passkeys              # squash-merged, so -d won't recognise it
+```
+
+Guard rails that make it safe:
+
+- **Branch protection**: no direct pushes to `main`, required reviews, required status checks, linear history if you squash.
+- **CODEOWNERS** routes reviews to the owners of each path.
+- **Merge queue**: tests each PR together with the ones ahead of it, so `main` never breaks from two PRs that pass alone.
+- **Feature flags** decouple deploy from release.
+- **Conventional Commits** (`feat:`, `fix:`, `feat!:` for breaking) let tools generate changelogs and semantic versions.
+
+## Pitfalls
+
+- "Short-lived" is the whole point. A trunk-based team with week-long branches has Git flow's merge pain without its structure.
+- Flags are debt: remove them after rollout.
+- Squash merges lose the branch's commit boundaries; if you want them, keep commits clean and use rebase-merge or merge commits.
+
+## In interviews
+
+<QA q="What branching strategy would you set up for a 40-engineer web team, and why?" level="senior">
+
+Trunk-based with short-lived PR branches. Branch protection with required CI and review, CODEOWNERS, and a merge queue so main stays green; continuous deployment of main with feature flags for unfinished work and canary releases for risky changes. It keeps integration continuous — small diffs, fewer conflicts, fast feedback — which is what DORA's research associates with high delivery performance. I'd only add release branches if we shipped versioned artefacts like mobile apps.
+
+</QA>
+
+## Sources
+
+- [Trunk Based Development](https://trunkbaseddevelopment.com/) · [DORA — Trunk-based development](https://dora.dev/capabilities/trunk-based-development/)
+- [GitHub flow — GitHub Docs](https://docs.github.com/en/get-started/using-github/github-flow)
+- [A successful Git branching model (with the 2020 note)](https://nvie.com/posts/a-successful-git-branching-model/)
+- [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)

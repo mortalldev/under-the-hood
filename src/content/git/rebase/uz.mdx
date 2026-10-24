@@ -1,0 +1,56 @@
+## TL;DR
+
+`git rebase main` branch'ingizdagi main'da boʻlmagan commit'larni oladi va ularni birma-bir **main ustiga qayta qoʻyadi**. Natijada tarix toʻgʻri chiziq boʻladi — lekin qayta qoʻyilgan har bir commit **yangi hash'li yangi commit**, shuning uchun rebase tarixni qayta yozadi.
+
+**Oltin qoida:** faqat hech kim ustiga ish qurmagan commit'larni rebase qiling.
+
+## Animatsiya
+
+<GitViz id="rebase" />
+
+## Buyruqlar
+
+```bash
+git switch feature
+git fetch origin
+git rebase origin/main                     # feature'ni eng soʻnggi main ustiga qayta qoʻyish
+# commit'da conflict:
+git status                                 # qaysi fayl
+git add <file> && git rebase --continue    # keyingi commit
+git rebase --skip                          # bu commit'ni tashlab ketish
+git rebase --abort                         # rebase'dan oldingi holatga qaytish
+
+git push --force-with-lease                # allaqachon push qilingan branch'ni xavfsiz yangilash
+
+git config --global pull.rebase true       # git pull = fetch + rebase, merge pufakchalarisiz
+git config --global rebase.autoStash true  # lokal tahrirlarni avtomatik stash/unstash qilish
+git rebase --onto main old-base feature    # faqat old-base'dan keyingi commit'larni koʻchirish
+```
+
+## Ichkarida
+
+1. `feature` va `main`'ning merge base'ini topish.
+2. Undan keyingi har bir commit'ni patch sifatida saqlash (tartib bilan).
+3. `feature`'ni `main` uchiga reset qilish.
+4. Har bir patch'ni qoʻllab, yangi commit'lar (`D′`, `E′`) yaratish — conflict'lar bir vaqtda bitta commit uchun hal qilinadi.
+5. Eski commit'lar endi branch'da emas, lekin reflog'da qoladi (`ORIG_HEAD` eski uchga ishora qiladi), shuning uchun yomon rebase'ni tiklash mumkin: `git reset --hard ORIG_HEAD`.
+
+`--onto` — aniq shakl: `git rebase --onto <new-base> <old-base> <branch>` `old-base..branch` oraligʻidagi commit'larni koʻchiradi. Odatiy holat: branch'ingiz jamoadoshning branch'iga asoslangan edi, u esa shundan beri main'ga squash-merge qilingan.
+
+## Tuzoqlar
+
+- Umumiy branch'ni rebase qilish uni pull qilgan har bir kishini qoʻlda tiklashga majbur qiladi. Rebase'ni shaxsiy branch'lar bilan cheklang.
+- Conflict'lar bir necha marta chiqishi mumkin — qayta qoʻyilgan har bir commit uchun bir marta. Avval fixup'larni squash qiling (interactive rebase) yoki `rerere`'ni yoqing.
+- Rebase'dan keyingi `git push --force` jamoadoshning commit'larini oʻchirib yuborishi mumkin; `--force-with-lease` esa remote siljigan boʻlsa rad etadi.
+
+## Interview'da
+
+<QA q="Branch'ingizni rebase qildingiz va endi git push rad etilyapti. Nima boʻldi va nima qilasiz?" level="mid">
+
+Rebase commit'laringizni yangilari bilan almashtirdi, shuning uchun remote branch endi lokal branch'ingizning ajdodi emas — oddiy push eski commit'larni tashlab yuborgan boʻlardi va Git rad etadi. Agar branch faqat sizniki boʻlsa, --force-with-lease bilan push qiling: u remote siz oxirgi marta koʻrgan joyga hali ishora qilsagina uni ustidan yozadi. Agar branch'ni boshqalar ishlatsa, majburlamang: kelishing yoki oʻrniga merge qiling.
+
+</QA>
+
+## Hujjatlar
+
+- [git rebase](https://git-scm.com/docs/git-rebase) · [Pro Git — Rebasing](https://git-scm.com/book/en/v2/Git-Branching-Rebasing)

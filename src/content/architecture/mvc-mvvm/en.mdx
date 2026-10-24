@@ -1,0 +1,71 @@
+## TL;DR
+
+**MVC, MVVM and Flux** all separate *what the user sees* from *the state behind it*. They differ in **which way data flows**:
+
+- **MVC** — the controller turns input into model updates; the model notifies views. Classic on the server (Rails, Spring MVC, ASP.NET MVC).
+- **MVVM** — a ViewModel exposes state and commands for one view; the view **binds** to it (WPF, Angular, Vue, SwiftUI's observable models).
+- **Flux** — **one-way** loop: view → action → store → view. Facebook introduced it in 2014 alongside React; Redux, `useReducer` and Zustand follow the same shape.
+
+## Animation
+
+<ArchitectureViz id="mvc-mvvm" />
+
+## How it works
+
+| | Who changes state | Direction | Typical home |
+| --- | --- | --- | --- |
+| MVC | Controller calls the model | Input → controller → model → view | Server-rendered apps |
+| MVVM | View binds to ViewModel properties and commands | Two-way binding between view and ViewModel | Desktop, Angular, Vue |
+| Flux / Redux | Only reducers, in response to actions | One way, in a loop | React apps |
+
+The problem Flux targeted: in large client apps, models and views updating each other in many directions make it impossible to say *why* the state is what it is. With a single store and explicit actions, any state can be explained by replaying the actions that produced it — which is also what makes Redux DevTools' time travel possible.
+
+## Code
+
+```tsx
+type Action = { type: "added"; text: string } | { type: "toggled"; id: string };
+
+function todos(state: Todo[], action: Action): Todo[] {
+  switch (action.type) {
+    case "added":
+      return [...state, { id: crypto.randomUUID(), text: action.text, done: false }];
+    case "toggled":
+      return state.map((t) => (t.id === action.id ? { ...t, done: !t.done } : t));
+  }
+}
+
+function TodoApp() {
+  const [state, dispatch] = useReducer(todos, []);
+  return <TodoList todos={state} onToggle={(id) => dispatch({ type: "toggled", id })} />;
+}
+```
+
+The view never mutates `state`; it describes what happened (`toggled`) and the reducer, a pure function, decides the next state.
+
+## When to use which
+
+- **Plain component state** (`useState`) for local UI: an open menu, an input's draft.
+- **Reducer / store (Flux shape)** when many events change the same state or many components read it: a cart, an editor, a multi-step form.
+- **Server state is different**: data that lives on the server belongs in a cache like TanStack Query, not a hand-written store.
+- **MVVM** if your framework is built for it (Angular signals and services, Vue composables); don't fight the framework.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| One-way flow is predictable and debuggable | Boilerplate for simple cases |
+| Pure reducers are trivial to unit test | A global store tempts you to put everything in it |
+| Two-way binding (MVVM) is concise for forms | Cascading updates are hard to trace |
+
+## In interviews
+
+<QA q="Why did React move the ecosystem toward one-way data flow?" level="senior">
+
+Because two-way updates between many views and models make state changes non-local: a change in one place triggers updates elsewhere that trigger more updates, and bugs become hard to reproduce. One-way flow makes every change go through a known path (an action and a reducer, or a setState), so the UI is a function of state and state is a function of the action history. That gives predictable rendering, easy testing and tools like time-travel debugging.
+
+</QA>
+
+## Sources
+
+- [Flux: An Application Architecture for React (React blog, 2014)](https://legacy.reactjs.org/blog/2014/05/06/flux.html)
+- [Thinking in React — react.dev](https://react.dev/learn/thinking-in-react)

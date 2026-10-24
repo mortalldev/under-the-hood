@@ -1,0 +1,72 @@
+## TL;DR
+
+**Event-driven architecture**'da service'lar **event**'larni — `OrderPlaced` kabi allaqachon sodir boʻlgan faktlarni — broker'ga (Kafka, bulutdagi pub/sub, RabbitMQ) e'lon qiladi. Boshqa service'lar **obuna boʻladi** va oʻz vaqtida javob beradi. Publisher kim tinglashini bilmaydi, shuning uchun unga tegmasdan consumer qoʻsha olasiz, sekin yoki buzilgan consumer esa publisher'ni sekinlashtirmaydi.
+
+## Animatsiya
+
+<ArchitectureViz id="event-driven" />
+
+## Qanday ishlaydi
+
+- **Command emas, event**: `SendEmail` (aniq service'ga buyruq) emas, `OrderPlaced` (oʻtgan zamon, fakt).
+- **Topic / log**: Kafka event'larni faqat qoʻshiladigan, partition'larga boʻlingan log'da saqlaydi. Har bir consumer group oʻz **offset**'ini kuzatadi, shuning uchun u orqada qolishi, yiqilib qayta davom etishi yoki hatto tarixni qayta oʻynashi mumkin.
+- **Tartib**: faqat bitta partition ichida kafolatlanadi. Entity id'ni (`orderId`) key sifatida ishlating, shunda bitta buyurtmaning barcha event'lari tartibda qoladi.
+- **Yetkazish**: amalda **at-least-once** — yiqilishdan keyin consumer bir event'ni ikki marta koʻrishi mumkin. Consumer'larni **idempotent** qiling (event id boʻyicha takrorni olib tashlash yoki upsert).
+- **Ishonchli e'lon qilish**: event'ni state oʻzgarishi bilan bitta baza transaction'ida yozing (**outbox** pattern), keyin uzating; aks holda "saqlash" va "e'lon qilish" orasidagi yiqilish event'ni yoʻqotadi.
+
+## Kod
+
+```ts
+// producer (kafkajs): order id boʻyicha key → har bir buyurtma ichida tartib
+await producer.send({
+  topic: "orders.placed",
+  messages: [{ key: order.id, value: JSON.stringify({ id: crypto.randomUUID(), type: "OrderPlaced", orderId: order.id, total: order.total }) }],
+});
+
+// consumer: idempotent
+await consumer.subscribe({ topic: "orders.placed" });
+await consumer.run({
+  eachMessage: async ({ message }) => {
+    const event = JSON.parse(message.value!.toString());
+    if (await processed.has(event.id)) return;      // takror → oʻtkazib yuborish
+    await sendConfirmationEmail(event.orderId);
+    await processed.add(event.id);
+  },
+});
+```
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar bitta amal koʻplab mustaqil javoblarni keltirib chiqarsa (email, analytics, qidiruv indeksi, fraud tekshiruvi), consumer'lar producer'ning mavjudligidan ajratilishi kerak boʻlsa va read model, data pipeline yoki audit log'larni toʻldirish uchun.
+
+Chaqiruvchiga javob *hozir* kerak boʻlsa (parolni tekshirish, narxni oʻqish), **qochish kerak**: bu request/response chaqiruvi. Workflow'ni ham hech kim egalik qilmaydigan event'lar bilan modellashtirmang — "A e'lon qiladi, B javob beradi, C javob beradi" kabi uzun zanjirlarni kuzatish qiyin; koʻp bosqichli biznes jarayonlari uchun orchestration'li saga ishlating.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Producer va consumer'lar mustaqil rivojlanadi | Eventual consistency: consumer'lar orqada |
+| Keskin oʻsishlarni yutadi; consumer'lar alohida kengayadi | Takrorlar va tartib buzilishini ishlash kerak |
+| Yangi consumer'lar uchun qayta oʻynaladigan tarix | Debugging uchun asinxron qadamlar boʻylab trace id kerak |
+| | Event schema'lari uzoq yashaydigan kontraktga aylanadi |
+
+Kafka LinkedIn'da faollik ma'lumotlarini tizimlar orasida aynan shunday masshtabda koʻchirish uchun yaratilgan.
+
+## Interview'da
+
+<QA q="Event baza yozuvi commit boʻlganda aynan e'lon qilinishini qanday ta'minlaysiz?" level="senior">
+
+Transactional outbox'dan foydalaning: state oʻzgarishi bilan bitta transaction'da event'ni outbox jadvaliga qoʻshing. Alohida relay (yoki baza log'idagi change data capture) outbox qatorlarini broker'ga e'lon qiladi va yuborilgan deb belgilaydi. Bu taqsimlangan transaction'siz at-least-once e'lon qilishni beradi, shuning uchun consumer'lar baribir idempotent boʻlishi kerak.
+
+</QA>
+
+<QA q="Kafka at-least-once yetkazishni beradi. Bu consumer'ingiz uchun nimani anglatadi?" level="mid">
+
+U bir event'ni bir necha marta qayta ishlashi mumkin, masalan offset'ini commit qilishdan oldin yiqilgandan keyin. Handler idempotent boʻlishi kerak: qayta ishlangan event id'larini yozib qoʻying, entity id boʻyicha upsert ishlating yoki amal qilishdan oldin holatni tekshiring.
+
+</QA>
+
+## Manbalar
+
+- [Apache Kafka — dokumentatsiya](https://kafka.apache.org/documentation/)
+- [What do you mean by "Event-Driven"? — Martin Fowler](https://martinfowler.com/articles/201701-event-driven.html)

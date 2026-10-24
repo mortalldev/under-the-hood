@@ -1,0 +1,52 @@
+## TL;DR
+
+Git'dagi har bir oʻzgarish uchta joydan oʻtadi:
+
+1. **Working tree** — siz tahrirlaydigan fayllar.
+2. **Index** (staging area) — keyingi commit'ning qoralamasi.
+3. **Repository** — commit qilingan snapshot'lar; `HEAD` joriy snapshot'ga ishora qiladi.
+
+`git add` working tree → index'ga koʻchiradi, `git commit` index'ni commit'ga aylantiradi, `git restore` esa narsalarni orqaga qaytaradi. Git 2.23'dan beri bu vazifalar uchun ortiqcha yuklangan `git checkout` oʻrnini **`git restore`** va **`git switch`** egallagan.
+
+## Animatsiya
+
+<GitViz id="three-areas" />
+
+## Buyruqlar
+
+| Men … qilmoqchiman | Buyruq |
+| --- | --- |
+| Nima oʻzgargani va nima stage qilinganini koʻrish | `git status -sb` |
+| Working tree va index farqi | `git diff` |
+| Index va oxirgi commit farqi (nima commit boʻladi) | `git diff --staged` |
+| Faylning bir qismini, hunk'ma-hunk stage qilish | `git add -p <file>` |
+| Hammasini, oʻchirishlar bilan birga stage qilish | `git add -A` |
+| Faylni unstage qilish, tahrirlarni saqlash | `git restore --staged <file>` |
+| Working tree'dagi tahrirlarni tashlab yuborish | `git restore <file>` |
+| Faylni boshqa commit'dagi holatida olish | `git restore --source=main~3 <file>` |
+| Commit qilish | `git commit -m "feat: …"` |
+| Unutilgan oʻzgarishlarni oxirgi (push qilinmagan) commit'ga qoʻshish | `git commit --amend --no-edit` |
+
+## Ichkarida
+
+- Index — binary fayl, `.git/index`; unda har bir kuzatiladigan yoʻl blob hash'i va fayl metama'lumotlari bilan roʻyxatga olingan. `git add` blob'ni object store'ga **darhol** yozadi; commit faqat tree'lar va commit object'ini qoʻshadi.
+- Shuning uchun qoʻshilgan, lekin hech qachon commit qilinmagan tarkibni ham ba'zan keyinroq `git fsck --lost-found` bilan topish mumkin — lekin hech qachon `add` qilinmagan oʻzgarishlar Git'ning hech bir joyida yoʻq.
+- `git commit -a` oʻzgargan **tracked** fayllarni stage qilib commit qiladi va index qadamini tashlab ketadi; yangi fayllar uchun baribir `git add` kerak.
+
+## Tuzoqlar
+
+- `git restore <file>` (va eski `git checkout -- <file>`) **bekor qilib boʻlmaydi**: commit qilinmagan tahrirlar hech bir commit'da ham, reflog'da ham yoʻq.
+- Odat boʻyicha `git add .` bilan commit qilish debug kod va aloqasiz oʻzgarishlarni ham olib kiradi. Har bir commit'dan oldin `git add -p` va `git diff --staged` commit'larni kichik va review qilinadigan saqlaydi.
+- `--amend` yangi commit yaratadi. Push qilishdan oldin bu normal; push'dan keyin u umumiy tarixni qayta yozadi.
+
+## Interview'da
+
+<QA q="Nima uchun Git'da umuman staging area bor?" level="mid">
+
+Diskda nima boʻlsa shuni commit qilish oʻrniga commit'ni ongli ravishda qurish uchun. Bitta fayldagi bir nechta oʻzgarishdan bitta mantiqiy oʻzgarishni stage qila olasiz (add -p), nima kirishini aniq koʻrib chiqasiz (diff --staged) va aloqasiz tahrirlarni keyingi commit'ga qoldirasiz. Kichik, maqsadli commit'lar review, revert, bisect va cherry-pick'ni ancha osonlashtiradi.
+
+</QA>
+
+## Hujjatlar
+
+- [git restore](https://git-scm.com/docs/git-restore) · [git add](https://git-scm.com/docs/git-add) · [git status](https://git-scm.com/docs/git-status)

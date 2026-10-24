@@ -1,0 +1,54 @@
+## TL;DR
+
+`git merge feature` brings feature's commits into the current branch:
+
+- **Fast-forward** — if the current branch hasn't moved since feature branched off, Git just moves the pointer forward. No new commit.
+- **Three-way merge** — if both sides have new commits, Git combines them using their **merge base** (last common ancestor) and records a **merge commit with two parents**.
+
+Merging never rewrites existing commits, so it is always safe on shared branches.
+
+## Animation
+
+<GitViz id="merge" />
+
+## Commands
+
+```bash
+git switch main
+git merge feature              # fast-forward if possible, merge commit otherwise
+git merge --no-ff feature      # always create a merge commit (keeps the feature grouped)
+git merge --ff-only feature    # refuse unless it can fast-forward
+git merge --squash feature     # stage feature's combined changes; you commit them as one
+
+# conflicts
+git status                     # "both modified: src/app.ts"
+git diff                       # shows the conflict hunks
+git add src/app.ts             # after editing out <<<<<<< ======= >>>>>>>
+git commit                     # finish the merge
+git merge --abort              # or go back to before the merge
+```
+
+## Under the hood
+
+- Git finds the merge base (`git merge-base main feature`), computes base→ours and base→theirs, and applies both. Lines changed on only one side merge automatically; lines changed differently on both sides are **conflicts**.
+- The default strategy is **ort** (it replaced `recursive` as the default in Git 2.34): faster and handles renames better.
+- A merge commit has two parents. `main^1` is the branch you were on, `main^2` is the merged branch — that's why `git revert -m 1 <merge>` needs a parent number.
+- `git config --global merge.conflictStyle zdiff3` also shows the base version inside conflict markers, which makes most conflicts much easier to resolve.
+- `git rerere` (**re**use **re**corded **re**solution) remembers how you resolved a conflict and reapplies it next time — handy when re-merging or rebasing a long branch.
+
+## Pitfalls
+
+- "Merge branch 'main' into feature" commits from every `git pull` clutter history; use `git pull --rebase` on your own branch.
+- A squash merge (GitHub's "Squash and merge") creates a new commit unrelated to the branch's commits. Git then can't tell the branch was merged — delete it instead of reusing it.
+
+## In interviews
+
+<QA q="Merge or rebase to integrate a feature branch?" level="senior">
+
+Both are fine; teams pick a convention. Merge preserves exactly what happened and never rewrites shared history; rebase gives a linear history that's easier to read and bisect. A common rule: rebase your own unpushed or personal branch onto main to stay current, then integrate into main with a squash merge or a merge commit through the PR — never rebase a branch others have built on.
+
+</QA>
+
+## Docs
+
+- [git merge](https://git-scm.com/docs/git-merge) · [Pro Git — Basic Branching and Merging](https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging)

@@ -1,0 +1,66 @@
+## Tez boshlash
+
+Toʻrtta tekshiruv kodni odam review qilishidan oldin muammolarning koʻpini ushlaydi: **type checker**, ehtimoliy bug'lar uchun **linter**, uslub hech qachon muhokama qilinmasligi uchun **formatter** va **ishlatilmagan kodni aniqlash**. Ularni saqlashda, pre-commit hook'da va — eng muhimi — CI'da ishga tushiring.
+
+Qat'iy TypeScript'dan boshlang:
+
+```json
+// tsconfig.json (parcha)
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,       // arr[i] — T | undefined
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true
+  }
+}
+```
+
+ESLint flat config faylidan foydalanadi:
+
+```js
+// eslint.config.js
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
+
+export default [
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  reactHooks.configs.flat.recommended,
+  { ignores: ["dist/**", ".next/**"] },
+];
+```
+
+Yoki formatlash va lint uchun bitta tool:
+
+```bash
+npx @biomejs/biome init           # biome.json yaratadi
+npx @biomejs/biome check --write  # format + lint + import'larni tartiblash, tuzata olganini tuzatadi
+```
+
+## Qanday tanlash
+
+| Vaziyat | Tanlov |
+| --- | --- |
+| Har doim | `strict`'li TypeScript |
+| Framework qoidalari (Next.js, React hooks), type'ni biladigan qoidalar | ESLint |
+| Eng keng editor qoʻllovli formatlash | Prettier |
+| Format + lint uchun bitta tez tool va bitta config | Biome |
+| Lint vaqti ogʻriq beradigan ulkan repo | Avval Oxlint, qolgan qoidalar uchun ESLint |
+| Ishlatilmagan fayl, export va dependency'lar | Knip |
+
+## Tuzoqlar
+
+- Linter va formatter'ni urishtirmang: Prettier'ni ESLint bilan ishlatsangiz, ESLint'ning formatlash qoidalarini oʻchiring (`eslint-config-prettier`).
+- Hamma izoh bilan oʻchiradigan qoida — shovqin; uni olib tashlang. Haqiqiy hodisani ushlay oladigan qoida — oltin; uni error'ga aylantiring.
+- `any` tarqaladi. Chegaralarda `unknown`'ni afzal koʻring va tekshiring (validatsiya kategoriyasiga qarang).
+
+## Interview'da
+
+<QA q="50 kishilik jamoada review'larni sekinlashtirmasdan kod sifatini qanday yuqori saqlaysiz?" level="senior">
+
+Toʻgʻri javobi bor hamma narsani avtomatlashtiring, shunda reviewer'lar vaqtni dizaynga sarflaydi: qat'iy TypeScript, haqiqiy bug'larni ushlaydigan qoidali umumiy lint config (hooks deps, floating promise'lar, xavfli any), avtomatik formatter va ishlatilmagan kod tekshiruvlari — hammasi CI'da majburiy, pre-commit hook va editor integratsiyasi orqali tez feedback bilan. Config'ni monorepo'dagi bitta umumiy package'da saqlang va yangi qoidalarga kod oʻzgarishi kabi munosabatda boʻling: ularni autofix yoki ratchet bilan kiriting, shunda build bir kechada qizil boʻlib qolmaydi.
+
+</QA>

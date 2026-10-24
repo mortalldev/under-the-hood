@@ -1,0 +1,80 @@
+## TL;DR
+
+**Git hook'lari** — Git belgilangan nuqtalarda ishga tushiradigan skriptlar: commit yaratilishidan oldin, xabar yozilganda, push'dan oldin. Noldan farqli exit code amalni toʻxtatadi. Jamoalar ulardan tez lokal tekshiruvlar uchun foydalanadi (staged fayllarni lint va format qilish, commit xabarlarini tekshirish) va ularni **Husky** yoki **Lefthook** orqali boʻlishadi, chunki hook'larning oʻzi hech qachon clone qilinmaydi.
+
+Bu sahifada hamma joyda yoqishga arziydigan **config sozlamalari** ham bor.
+
+## Animatsiya
+
+<GitViz id="hooks" />
+
+## Haqiqatan ishlatiladigan hook'lar
+
+| Hook | Qachon ishlaydi | Odatiy vazifa |
+| --- | --- | --- |
+| `pre-commit` | commit yaratilishidan oldin | staged fayllarni lint/format qilish, maxfiy kalitlarni bloklash |
+| `prepare-commit-msg` | editor ochilishidan oldin | branch nomidan ticket id'ni oldindan yozish |
+| `commit-msg` | xabar yozilgandan keyin | Conventional Commits'ni majburlash |
+| `pre-push` | biror narsa yuborilishidan oldin | tez unit testlar, type check |
+| `post-checkout` / `post-merge` | almashtirish yoki pull'dan keyin | lockfile oʻzgargan boʻlsa dependency'larni qayta oʻrnatish |
+
+## Kod
+
+```yaml
+# lefthook.yml — oʻrnatish: npx lefthook install
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      glob: "*.{ts,tsx}"
+      run: npx eslint {staged_files}
+    format:
+      glob: "*.{ts,tsx,css,md,json}"
+      run: npx prettier --check {staged_files}
+commit-msg:
+  commands:
+    commitlint:
+      run: npx commitlint --edit {1}
+pre-push:
+  commands:
+    types:
+      run: npx tsc --noEmit
+```
+
+Bir marta sozlashga arziydigan config:
+
+```bash
+git config --global init.defaultBranch main
+git config --global pull.rebase true
+git config --global push.autoSetupRemote true
+git config --global fetch.prune true
+git config --global rebase.autoSquash true
+git config --global rebase.updateRefs true
+git config --global rerere.enabled true          # yozib olingan conflict yechimlarini qayta ishlatish
+git config --global merge.conflictStyle zdiff3   # conflict'larda base versiyani koʻrsatish
+git config --global diff.algorithm histogram
+git config --global commit.verbose true          # xabar yozayotganda diff'ni koʻrish
+```
+
+## Ichkarida
+
+- Hook'lar standart holatda `.git/hooks/`'da yoki `core.hooksPath` belgilagan papkada yashaydi. Bu papka hech qachon clone tarkibiga kirmaydi — repository'ni clone qilganingiz uchungina kod ishga tushishi xavfsizlik teshigi boʻlardi. Husky va Lefthook ularning install qadamini ishga tushirganingizda hook'larni kuzatiladigan config'dan oʻrnatadi.
+- `git commit --no-verify` va `git push --no-verify` `pre-commit`, `commit-msg` va `pre-push`'ni chetlab oʻtadi. Hook'lar majburlash emas, qulaylik: **CI xuddi shu tekshiruvlarni bajarishi** va branch protection ularni talab qilishi kerak.
+
+## Tuzoqlar
+
+- Sekin hook'lar chetlab oʻtiladi. Faqat staged fayllarni tekshiring, parallel ishga tushiring va toʻliq test toʻplamini CI'da saqlang.
+- Fayllarni oʻzgartiradigan hook'lar (avtomatik format) ularni qayta stage qilishi kerak, aks holda commit tuzatishni oʻz ichiga olmaydi.
+
+## Interview'da
+
+<QA q="Jamoangiz lint'dan oʻtmaydigan kodni merge qilishda davom etyapti. Hook'lar yoki CI?" level="mid">
+
+Ikkalasi ham, turli vazifalar bilan. pre-commit hook siz tekkan fayllar boʻyicha darhol feedback beradi va bu review'dan oldin muammolarning koʻpini ushlaydi. Lekin hook'larni --no-verify bilan chetlab oʻtish mumkin va ular har bir kompyuterda oʻrnatilmagan, shuning uchun haqiqiy toʻsiq — branch protection bilan majburlangan, PR'dagi majburiy CI tekshiruvi.
+
+</QA>
+
+## Hujjatlar
+
+- [githooks](https://git-scm.com/docs/githooks) · [git config](https://git-scm.com/docs/git-config)
+- [Lefthook](https://lefthook.dev/) · [Husky](https://typicode.github.io/husky/)

@@ -1,0 +1,66 @@
+## Quick start
+
+Four checks catch most problems before a human reviews the code: the **type checker**, a **linter** for likely bugs, a **formatter** so style is never discussed, and **dead-code detection**. Run them on save, in a pre-commit hook and — the one that counts — in CI.
+
+Start with strict TypeScript:
+
+```json
+// tsconfig.json (excerpt)
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,       // arr[i] is T | undefined
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true
+  }
+}
+```
+
+ESLint uses a flat config file:
+
+```js
+// eslint.config.js
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
+
+export default [
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  reactHooks.configs.flat.recommended,
+  { ignores: ["dist/**", ".next/**"] },
+];
+```
+
+Or one tool for both formatting and linting:
+
+```bash
+npx @biomejs/biome init           # creates biome.json
+npx @biomejs/biome check --write  # format + lint + organise imports, fixing what it can
+```
+
+## How to choose
+
+| Situation | Pick |
+| --- | --- |
+| Always | TypeScript with `strict` |
+| Framework rules (Next.js, React hooks), type-aware rules | ESLint |
+| Formatting with the widest editor support | Prettier |
+| One fast tool and one config for format + lint | Biome |
+| Huge repo where lint time hurts | Oxlint first, ESLint for the remaining rules |
+| Unused files, exports and dependencies | Knip |
+
+## Gotchas
+
+- Don't let the linter and formatter fight: if you use Prettier with ESLint, turn off ESLint's formatting rules (`eslint-config-prettier`).
+- A rule everyone disables with comments is noise; remove it. A rule that would have caught a real incident is gold; turn it into an error.
+- `any` spreads. Prefer `unknown` at boundaries and validate (see the validation category).
+
+## In interviews
+
+<QA q="How do you keep code quality high in a team of 50 without slowing reviews down?" level="senior">
+
+Automate everything that has a right answer so reviewers spend time on design: strict TypeScript, a shared lint config with rules that catch real bugs (hooks deps, floating promises, unsafe any), an auto-formatter, and dead-code checks, all required in CI with fast feedback through pre-commit hooks and editor integration. Keep the config in one shared package in a monorepo, and treat new rules like code changes: introduce them with an autofix or a ratchet so the build never goes red overnight.
+
+</QA>

@@ -1,0 +1,73 @@
+## TL;DR
+
+Bitta biznes amal bir nechta service'ni qamrab olsa — buyurtma yaratish, kartadan pul yechish, omborda band qilish, yetkazishni bron qilish — uni oʻrab oladigan yagona baza transaction'i yoʻq. **Saga** — har bir service'da bittadan **lokal transaction'lar ketma-ketligi**, unda har bir xato oldingi qadamlarni biznes atamalarida bekor qiladigan **kompensatsiya transaction'lari**ni ishga tushiradi (pulni qaytarish, bekor qilish).
+
+Gʻoya Hector Garcia-Molina va Kenneth Salem'ning 1987-yilgi maqolasidan kelib chiqqan; microservices uni kundalik amaliyotga aylantirdi.
+
+## Animatsiya
+
+<ArchitectureViz id="saga" />
+
+## Qanday ishlaydi
+
+- Har bir qadam **lokal commit qilinadi** va darhol koʻrinadi. Global rollback yoʻq.
+- Bekor qilinishi mumkin boʻlgan har bir qadamning **kompensatsiyasi** bor: `charge` ↔ `refund`, `reserve` ↔ `release`, `create order` ↔ `cancel order`. Kompensatsiyalar **teskari tartibda** bajariladi.
+- **Pivot**'dan (qaytib boʻlmaydigan nuqta — masalan, posilka joʻnatilgan) keyingi qadamlarni kompensatsiya qilib boʻlmaydi, shuning uchun ular muvaffaqiyatli boʻlguncha qayta urinilishi kerak.
+- **Har bir qadam va kompensatsiya idempotent boʻlishi kerak**, chunki xabarlar qayta yuboriladi va bir necha marta yetkaziladi.
+
+Muvofiqlashtirishning ikki usuli:
+
+| | Orchestration | Choreography |
+| --- | --- | --- |
+| Kim boshqaradi | Bitta orchestrator har bir qadamni chaqiradi | Har bir service oldingi event'ga javob beradi |
+| Koʻrinish | Oqim bitta joyda | Oqim service'lar boʻylab tarqalgan |
+| Bogʻliqlik | Orchestrator barcha ishtirokchilarni biladi | Service'lar faqat event'larni biladi |
+| Nima uchun yaxshi | Uzun, tarmoqlanadigan biznes jarayonlar | Qadamlari kam qisqa oqimlar |
+
+Durable workflow dvigatellari (Temporal, AWS Step Functions, Azure Durable Functions) yiqilishdan omon qolib, toʻxtagan joyidan davom etadigan orchestrator'larni ishga tushiradi.
+
+## Kod
+
+```ts
+// orchestration'li saga; production'da bu durable workflow dvigateli ichida ishlaydi
+async function placeOrderSaga(input: NewOrder) {
+  const order = await orders.create(input);                              // T1
+  let charge: Charge | undefined;
+  try {
+    charge = await payments.charge(order.id, order.total, { idempotencyKey: order.id });   // T2
+    await inventory.reserve(order.id, order.items);                      // T3
+    await shipping.book(order.id);                                       // T4 (pivot)
+    await orders.confirm(order.id);
+  } catch (e) {
+    if (charge) await payments.refund(charge.id, { idempotencyKey: `refund-${order.id}` });   // C2
+    await orders.cancel(order.id, String(e));                            // C1
+    throw e;
+  }
+}
+```
+
+## Qachon kerak va qachon kerak emas
+
+Har biri oʻz ma'lumotiga egalik qiladigan service'lar boʻylab biznes transaction'lari uchun **ishlating**: checkout, sayohatni bron qilish (reys + mehmonxona + mashina), bir nechta provayderli akkaunt ochish.
+
+**Unga ehtiyoj tugʻdirmang**: agar qadamlar bitta bazali bitta service'da yashay olsa, lokal ACID transaction soddaroq va kuchliroq. Service chegaralarini koʻp amallar service'lar boʻylab tarqalmaydigan qilib chizing.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Taqsimlangan lock'larsiz service'lar boʻylab izchillik | Oraliq holatlar koʻrinadi (buyurtma "kutilmoqda") |
+| Har bir service oʻz bazasini saqlaydi | Har bir qadam uchun kompensatsiya mantigʻi |
+| Qayta urinishlar orqali ishonchsiz tarmoqda ishlaydi | Test qilish va tushunish qiyinroq |
+
+## Interview'da
+
+<QA q="Nima uchun saga oʻrniga service'lar boʻylab two-phase commit (2PC) ishlatmaslik kerak?" level="senior">
+
+2PC har bir ishtirokchi uni qoʻllab-quvvatlashini va koordinator qaror qilguncha lock'larni ushlab turishini talab qiladi; koordinator yoki bitta ishtirokchi sekin yoki ishlamay qolsa, qolganlari bloklangan holda qoladi — bu esa aynan ishlar buzilganda mavjudlikka zarar beradi. Koʻp zamonaviy bazalar, queue'lar va uchinchi tomon API'lari (karta protsessori) baribir 2PC'da ishtirok etmaydi. Saga vaqtinchalik nomuvofiqlikni qabul qiladi, har bir transaction'ni lokal va qisqa saqlaydi va izchillikni kompensatsiyalar bilan tiklaydi.
+
+</QA>
+
+## Manbalar
+
+- [Pattern: Saga — microservices.io](https://microservices.io/patterns/data/saga.html)

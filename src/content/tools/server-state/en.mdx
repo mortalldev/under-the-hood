@@ -1,0 +1,57 @@
+## Quick start
+
+**Server state** is data the server owns — users, orders, prices. The browser only holds a **cached copy** that can go stale. Treat it differently from UI state: cache it by key, dedupe identical requests, refetch when stale, and invalidate after mutations. That's what TanStack Query does.
+
+```tsx
+const queryClient = new QueryClient();
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+```
+
+```tsx
+function Orders({ userId }: { userId: string }) {
+  const { data, isPending, error } = useQuery({
+    queryKey: ["orders", userId],                         // cache key: changes → refetch
+    queryFn: () => fetch(`/api/users/${userId}/orders`).then((r) => r.json()),
+    staleTime: 30_000,                                    // fresh for 30 s, no refetch
+  });
+
+  const qc = useQueryClient();
+  const cancel = useMutation({
+    mutationFn: (id: string) => fetch(`/api/orders/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orders", userId] }),
+  });
+
+  if (isPending) return <Spinner />;
+  if (error) return <ErrorMessage error={error} />;
+  return <OrderList orders={data} onCancel={(id) => cancel.mutate(id)} />;
+}
+```
+
+Ten components rendering `<Orders userId="42" />` make **one** request; switching tabs back refetches stale data in the background; the list updates after a cancel.
+
+## How to choose
+
+| Situation | Pick |
+| --- | --- |
+| Client components reading and writing REST/GraphQL | TanStack Query |
+| Mostly reads, smallest API | SWR |
+| TypeScript full-stack, same team owns API and UI | tRPC (uses TanStack Query underneath) |
+| Large GraphQL app, many teams per screen | Relay |
+| Data read once in a Server Component | No library — `await` it on the server |
+
+## Gotchas
+
+- Don't copy query data into `useState` or a global store — you'll have two sources of truth. Read it from the cache.
+- Put every variable the request depends on in the `queryKey`; a missing one serves the wrong cached data.
+- With React Server Components, fetch on the server where you can and use TanStack Query for what changes on the client (infinite scroll, polling, optimistic updates). Both can be combined by prefetching on the server and hydrating the cache.
+
+## In interviews
+
+<QA q="Why not just fetch in useEffect and store the result in useState?" level="senior">
+
+You'd re-implement caching, request deduplication, race conditions when parameters change (an old response arriving after a new one), retries, background refetching, pagination and invalidation after mutations — and still get waterfalls and duplicate requests across components. A server-state library centralises that per query key. In React Server Components apps, fetching on the server avoids the client effect entirely.
+
+</QA>

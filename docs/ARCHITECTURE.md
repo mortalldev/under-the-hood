@@ -82,6 +82,9 @@ scripts/                              # check-content, verify-resources, smoke
 4. ✅ Quality pass: depth, untranslated terms, Uzbek orthography, verified facts against bundled Next docs.
 5. ✅ All sections (76 lessons, incl. JS toolkit, async patterns, modern JS/TS/React/Node), quizzes, progress tracking, review list, `Cmd+K` search, glossary page.
 6. ✅ Resources page from `resources.json` (verified links only), content/resource/smoke scripts.
+7. ✅ Handbook: principles, architecture (16), git (16), frontend tools (51 in 12 categories); grouped navigation.
+
+10. **Handbook libraries.** Principles, architecture and git share one model (`content/library.ts`: categories → entries, a messages namespace each) and one set of components (`components/library/*`: sidebar, category view, entry page, category grid). Each library has its own thin route files (`/principles/[category]/[principle]`, `/architecture/[category]/[topic]`, `/git/[category]/[topic]`) and its own lazily loaded scene set, so a git page doesn't download architecture scenes. Tools are data-driven (`content/tools/registry.ts`) with one MDX page per category. The header groups all four under a `<details>`-based "Handbook" menu that works without JS; MDX links starting with `/` go through the locale-aware `Link`.
 
 ## Known caveats
 

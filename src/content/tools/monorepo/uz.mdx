@@ -1,0 +1,55 @@
+## Tez boshlash
+
+JavaScript monorepo'ga ikki narsa kerak: lokal package'larni bogʻlash uchun **workspace'li package manager** va skriptlarni dependency tartibida ishga tushirib, natijalarni cache qiladigan **task runner**. Keng tarqalgan juftlik — **pnpm + Turborepo**:
+
+```bash
+npx create-turbo@latest           # pnpm workspace'li apps/ va packages/'ni yaratadi
+```
+
+```yaml
+# pnpm-workspace.yaml
+packages:
+  - "apps/*"
+  - "packages/*"
+```
+
+```bash
+pnpm install                                   # butun repo uchun bitta lockfile
+pnpm --filter ./apps/web add zod               # bitta package'ga dependency qoʻshish
+pnpm add -D typescript -w                      # root'da dev dependency
+pnpm turbo run build                           # hammasini dependency tartibida, cache bilan build qilish
+pnpm turbo run test --filter=...@acme/ui       # ui va unga bogʻliq hamma narsa
+```
+
+Monorepo'dan package nashr qilasizmi? Har bir PR changeset qoʻshadi, release qadami esa versiyalarni oshirib, changelog yozadi:
+
+```bash
+npx changeset                     # oʻzgarishni tasvirlab, har bir package uchun patch/minor/major tanlash
+npx changeset version             # versiya oshirishlarni qoʻllash + CHANGELOG.md
+npx changeset publish             # oʻzgargan package'larni npm'ga nashr qilish
+```
+
+## Qanday tanlash
+
+| Vaziyat | Tanlov |
+| --- | --- |
+| Monorepo yoki CI uchun package manager | pnpm (npm va Yarn workspace'lari ham ishlaydi) |
+| JS/TS uchun task ishga tushirish va caching | Turborepo |
+| Generator'lar, module-boundary qoidalari, aralash stack'lar, juda katta repo'lar | Nx |
+| Nashr qilinadigan package'lar uchun versiyalash va changelog | Changesets |
+
+Monorepo arxitekturasining oʻzi — qachon oʻzini oqlashi va chegaralar qanday ishlashi — [Monorepo](/architecture/frontend/monorepo) arxitektura sahifasida.
+
+## Tuzoqlar
+
+- pnpm'ning qat'iy `node_modules`'i **phantom dependency**'larda — siz hech qachon e'lon qilmagan package'lar import'larida — yiqiladi. Bu xususiyat: dependency'ni oʻsha package'ning `package.json`'iga qoʻshing.
+- Task cache faqat input'lar e'lon qilinganda toʻgʻri: natijani oʻzgartiradigan environment oʻzgaruvchilari roʻyxatga kiritilishi kerak (`turbo.json`'dagi `env`), aks holda eskirgan build tiklanadi.
+- CI va har bir dasturchi bir xil versiyani ishlatishi uchun package manager versiyasini `packageManager` maydoni bilan qotiring.
+
+## Interview'da
+
+<QA q="Monorepo uchun CI 45 daqiqa davom etadi. Uni qanday qisqartirasiz?" level="senior">
+
+Oʻzgarmagan ishni qilishni toʻxtating: faqat PR ta'sir qilgan task'larni ishga tushiring (graph asosida filtrlash), oʻzgarmagan package'lar soniyalarda tiklanishi uchun CI va dasturchilar boʻlishadigan remote cache'ni yoqing va cache hit'lar xavfsiz boʻlishi uchun task input va output'larini aniq e'lon qiling. Mashinalar boʻylab parallellashtiring, package store'ni cache qiling va sekin end-to-end toʻplamlarini faqat oʻzgargan ilovalar uchun ishlaydigan qilib boʻling. Keyin qaysi task'lar ustunlik qilishini oʻlchang va ularni tuzating.
+
+</QA>

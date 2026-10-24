@@ -1,0 +1,50 @@
+## TL;DR
+
+`git worktree` lets one repository have **several working directories at once**, each with its own checked-out branch, index and files, all sharing a single object store. Review a PR, build a hotfix and keep your feature's dev server running — in three folders, without stashing or cloning again.
+
+## Animation
+
+<GitViz id="worktree" />
+
+## Commands
+
+```bash
+git worktree add ../app-hotfix -b hotfix/login origin/main   # new branch in a new folder
+git worktree add ../app-review pr-812                         # existing branch
+git worktree add --detach ../app-build v1.4.0                 # a tag, no branch
+git worktree list
+git worktree remove ../app-hotfix                             # delete folder + registration
+git worktree prune                                            # clean up folders deleted by hand
+git worktree lock ../app-review --reason "on USB drive"       # keep it from being pruned
+```
+
+## Under the hood
+
+- The main repository keeps `.git/`; each extra worktree has a small `.git` *file* pointing to `.git/worktrees/<name>/`, which holds that worktree's `HEAD` and index.
+- Objects, refs and config are shared: a commit made in one worktree is immediately visible in the others (`git log hotfix/login` works everywhere).
+- A branch can be checked out in **only one** worktree at a time — Git refuses a second, so two folders can't silently diverge on the same branch.
+
+## When to reach for it
+
+- Hotfix while a long build or test run uses your main folder.
+- Reviewing or running a teammate's PR side by side with your work.
+- Comparing behaviour of two versions at once.
+- Running several coding agents or scripts in parallel, each isolated in its own worktree.
+
+## Pitfalls
+
+- Each worktree needs its own `node_modules` and build output; pnpm's shared store keeps that cheap, npm doesn't.
+- Deleting a worktree folder with `rm` leaves stale metadata — `git worktree prune` fixes it.
+- Editors and tools that assume `.git` is a directory occasionally get confused by the `.git` file.
+
+## In interviews
+
+<QA q="How do you work on an urgent fix without disturbing your current feature branch?" level="mid">
+
+git worktree add ../hotfix -b hotfix/x origin/main gives a separate folder on a fresh branch while the feature folder, its uncommitted changes and its running dev server stay untouched. Fix, test, push and open the PR from there, then git worktree remove when done. It's safer than stashing because nothing in the feature's working tree moves.
+
+</QA>
+
+## Docs
+
+- [git worktree](https://git-scm.com/docs/git-worktree)

@@ -1,0 +1,47 @@
+## TL;DR
+
+**Branch** — commit'ga ishora qiladigan koʻchadigan pointer. Commit qilganingizda, siz turgan branch yangi commit'ga siljiydi. **`HEAD`** qaysi branch'da turganingizni (yoki "detached HEAD" holatida qaysi commit'da) bildiradi. Branch yaratish hech narsani nusxalamaydi — u bitta hash yozadi.
+
+Branch'lar orasida yurish uchun **`git switch`**'dan foydalaning (Git 2.23+); `git checkout` hali ishlaydi, lekin branch almashtirishni fayl tiklash bilan aralashtiradi.
+
+## Animatsiya
+
+<GitViz id="branches" />
+
+## Buyruqlar
+
+| Men … qilmoqchiman | Buyruq |
+| --- | --- |
+| Branch yaratib unga oʻtish | `git switch -c feat/login` |
+| Uni eng soʻnggi remote main'dan yaratish | `git switch -c feat/login origin/main` |
+| Mavjud branch'ga oʻtish | `git switch main` |
+| Oldingi branch'ga qaytish | `git switch -` |
+| Branch'larni upstream va oxirgi commit bilan koʻrish | `git branch -vv` |
+| Joriy branch nomini oʻzgartirish | `git branch -m new-name` |
+| Merge boʻlgan branch'ni oʻchirish / majburan oʻchirish | `git branch -d name` / `git branch -D name` |
+| Eski commit'ni branch'siz koʻrish | `git switch --detach <sha>` |
+| Grafni koʻrish | `git log --oneline --graph --all` |
+
+## Ichkarida
+
+- `git switch -c x` `refs/heads/x`'ni yozadi va `.git/HEAD`'ni `ref: refs/heads/x`'ga oʻzgartiradi. Keyin working tree va index shu commit snapshot'iga yangilanadi (faqat farq qiladigan fayllarga tegiladi).
+- Commit qilinmagan oʻzgarishlar bilan almashtirish, agar ular maqsad bilan toʻqnashmasa, ishlaydi; aks holda Git rad etadi. Commit qiling, stash qiling yoki ikkinchi worktree ishlating.
+- **Detached HEAD** xato emas: u atrofni koʻrish, bisect qilish, eski release'ni build qilish uchun. U yerda qilingan commit'lar hech qaysi branch'ga tegishli emas; boshqa joyga oʻtganingizdan keyin ularga faqat reflog orqali yetish mumkin. `git switch -c <name>` ularni saqlab qoladi.
+- Yangi repository'lar uchun standart branch nomini belgilang: `git config --global init.defaultBranch main`.
+
+## Tuzoqlar
+
+- Uzoq yashaydigan branch'lar ajralib ketadi: branch qancha uzoq yashasa, merge shuncha katta. Soatlab yoki kunlab yashaydigan branch'larni afzal koʻring.
+- `git branch -d` upstream yoki HEAD'ga merge boʻlmagan branch'ni oʻchirishni rad etadi — squash-merge qilingan PR branch'i merge boʻlmagandek koʻrinadi, shuning uchun u main'da ekanini tekshirgach `-D` kerak.
+
+## Interview'da
+
+<QA q="Nima uchun Git'da branch yaratish eski version control tizimlariga qaraganda shunchalik arzon?" level="mid">
+
+Chunki branch fayllar nusxasi emas; u bitta commit hash'ini saqlaydigan nom. Uni yaratish bir necha bayt yozadi, almashtirish esa faqat ikki snapshot orasida farq qiladigan fayllarni yangilaydi. Subversion kabi tizimlar branch'larni serverdagi papka nusxalari sifatida amalga oshirgan, bu esa branching'ni ogʻir va kamdan-kam qilgan.
+
+</QA>
+
+## Hujjatlar
+
+- [git switch](https://git-scm.com/docs/git-switch) · [git branch](https://git-scm.com/docs/git-branch)

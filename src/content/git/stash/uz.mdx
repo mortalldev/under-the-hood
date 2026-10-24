@@ -1,0 +1,44 @@
+## TL;DR
+
+`git stash` commit qilinmagan oʻzgarishlaringizni (staged va unstaged, ixtiyoriy ravishda untracked) saqlaydi va vazifani almashtirishingiz uchun toza working tree beradi. `git stash pop` ularni qaytaradi. Stash'lar stek — `stash@{0}` eng yangisi.
+
+## Animatsiya
+
+<GitViz id="stash" />
+
+## Buyruqlar
+
+| Men … qilmoqchiman | Buyruq |
+| --- | --- |
+| Hammasini, yangi fayllar bilan birga, nom bilan stash qilish | `git stash push -u -m "wip: filters"` |
+| Faqat ayrim fayllarni stash qilish | `git stash push -m "css" -- src/styles.css` |
+| Faqat unstaged oʻzgarishlarni stash qilish, staged'larni saqlash | `git stash push --keep-index` |
+| Stash'lar roʻyxati | `git stash list` |
+| Stash'ni koʻrish | `git stash show -p stash@{1}` |
+| Eng yangisini qayta qoʻllab oʻchirish | `git stash pop` |
+| Qayta qoʻllash, lekin saqlab qolish | `git stash apply stash@{1}` |
+| Stash'ni branch'ga aylantirish | `git stash branch feat/filters stash@{0}` |
+| Bittasini / hammasini oʻchirish | `git stash drop stash@{1}` / `git stash clear` |
+
+## Ichkarida
+
+Stash commit'lar sifatida saqlanadi: biri index holati uchun, biri working tree uchun (va `-u` bilan untracked fayllar uchun yana biri); ularga `refs/stash` ishora qiladi, uning reflog'i esa stash roʻyxatining oʻzi. Shuning uchun `git stash clear` dunyoning oxiri emas: oʻchirilgan stash'larni garbage collection'gacha `git fsck --unreachable | grep commit` bilan topish mumkin.
+
+## Tuzoqlar
+
+- Oddiy `git stash` **untracked** fayllarni tashlab ketadi — yangi fayllar joyida qoladi va sizga ergashib boshqa branch'ga oʻtadi. `-u`'dan foydalaning.
+- Conflict bilan `pop` stash'ni roʻyxatda qoldiradi; hal qiling, keyin `git stash drop`.
+- Stash'lar oson unutiladi va branch konteksti yoʻq. Qisqa uzilishdan uzunroq har qanday narsa uchun branch'da WIP commit qiling yoki ikkinchi worktree oching.
+- Commit qilinmagan oʻzgarishlar bilan pull? `git pull --rebase --autostash` (yoki `rebase.autoStash = true`) siz uchun stash qilib tiklaydi.
+
+## Interview'da
+
+<QA q="Siz feature oʻzgarishining oʻrtasidasiz va hoziroq production'ni tuzatishingiz kerak. Git'da qanday imkoniyatlaringiz bor?" level="mid">
+
+Uchta: qisqa uzilish uchun stash (git stash push -u, branch almashtirish, tuzatish, qaytish, pop); keyinroq amend yoki fixup qilinadigan feature branch'dagi WIP commit; yoki feature fayllariga umuman tegmasdan hotfix'ni alohida papkada ochish uchun git worktree add — dev server yoki uzoq build ishlab turganda eng yaxshisi.
+
+</QA>
+
+## Hujjatlar
+
+- [git stash](https://git-scm.com/docs/git-stash)

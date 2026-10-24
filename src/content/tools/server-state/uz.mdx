@@ -1,0 +1,57 @@
+## Tez boshlash
+
+**Server state** — server egalik qiladigan ma'lumot: foydalanuvchilar, buyurtmalar, narxlar. Brauzer faqat eskirishi mumkin boʻlgan **cache'langan nusxa**'ni saqlaydi. Unga UI state'dan boshqacha munosabatda boʻling: key boʻyicha cache qiling, bir xil so'rovlarni birlashtiring, eskirganda qayta oling va mutation'lardan keyin invalidate qiling. TanStack Query aynan shuni qiladi.
+
+```tsx
+const queryClient = new QueryClient();
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+```
+
+```tsx
+function Orders({ userId }: { userId: string }) {
+  const { data, isPending, error } = useQuery({
+    queryKey: ["orders", userId],                         // cache key: oʻzgarsa → qayta olish
+    queryFn: () => fetch(`/api/users/${userId}/orders`).then((r) => r.json()),
+    staleTime: 30_000,                                    // 30 s davomida yangi, qayta olinmaydi
+  });
+
+  const qc = useQueryClient();
+  const cancel = useMutation({
+    mutationFn: (id: string) => fetch(`/api/orders/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orders", userId] }),
+  });
+
+  if (isPending) return <Spinner />;
+  if (error) return <ErrorMessage error={error} />;
+  return <OrderList orders={data} onCancel={(id) => cancel.mutate(id)} />;
+}
+```
+
+`<Orders userId="42" />`'ni render qiladigan oʻnta komponent **bitta** so'rov yuboradi; tab'ga qaytish eskirgan ma'lumotni fonda qayta oladi; bekor qilishdan keyin roʻyxat yangilanadi.
+
+## Qanday tanlash
+
+| Vaziyat | Tanlov |
+| --- | --- |
+| REST/GraphQL'ni oʻqib-yozadigan client komponentlar | TanStack Query |
+| Asosan oʻqish, eng kichik API | SWR |
+| TypeScript full-stack, API va UI bitta jamoaga tegishli | tRPC (ichida TanStack Query ishlatadi) |
+| Katta GraphQL ilova, bitta ekranda koʻp jamoa | Relay |
+| Server Component'da bir marta oʻqiladigan ma'lumot | Kutubxona shart emas — serverda `await` qiling |
+
+## Tuzoqlar
+
+- Query ma'lumotini `useState` yoki global store'ga koʻchirmang — ikkita haqiqat manbai paydo boʻladi. Uni cache'dan oʻqing.
+- So'rov bogʻliq boʻlgan har bir oʻzgaruvchini `queryKey`'ga qoʻying; yetishmaganida notoʻgʻri cache'langan ma'lumot beriladi.
+- React Server Components bilan iloji boricha serverda fetch qiling va client'da oʻzgaradigan narsalar uchun (cheksiz scroll, polling, optimistic update) TanStack Query ishlating. Ikkalasini serverda prefetch qilib, cache'ni hydrate qilish orqali birlashtirish mumkin.
+
+## Interview'da
+
+<QA q="Nega shunchaki useEffect'da fetch qilib, natijani useState'da saqlamaslik kerak?" level="senior">
+
+Siz caching, so'rovlarni birlashtirish, parametrlar oʻzgarganda race condition'lar (yangi javobdan keyin eski javob kelishi), retry, fonda qayta olish, pagination va mutation'lardan keyin invalidation'ni qaytadan yozasiz — va baribir komponentlar boʻylab waterfall va takroriy so'rovlarga duch kelasiz. Server-state kutubxonasi bularning hammasini har bir query key boʻyicha markazlashtiradi. React Server Components ilovalarida serverda fetch qilish client effect'ini butunlay olib tashlaydi.
+
+</QA>

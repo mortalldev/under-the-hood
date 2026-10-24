@@ -1,0 +1,69 @@
+## Quick start
+
+For a client-side form with many fields and instant validation, **React Hook Form** with a **Zod** schema keeps one source of truth for types and rules, and doesn't re-render the whole form on every keystroke:
+
+```tsx
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+
+const Profile = z.object({ name: z.string().min(2), email: z.email() });
+type Profile = z.infer<typeof Profile>;
+
+export function ProfileForm({ onSave }: { onSave: (p: Profile) => Promise<void> }) {
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Profile>({
+    resolver: zodResolver(Profile),
+  });
+
+  return (
+    <form onSubmit={handleSubmit(onSave)} noValidate>
+      <label htmlFor="name">Name</label>
+      <input id="name" {...register("name")} aria-invalid={!!errors.name} />
+      {errors.name && <p role="alert">{errors.name.message}</p>}
+
+      <label htmlFor="email">Email</label>
+      <input id="email" type="email" {...register("email")} aria-invalid={!!errors.email} />
+      {errors.email && <p role="alert">{errors.email.message}</p>}
+
+      <button disabled={isSubmitting}>Save</button>
+    </form>
+  );
+}
+```
+
+For a simple form that posts to the server, React 19's **`useActionState`** with a Server Action needs no library and works before JavaScript loads:
+
+```tsx
+"use client";
+const [state, action, pending] = useActionState(subscribe, { error: null });
+
+return (
+  <form action={action}>
+    <input name="email" type="email" required />
+    <button disabled={pending}>Subscribe</button>
+    {state.error && <p role="alert">{state.error}</p>}
+  </form>
+);
+```
+
+## How to choose
+
+| Situation | Pick |
+| --- | --- |
+| Many fields, dynamic arrays, instant validation | React Hook Form + Zod |
+| Strictest types, nested forms, multiple frameworks | TanStack Form |
+| Short forms posting to a Server Action | `useActionState` (+ Zod on the server) |
+
+## Gotchas
+
+- Always validate again on the server with the same schema; the client resolver is for UX.
+- Connect errors to inputs for screen readers (`aria-invalid`, `aria-describedby`, `role="alert"`) — a red border isn't an error message.
+- Avoid controlled inputs for every field in big forms; it re-renders on each keystroke. Uncontrolled inputs plus `register` are the reason React Hook Form is fast.
+
+## In interviews
+
+<QA q="Design the form handling for a 30-field checkout. What matters?" level="senior">
+
+One schema shared by client and server so rules and types never drift; uncontrolled inputs or field-level subscriptions so typing doesn't re-render all 30 fields; validation on blur and on submit rather than every keystroke; accessible error messages and focusing the first invalid field on submit; saving drafts; idempotent submission (disable the button, send an idempotency key) so a double click doesn't create two orders; and server errors mapped back to fields.
+
+</QA>

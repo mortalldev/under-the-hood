@@ -1,0 +1,72 @@
+## TL;DR
+
+**Layered architecture** (n-tier) kodni gorizontal layer'larga — odatda **presentation → business → data access** — joylaydi, bunda har bir layer faqat oʻzidan bevosita pastdagisini chaqiradi. Bu koʻp veb-backend'larning standart shakli (controller → service → repository) va tushuntirish eng oson boʻlgan arxitektura.
+
+## Animatsiya
+
+<ArchitectureViz id="layered" />
+
+## Qanday ishlaydi
+
+| Layer | Vazifasi | Qilmasligi kerak |
+| --- | --- | --- |
+| Presentation | HTTP, input formatini tekshirish, DTO'ga va undan aylantirish | Biznes qoidalar yoki SQL saqlash |
+| Business (service) | Qoidalar, workflow'lar, transaction'lar | HTTP yoki UI haqida bilish |
+| Data access (repository) | So'rovlar, qatorlarni obyektlarga aylantirish | Biznes natijalarni hal qilish |
+
+- **Yopiq layer'lar**: so'rov har bir layer'dan oʻtishi shart. Qoidalarni bitta joyda saqlaydigan narsa aynan shu.
+- **Ochiq layer'lar** (oʻtkazib yuborish mumkin) ba'zan ataylab e'lon qilinadi — masalan, umumiy utility layer — lekin har bir oʻtkazib yuborish qoidalarni chetlab oʻtish mumkin boʻlgan joy.
+
+## Kod
+
+```ts
+// presentation
+router.post("/orders", async (req, res) => {
+  const input = NewOrderSchema.parse(req.body);           // faqat formatni tekshirish
+  const order = await orderService.place(req.user.id, input);
+  res.status(201).json(toOrderDto(order));
+});
+
+// business
+class OrderService {
+  constructor(private orders: OrderRepository, private stock: StockRepository) {}
+  async place(userId: string, input: NewOrder) {
+    if (input.items.length === 0) throw new ValidationError("empty order");
+    await this.stock.reserve(input.items);                 // qoida: saqlashdan oldin band qilish
+    return this.orders.insert({ userId, ...input, status: "pending" });
+  }
+}
+
+// data access
+class OrderRepository {
+  insert(o: NewOrderRow) {
+    return db.query("INSERT INTO orders (user_id, status) VALUES ($1, $2) RETURNING *", [o.userId, o.status]);
+  }
+}
+```
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating** CRUD'ga boy ilovalar, admin panellar va erta bosqichdagi koʻp mahsulotlar uchun. Uni hamma taniydi, framework'lar uni generatsiya qiladi va u HTTP, qoidalar va SQL'ni bir-biridan ajratib turadi.
+
+Biznes mantiq boyib borganda **qiynaladi**: business layer hali ham data layer'ga **bogʻliq**, shuning uchun domen kodi ORM type'larini import qiladi, testlarga esa baza yoki ogʻir mock'lar kerak. Hexagonal va Clean Architecture aynan shu strelkani teskari qiladi. Katta ilovalar layer'lar *yagona* boʻlinish boʻlganda ham qiynaladi — har bir feature har bir layer'ga tegadi, shuning uchun "kichik" oʻzgarish uchta papkani tahrirlaydi. Kod bazasi oʻsgani sari layer'larni vertikal modullar (domen boʻyicha) bilan birlashtiring.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Oddiy, tanish, yaxshi qoʻllab-quvvatlanadi | Business layer saqlash qatlamiga bogʻlangan |
+| HTTP, qoidalar va SQL uchun aniq joy | Chaqiruvlarni shunchaki uzatadigan "sinkhole" layer'lar |
+| Saqlash implementatsiyasini almashtirish oson | Feature'lar hamma layer'lar boʻylab tarqalgan |
+
+## Interview'da
+
+<QA q="Controller bazaga toʻgʻridan-toʻgʻri murojaat qilsa nima buziladi?" level="mid">
+
+Biznes qoidalar chetlab oʻtiladi — validatsiya, ruxsat tekshiruvi, omborni band qilish kabi yon ta'sirlar service'da yashaydi, qisqa yoʻl esa ularni jimgina oʻtkazib yuboradi. SQL ham takrorlanib qoladi, shuning uchun schema oʻzgarishini ikki joydan topish kerak boʻladi. Yechim — layer'larni yopiq saqlash, service metodi juda ogʻir boʻlsa esa chetlab oʻtish emas, alohida query metodi qoʻshish.
+
+</QA>
+
+## Manbalar
+
+- [Presentation Domain Data Layering — Martin Fowler](https://martinfowler.com/bliki/PresentationDomainDataLayering.html)

@@ -1,0 +1,81 @@
+## TL;DR
+
+**Clean Architecture** (Robert C. Martin, 2012) draws the application as concentric rings — **Entities**, **Use cases**, **Interface adapters**, **Frameworks & drivers** — with one rule:
+
+> **The Dependency Rule:** source code dependencies point only inward. Nothing in an inner ring knows anything about an outer one.
+
+It unifies earlier ideas (hexagonal, onion) and is the reason "the database is a detail" became a common phrase.
+
+## Animation
+
+<ArchitectureViz id="clean-architecture" />
+
+## How it works
+
+| Ring | Contains | Knows about |
+| --- | --- | --- |
+| Entities | Enterprise-wide rules: `Order`, `Money`, invariants | Nothing else |
+| Use cases | Application actions: `PlaceOrder`, `RefundPayment`; the ports they need | Entities |
+| Interface adapters | Controllers, presenters, gateways that convert data | Use cases |
+| Frameworks & drivers | Next.js, Express, Postgres driver, React | Everything inside |
+
+When an inner ring needs something from outside — saving an order — it declares an **interface** (port) and the outer ring implements it. That is the Dependency Inversion Principle applied to the whole app. Data crosses boundaries as simple structures (DTOs), not ORM entities or `Request` objects.
+
+## Code
+
+```ts
+// entities/order.ts
+export class Order {
+  private constructor(readonly id: string, readonly items: Item[]) {}
+  static create(items: Item[]) {
+    if (items.length === 0) throw new DomainError("Order must have at least one item");
+    return new Order(crypto.randomUUID(), items);
+  }
+}
+
+// use-cases/place-order.ts — owns the port it needs
+export interface OrderRepo { save(o: Order): Promise<void> }
+export class PlaceOrder {
+  constructor(private repo: OrderRepo) {}
+  async run(input: { items: Item[] }) {
+    const order = Order.create(input.items);
+    await this.repo.save(order);
+    return { orderId: order.id };                 // plain output, not an entity
+  }
+}
+
+// adapters/http.ts
+export const placeOrderHandler = (uc: PlaceOrder) => async (req: Request) =>
+  Response.json(await uc.run(await req.json()), { status: 201 });
+
+// frameworks/sql-order-repo.ts
+export class SqlOrderRepo implements OrderRepo {
+  async save(o: Order) { await db.query("INSERT INTO orders (id) VALUES ($1)", [o.id]); }
+}
+```
+
+## When to use it — and when not
+
+**Use it** for systems where business rules outlive frameworks: banking, insurance, logistics, anything that will be maintained for a decade. The rings make the core portable and testable.
+
+**Don't** apply four rings to every endpoint of a small app. Many teams adopt the *rule* (dependencies point inward, the domain doesn't import infrastructure) without the full folder ceremony — that's usually the best trade.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Domain independent of frameworks, UI and DB | Lots of mapping code between rings |
+| Use cases document what the system does | Indirection makes simple flows longer to read |
+| Easy to test the core | Easy to over-engineer |
+
+## In interviews
+
+<QA q="What is the difference between Clean Architecture and a classic layered architecture?" level="senior">
+
+The direction of one arrow. In layered architecture the business layer calls and depends on the data layer. In Clean Architecture the use case owns the repository interface and the data layer implements it, so the source-code dependency points from infrastructure toward the domain. The practical effect: domain code has no database imports, can be tested with in-memory fakes, and survives a change of framework or storage.
+
+</QA>
+
+## Sources
+
+- [The Clean Architecture — Robert C. Martin (2012)](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)

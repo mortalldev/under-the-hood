@@ -1,0 +1,57 @@
+## Tez boshlash
+
+**Tailwind CSS v4** JavaScript faylda emas, CSS'da sozlanadi. Vite bilan:
+
+```ts
+// vite.config.ts
+import tailwindcss from "@tailwindcss/vite";
+export default defineConfig({ plugins: [react(), tailwindcss()] });
+```
+
+```css
+/* app.css */
+@import "tailwindcss";
+
+@theme {
+  --color-brand: oklch(0.62 0.19 260);
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+```
+
+Har bir `--color-*` token utility'larga aylanadi (`bg-brand`, `text-brand`), token'lar esa istalgan joyda oʻqish mumkin boʻlgan haqiqiy CSS oʻzgaruvchilari. Next.js Vite plugin oʻrniga `@tailwindcss/postcss`'dan foydalanadi.
+
+Variantli komponentlar uchun **cva**, **clsx** va **tailwind-merge**'ni birlashtiring — bu `cn()` helper aynan shadcn/ui generatsiya qiladigan narsa:
+
+```ts
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs));
+
+cn("px-2 py-1", isActive && "bg-brand", "px-4");   // → "py-1 bg-brand px-4" (px-2 olib tashlandi)
+```
+
+## Qanday tanlash
+
+| Vaziyat | Tanlov |
+| --- | --- |
+| Koʻp yangi React ilovalar, design token'lar, tez iteratsiya | Tailwind CSS |
+| Scoping va runtime'siz qoʻlda yozilgan CSS | CSS Modules |
+| Juda katta ilovalar, koʻp jamoa, type-safe stillar | StyleX |
+| Komponent kutubxonasi uchun variant API'lari | cva + tailwind-merge |
+
+Runtime CSS-in-JS (stillar render paytida brauzerda hisoblanadi) React Server Components ilovalarida ommabopligini yoʻqotgan: u client-side JavaScript talab qiladi va streaming'ni murakkablashtiradi. Compile-time variantlarni afzal koʻring.
+
+## Tuzoqlar
+
+- Tailwind class'larni source matnni skanerlab topadi. Class nomlarini toʻliq satrlardan quring (`isError ? "text-red-600" : "text-gray-700"`), hech qachon `"text-" + color` kabi birlashtirib emas.
+- Komponentlarda uzun class roʻyxatlari normal; markup takrorlansa, `@apply` qoidasini emas, komponentni ajrating.
+- `prefers-reduced-motion` va dark mode'ni oʻrnatilgan `motion-reduce:` va `dark:` variantlari bilan hurmat qiling.
+
+## Interview'da
+
+<QA q="Server Components ishlatadigan katta React ilova uchun styling usulini qanday tanlaysiz?" level="senior">
+
+Build vaqtida statik CSS hosil qiladigan narsani tanlang, shunda serverda render qilingan HTML client JavaScript'siz bezaladi: Tailwind, CSS Modules yoki StyleX kabi compile-time CSS-in-JS. Theming va dark mode uchun design token'larni CSS oʻzgaruvchilari sifatida belgilang, jamoalar bir martalik stillar oʻylab topmasligi uchun komponentlarga variant API bering va CI'da CSS hajmi va ishlatilmagan qoidalarni oʻlchang.
+
+</QA>

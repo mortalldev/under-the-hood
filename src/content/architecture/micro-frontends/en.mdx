@@ -1,0 +1,78 @@
+## TL;DR
+
+**Micro-frontends** split one web application into pieces owned by different teams, each **built, tested and deployed independently**, then composed in the browser or on the server. It is microservices thinking applied to the UI.
+
+The motivation is organisational: dozens of teams shipping one product without a shared release train.
+
+## Animation
+
+<ArchitectureViz id="micro-frontends" />
+
+## How it works
+
+A thin **shell** (or host) owns the page frame — routing, login, layout — and mounts **remotes** owned by teams. Ways to compose them:
+
+| Technique | How | Trade-off |
+| --- | --- | --- |
+| Build-time packages | Each team publishes an npm package; the shell depends on versions | Simple, but not independent deploys |
+| Module Federation | The shell loads remote bundles at runtime from their own URLs | Independent deploys; must share React as a singleton |
+| Import maps + ES modules | The browser maps bare specifiers to URLs | Platform standard; less tooling |
+| Server-side composition | Edge or server stitches HTML fragments | Fast first paint; harder interactivity |
+| iframes | Each piece in its own document | Strong isolation; poor UX, hard to share state |
+
+## Code
+
+```ts
+// shell: webpack / Rspack config with Module Federation
+new ModuleFederationPlugin({
+  name: "shell",
+  remotes: {
+    checkout: "checkout@https://cdn.example.com/checkout/remoteEntry.js",
+  },
+  shared: { react: { singleton: true }, "react-dom": { singleton: true } },
+});
+```
+
+```tsx
+// shell route: the checkout team deploys this code on its own schedule
+const Checkout = lazy(() => import("checkout/App"));
+
+export function CheckoutRoute() {
+  return (
+    <ErrorBoundary fallback={<CheckoutUnavailable />}>
+      <Suspense fallback={<Spinner />}>
+        <Checkout />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+```
+
+The error boundary matters: a remote is code you didn't build, loaded over the network — it can fail to load, and the rest of the page should survive.
+
+## When to use it — and when not
+
+**Use it** when many teams own distinct parts of a large product and the shared release train is the bottleneck, or when you migrate a legacy app piece by piece (new routes in React while old ones stay in Angular).
+
+**Don't use it** for one or two teams. You'd pay for duplicated dependencies, version negotiation, cross-app state and a heavier first load, without the organisational benefit. A monorepo with one app and clear module boundaries solves most "the codebase is big" problems.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Independent deploys and team autonomy | Bigger bundles if dependencies aren't shared |
+| Incremental migration between frameworks | Inconsistent UX unless one design system is enforced |
+| Failure isolation per remote | Harder local dev, testing and debugging across apps |
+
+## In interviews
+
+<QA q="Your company has 30 frontend engineers in one Next.js app and deploys are slow. Do you introduce micro-frontends?" level="senior">
+
+First find the actual bottleneck. Slow CI is fixed with caching and affected-only builds; merge conflicts with clearer module ownership; risky releases with feature flags and canaries. Micro-frontends are worth it when teams need independent *release cadence* and the coupling is organisational. If so, I'd split by business domain (checkout, search, account), keep one design system and shared singletons, and define contracts: routing, auth, events between apps.
+
+</QA>
+
+## Sources
+
+- [Micro Frontends — Cam Jackson on martinfowler.com](https://martinfowler.com/articles/micro-frontends.html)
+- [Module Federation — official site](https://module-federation.io/)

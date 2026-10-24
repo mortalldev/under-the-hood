@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { getLocale, getTranslations } from "next-intl/server";
+import { MenuIcon } from "@/components/layout/HandbookMenu";
 import { SectionGrid } from "@/components/SectionGrid";
+import { handbook } from "@/content/handbook";
 import { lessons, sectionSlugs } from "@/content/registry";
 import { Link } from "@/i18n/navigation";
 import type { Locale } from "@/i18n/routing";
@@ -110,6 +112,32 @@ export default async function HomePage() {
             </li>
           ))}
         </ol>
+      </section>
+
+      <section aria-labelledby="handbook" className="border-t border-border py-14">
+        <h2 id="handbook" className="text-xl font-semibold tracking-tight sm:text-[1.6rem]">
+          {t("Home.handbookTitle")}
+        </h2>
+        <p className="mt-2 max-w-2xl leading-relaxed text-fg-muted">{t("Home.handbookLead")}</p>
+        <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {handbook.map((h) => (
+            <li key={h.href}>
+              <Link
+                href={h.href}
+                className="group flex h-full flex-col rounded-2xl border border-border bg-surface-1 p-5 transition-colors hover:border-accent/50"
+              >
+                <span className="flex items-center justify-between">
+                  <span aria-hidden="true" className="grid size-10 place-items-center rounded-xl bg-accent-soft text-accent">
+                    <MenuIcon d={h.icon} className="size-5" />
+                  </span>
+                  <span className="font-mono text-xs text-fg-subtle">{h.count}</span>
+                </span>
+                <span className="mt-4 text-lg font-semibold group-hover:text-accent">{t(`Nav.${h.key}`)}</span>
+                <span className="mt-1.5 text-[0.93rem] leading-relaxed text-fg-muted">{t(`Nav.${h.key}Desc`)}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section aria-labelledby="sections" className="border-t border-border py-14">

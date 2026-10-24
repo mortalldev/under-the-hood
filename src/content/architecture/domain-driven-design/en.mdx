@@ -1,0 +1,83 @@
+## TL;DR
+
+**Domain-Driven Design (DDD)** (Eric Evans, 2003) says the hardest part of software is the business domain, so model the code on it — together with the people who know it.
+
+Two ideas matter most in practice:
+
+- **Bounded context** — a boundary inside which every term has exactly one meaning. "Customer" in Sales (a deal) and in Support (a ticket history) are different models, and that's correct.
+- **Ubiquitous language** — code, conversations and docs use the same words domain experts use: `order.place()`, not `order.status = 2`.
+
+## Animation
+
+<ArchitectureViz id="domain-driven-design" />
+
+## How it works
+
+**Strategic design** (the big picture):
+
+- Find the **subdomains**: *core* (what makes the business special — invest here), *supporting* and *generic* (buy or use off-the-shelf: auth, email, payments).
+- Draw **bounded contexts**, ideally one per team, each with its own model and data.
+- Draw the **context map**: how contexts integrate — published events, a shared contract, or an **anti-corruption layer (ACL)** that translates a legacy or external model so it doesn't leak into yours.
+
+**Tactical design** (inside one context):
+
+| Building block | What it is |
+| --- | --- |
+| Entity | Has an identity that persists (`Order #123`) |
+| Value object | Defined by its values, immutable (`Money`, `Address`) |
+| Aggregate | A cluster changed as one unit through its root; guards invariants |
+| Domain event | A fact that happened (`OrderPlaced`) |
+| Repository | Loads and saves whole aggregates |
+
+## Code
+
+```ts
+// value object: immutable, compared by value
+class Money {
+  constructor(readonly cents: number, readonly currency: "USD" | "UZS") {
+    if (!Number.isInteger(cents)) throw new DomainError("Money must be whole cents");
+  }
+  add(o: Money) { if (o.currency !== this.currency) throw new DomainError("Currency mismatch"); return new Money(this.cents + o.cents, this.currency); }
+}
+
+// aggregate root: the only way to change an order, so its rules always hold
+class Order {
+  private lines: OrderLine[] = [];
+  private status: "draft" | "placed" = "draft";
+  addLine(sku: Sku, qty: number, price: Money) {
+    if (this.status !== "draft") throw new DomainError("Placed orders can't change");
+    this.lines.push(new OrderLine(sku, qty, price));
+  }
+  place(): OrderPlaced {
+    if (this.lines.length === 0) throw new DomainError("Order has no lines");
+    this.status = "placed";
+    return { type: "OrderPlaced", orderId: this.id, total: this.total() };
+  }
+}
+```
+
+## When to use it — and when not
+
+**Use it** when the domain is complex and changes often — insurance, logistics, marketplaces, billing — and domain experts are available to talk to. Bounded contexts are also the best guide for splitting modules or services.
+
+**Skip the tactical patterns** for CRUD screens with little logic; aggregates and repositories add weight without protecting anything. The strategic part — contexts and shared language — pays off almost everywhere.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Code matches how the business talks and changes | Needs time with domain experts |
+| Contexts give natural module/service boundaries | Translating between contexts is extra code |
+| Aggregates keep invariants in one place | Easy to over-apply patterns to simple CRUD |
+
+## In interviews
+
+<QA q="How would you decide where to split a monolith into services?" level="senior">
+
+Along bounded contexts, not along technical layers or database tables. I'd map where the same word means different things, which data changes together, and which team owns which decisions. Each context becomes a candidate module, and only the ones with a real need — independent scaling, release cadence, a different team — become services. Contexts talk through events or explicit APIs, with an anti-corruption layer around anything legacy.
+
+</QA>
+
+## Sources
+
+- [Bounded Context — Martin Fowler](https://martinfowler.com/bliki/BoundedContext.html)

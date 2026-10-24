@@ -1,0 +1,53 @@
+## TL;DR
+
+Commit'ni bekor qilishning ikki usuli:
+
+- **`git reset`** joriy branch pointer'ini orqaga suradi. U tarixni qayta yozadi — uni **lokal, push qilinmagan** commit'larda ishlating.
+- **`git revert`** oldingisini **bekor qiladigan yangi commit** qoʻshadi. Tarix faqat oʻsadi — uni **umumiy** branch'larda ishlating.
+
+`reset`'ning uchta rejimi bor: ular siz orqaga oʻtgan commit'lardagi oʻzgarishlar bilan nima boʻlishini hal qiladi.
+
+## Animatsiya
+
+<GitViz id="reset-revert" />
+
+## Buyruqlar
+
+| Buyruq | Branch pointer | Index | Working tree |
+| --- | --- | --- | --- |
+| `git reset --soft HEAD~1` | orqaga siljiydi | oʻzgarishlar saqlanadi (staged) | tegilmaydi |
+| `git reset HEAD~1` (`--mixed`, standart) | orqaga siljiydi | reset (oʻzgarishlar unstaged) | tegilmaydi |
+| `git reset --hard HEAD~1` | orqaga siljiydi | reset | **reset — tahrirlar yoʻqoladi** |
+| `git revert <sha>` | ustiga yangi commit | yangilanadi | yangilanadi |
+
+```bash
+git reset --soft HEAD~3           # oxirgi 3 lokal commit'ni birlashtirish: keyin bir marta commit
+git reset --hard origin/main      # lokal main'ni serverdagiga aynan moslash
+git revert 9d2e4f1                # push qilingan bitta commit'ni bekor qilish
+git revert --no-commit A..B       # oraliqni bekor qilish, oxirida bir marta commit
+git revert -m 1 <merge-sha>       # merge'ni bekor qilish, mainline'ni (1-parent) saqlab
+```
+
+## Ichkarida
+
+- `HEAD~1` — HEAD'ning birinchi parent'i; `HEAD~3` uchta birinchi-parent orqaga boradi. `HEAD^2` — merge'ning *ikkinchi* parent'i.
+- Har qanday reset'dan oldin Git eski pozitsiyani `ORIG_HEAD` va reflog'ga saqlaydi, shuning uchun `git reset --hard ORIG_HEAD` yoki `git reflog` yomon reset'ni bekor qiladi — agar ish commit qilingan boʻlsa.
+- `revert` commit diff'ining teskarisini hisoblaydi va uni commit qiladi. Revert'ni revert qilish asl oʻzgarishni qayta qoʻllaydi.
+
+## Tuzoqlar
+
+- `--hard` commit qilinmagan ishni butunlay tashlab yuboradi. Avval `git stash` yoki `git status` ishga tushiring.
+- Merge'ni revert qilib, keyinroq oʻsha branch'ni yana merge qilish uning oʻzgarishlarini qaytarmaydi (Git ularni allaqachon merge boʻlgan deb biladi); avval revert'ni revert qilishingiz kerak.
+- Push qilingan branch'ni reset qilib force-push qilish uni pull qilgan hammaning ishini buzadi.
+
+## Interview'da
+
+<QA q="Bug'li commit bir soat oldin main'ga merge qilindi va deploy boʻldi. Qanday qaytarasiz?" level="mid">
+
+Reset emas, revert: commit'ni (yoki merge commit'ni -m 1 bilan) branch'da git revert qiling, PR oching, CI ishlab deploy qilsin — main tarixi chiziqli qoladi va hech kimning clone'i buzilmaydi. Koʻp jamoalar zararni toʻxtatish uchun avval deploy'ning oʻzini orqaga qaytarishi yoki feature flag'ni oʻchirishi ham mumkin, keyin oldinga qarab tuzatadi.
+
+</QA>
+
+## Hujjatlar
+
+- [git reset](https://git-scm.com/docs/git-reset) · [git revert](https://git-scm.com/docs/git-revert)

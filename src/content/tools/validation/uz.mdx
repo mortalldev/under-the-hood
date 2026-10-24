@@ -1,0 +1,61 @@
+## Tez boshlash
+
+TypeScript type'lari runtime'da yoʻqoladi. Kodingiz tashqarisidan keladigan har qanday narsa — form maydonlari, `fetch` javoblari, `process.env`, URL parametrlari, Server Action argumentlari — ishonishdan oldin **parse** qilinishi kerak. Schema kutubxonasi bitta ta'rifdan ham runtime tekshiruvni, *ham* statik type'ni beradi.
+
+```ts
+import { z } from "zod";
+
+const SignUp = z.object({
+  email: z.email(),
+  password: z.string().min(12, "At least 12 characters"),
+  age: z.coerce.number().int().min(18).optional(),   // form'dan kelgan "21" → 21
+});
+type SignUp = z.infer<typeof SignUp>;                // { email: string; password: string; age?: number }
+
+const result = SignUp.safeParse(Object.fromEntries(formData));
+if (!result.success) {
+  return { errors: z.flattenError(result.error).fieldErrors };   // { email?: string[], … }
+}
+await createUser(result.data);                       // toʻliq typed, allaqachon tekshirilgan
+```
+
+Environment oʻzgaruvchilarini ishga tushishda bir marta tekshiring, shunda yetishmayotgan maxfiy kalit birinchi so'rovni emas, deploy'ni yiqitadi:
+
+```ts
+export const env = z
+  .object({ DATABASE_URL: z.url(), STRIPE_KEY: z.string().startsWith("sk_") })
+  .parse(process.env);
+```
+
+Valibot'da xuddi shu tekshiruv, unda har bir validator alohida, tree-shaking qilinadigan funksiya:
+
+```ts
+import * as v from "valibot";
+const SignUp = v.object({ email: v.pipe(v.string(), v.email()), password: v.pipe(v.string(), v.minLength(12)) });
+const result = v.safeParse(SignUp, input);
+```
+
+## Qanday tanlash
+
+| Ehtiyoj | Tanlov |
+| --- | --- |
+| Ilovalar uchun standart; eng keng ekotizim (form, tRPC, AI SDK'lar) | Zod |
+| Eng kichik client bundle | Valibot |
+| Eng tez validatsiya, type'ga oʻxshash sintaksis | ArkType |
+| "Istalgan validator"ni qabul qiladigan kutubxona yozyapsiz | Standard Schema |
+
+Zod, Valibot va ArkType'ning hammasi **Standard Schema**'ni amalga oshiradi, shuning uchun TanStack Form kabi kutubxonalar ularning istalganini qabul qiladi.
+
+## Tuzoqlar
+
+- `parse` throw qiladi, `safeParse` natija qaytaradi. Notoʻgʻri input kutiladigan chegaralarda (form'lar) `safeParse`, bu bug'ni anglatadigan joyda (env, ichki invariant'lar) `parse` ishlating.
+- Client tekshirgan boʻlsa ham **serverda** tekshiring — client tekshiruvlari UX uchun, server tekshiruvlari xavfsizlik uchun.
+- Bir ma'lumotni har bir qatlamda tekshirmang. Chegarada parse qiling, keyin ichkariga typed ma'lumot uzating.
+
+## Interview'da
+
+<QA q="TypeScript'da type'lar allaqachon bor. Zod nima uchun kerak?" level="mid">
+
+TypeScript faqat siz kompilyatsiya qiladigan kodni tekshiradi; u tarmoq, foydalanuvchilar yoki environment'dan runtime'da keladigan ma'lumotni koʻra olmaydi. fetch natijasidagi type annotatsiyasi — bajara olmaydigan va'da. Schema haqiqiy qiymatni tekshiradi va uni haqiqiy type'ga toraytiradi, shunda chegaradan keyingi hamma narsaga ishonish mumkin — type esa schema'dan olinadi, shuning uchun ular hech qachon bir-biridan farq qilib qolmaydi.
+
+</QA>

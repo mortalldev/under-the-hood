@@ -1,0 +1,46 @@
+## Quick start
+
+The framework decides **where code runs** (server, client, build time), **how routes are defined** and **how data is loaded** — so choose it first. Every option below starts with one command:
+
+```bash
+npx create-next-app@latest            # Next.js (App Router, TypeScript, Tailwind prompts)
+npx create-react-router@latest        # React Router in framework mode
+npm create astro@latest               # Astro
+npm create vite@latest                # Vite + React SPA (pick "react-ts")
+```
+
+A Next.js App Router page loads data on the server with plain `async`/`await` — no client fetching code is shipped:
+
+```tsx
+// app/products/[id]/page.tsx — a Server Component
+export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const product = await db.product.findUnique({ where: { id } });
+  if (!product) notFound();
+  return <ProductView product={product} />;      // only interactive parts are client components
+}
+```
+
+## How to choose
+
+| Situation | Pick |
+| --- | --- |
+| SEO-critical product or content site, React Server Components, one full-stack project | Next.js |
+| Web-standard loaders/actions, deploy anywhere, upgrading an existing React Router app | React Router (framework mode) |
+| Type-safe routes and search params above all | TanStack Start |
+| Docs, blogs, marketing: mostly static with islands of interactivity | Astro |
+| Internal tool or dashboard behind a login, no SEO | Vite + React Router or TanStack Router (SPA) |
+
+## Gotchas
+
+- Read the version's own docs. Frameworks change conventions between majors — Next.js ships its docs inside the `next` package (`node_modules/next/dist/docs`).
+- Server and client boundaries are a design decision: keep `"use client"` at the leaves, pass serialisable props, and never import server-only code (secrets, database clients) into client components — use the `server-only` package to make that a build error.
+- An SPA is not a lesser choice. If nothing needs to be indexed or rendered on the server, it's simpler to host and reason about.
+
+## In interviews
+
+<QA q="SSR, SSG, ISR, CSR, RSC — how do you pick a rendering strategy for a page?" level="senior">
+
+Start from how fresh the data must be and who it's for. The same for everyone and rarely changing: static at build time (SSG), optionally revalidated on a schedule or on demand (ISR). Personalised or always fresh: render on the server per request (SSR), streaming slow parts behind Suspense. Highly interactive, behind login, no SEO: client rendering is fine. React Server Components let you mix them per component: static shell, server-fetched data, small client islands — minimising the JavaScript sent.
+
+</QA>

@@ -1,0 +1,67 @@
+## TL;DR
+
+**Event sourcing** faqat joriy holatni saqlash oʻrniga **har bir oʻzgarishni oʻzgarmas event sifatida** faqat qoʻshiladigan log'da saqlaydi. Joriy holat event'larni qayta oʻynash orqali olinadi — **fold**: `events.reduce(apply, initial)`.
+
+Bank koʻchirmangiz shunday ishlaydi: balans har bir kirim va chiqimning natijasi va unga qanday kelinganini doim koʻra olasiz.
+
+## Animatsiya
+
+<ArchitectureViz id="event-sourcing" />
+
+## Qanday ishlaydi
+
+- **Event'lar — oʻtgan zamondagi faktlar** (`Deposited`, `Withdrew`) va ular hech qachon yangilanmaydi yoki oʻchirilmaydi. Tuzatishlar — yangi event'lar (`DepositReversed`).
+- **Command'lar joriy holatga qarshi tekshiriladi**; holat stream'dan qayta quriladi; toʻgʻri boʻlsa, yangi event'lar qoʻshiladi.
+- **Optimistic concurrency**: `expectedVersion` bilan qoʻshing — agar oraliqda kimdir qoʻshgan boʻlsa, yozuv yiqiladi va yangi holat bilan qayta urinasiz.
+- **Snapshot'lar**: uzun stream'lar uchun holatni har N event'da saqlang va faqat oxirgi qismini qayta oʻynang.
+- **Projection'lar**: event stream'dan qurilgan read model'lar (koʻpincha CQRS bilan). Yangi hisobot kerakmi? Yangi projection yozing va unga tarixni qayta oʻynang.
+
+## Kod
+
+```ts
+type Event =
+  | { type: "Opened" }
+  | { type: "Deposited"; amount: number }
+  | { type: "Withdrew"; amount: number };
+
+const apply = (balance: number, e: Event) =>
+  e.type === "Deposited" ? balance + e.amount : e.type === "Withdrew" ? balance - e.amount : balance;
+
+async function withdraw(accountId: string, amount: number) {
+  const { events, version } = await store.read(accountId);
+  const balance = events.reduce(apply, 0);
+  if (amount > balance) throw new InsufficientFunds();
+  await store.append(accountId, [{ type: "Withdrew", amount }], { expectedVersion: version });
+}
+
+// vaqt boʻyicha sayohat: istalgan sanadagi balans
+const balanceOn = (events: (Event & { at: Date })[], day: Date) =>
+  events.filter((e) => e.at <= day).reduce(apply, 0);
+```
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar tarixning oʻzi qimmatli boʻlsa: moliya va ledger'lar, audit koʻp talab qilinadigan domenlar, birgalikda tahrirlash, "bu yerga qanday keldik?" degan savolga javob berish yoki eski ma'lumotdan yangi tahlil qurish kerak boʻlgan tizimlar.
+
+Koʻp CRUD uchun **qoching**: so'rov qilish projection'larni talab qiladi, schema oʻzgarishlari abadiy event versiyalashga aylanadi, oddiy "shu maydonni yangilash" amallari esa event loyihalashga aylanadi. Oʻzgarmas log'dan shaxsiy ma'lumotni oʻchirish uchun reja kerak (masalan, shaxsiy maydonlarni har bir foydalanuvchi uchun shifrlab, kalitni oʻchirish — "crypto-shredding").
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Toʻliq audit izi va vaqt boʻyicha sayohat | Har bir so'rov uchun projection kerak |
+| Tarixiy ma'lumotdan yangi read model'lar | Event schema'lari abadiy oʻqiladigan boʻlib qolishi kerak |
+| Event-driven integratsiyaga tabiiy mos | Qayta oʻynash va snapshot'lar operatsion ish qoʻshadi |
+| Concurrency toʻqnashuvlari aniq | GDPR uslubidagi oʻchirish qiyin |
+
+## Interview'da
+
+<QA q="Event sourcing bilan shunchaki event e'lon qilish orasidagi farq nima?" level="senior">
+
+Event-driven tizimlarda baza joriy holatni saqlaydi, event'lar esa yonma-yon yuboriladigan xabarnomalar. Event sourcing'da event log'ning *oʻzi* haqiqat manbai: holat undan qayta quriladi va boshqa hech narsa vakolatli emas. Bu toʻliq tarix va qayta oʻynash imkonini beradi, lekin har bir so'rov uchun projection va event schema'larini doimiy kontrakt sifatida koʻrishni anglatadi.
+
+</QA>
+
+## Manbalar
+
+- [Event Sourcing — Martin Fowler](https://martinfowler.com/eaaDev/EventSourcing.html)

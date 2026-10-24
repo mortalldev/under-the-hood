@@ -1,0 +1,76 @@
+## TL;DR
+
+A **monorepo** keeps many projects — apps, shared packages, tooling — in **one repository** with one dependency graph. A change to a shared package and every app that uses it lands in **one atomic commit**, and tools rebuild only what the change affects.
+
+Google, Meta and Microsoft run huge monorepos; for JavaScript teams the usual stack is **pnpm workspaces + Turborepo** (or Nx).
+
+## Animation
+
+<ArchitectureViz id="monorepo" />
+
+## How it works
+
+1. **Workspaces** link local packages: `"@acme/ui": "workspace:*"` resolves to `packages/ui` on disk — no publishing, no version drift.
+2. A **task graph** comes from package dependencies: `build` of `apps/web` depends on `build` of `@acme/ui` (`"dependsOn": ["^build"]`).
+3. **Content hashing**: each task's inputs (source files, dependencies, env) are hashed. Same hash → restore outputs from cache instead of running.
+4. **Affected detection**: from the changed files, walk the graph backwards to find what needs testing.
+5. **Remote cache**: CI and every developer share results, so a build done once is never repeated.
+
+## Code
+
+```yaml
+# pnpm-workspace.yaml
+packages:
+  - "apps/*"
+  - "packages/*"
+```
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**", "!.next/cache/**"] },
+    "lint": {},
+    "test": { "dependsOn": ["^build"] },
+    "dev": { "cache": false, "persistent": true }
+  }
+}
+```
+
+```bash
+pnpm turbo run build test lint          # whole graph, parallel, cached
+pnpm turbo run test --filter=...@acme/ui   # ui and everything that depends on it
+pnpm --filter ./apps/web add zod        # add a dependency to one package
+```
+
+<Callout kind="tip" title="Boundaries still matter">
+One repository doesn't mean anything may import anything. Use package `exports` to hide internals, `CODEOWNERS` for review ownership, and lint rules (or Nx module boundaries) so apps never import each other.
+</Callout>
+
+## When to use it — and when not
+
+**Use it** when several apps share code (web + admin + mobile web + a component library), when you want atomic cross-package changes, and one set of tooling configs.
+
+**Think twice** when projects share nothing, when teams need different access rights per project, or when you can't invest in tooling: without caching and affected builds, CI time grows with the whole repo instead of with the change.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Atomic refactors across packages | CI needs caching and affected-only runs to scale |
+| One version of each dependency, one config | Git gets slow on huge repos (partial clone, sparse checkout help) |
+| Easy code sharing and discovery | Access control is coarser than with separate repos |
+
+## In interviews
+
+<QA q="Monorepo or polyrepo for a company with five frontend apps sharing a design system?" level="senior">
+
+Monorepo, mostly because the design system changes together with its consumers: a breaking change and its migrations can land in one PR with CI proving every app still builds. I'd use pnpm workspaces, Turborepo or Nx with a remote cache, run only affected tasks in CI, and enforce boundaries with package exports, CODEOWNERS and lint rules. I'd choose polyrepos if the apps were owned by separate organisations with different release and access needs.
+
+</QA>
+
+## Sources
+
+- [pnpm — Workspaces](https://pnpm.io/workspaces)
+- [Turborepo — documentation](https://turborepo.dev/docs)
+- [Why Google Stores Billions of Lines of Code in a Single Repository (Google Research)](https://research.google/pubs/why-google-stores-billions-of-lines-of-code-in-a-single-repository/)

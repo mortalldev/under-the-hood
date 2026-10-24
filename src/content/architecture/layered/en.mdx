@@ -1,0 +1,72 @@
+## TL;DR
+
+**Layered architecture** (n-tier) stacks the code in horizontal layers — typically **presentation → business → data access** — where each layer calls only the one directly below. It is the default shape of most web backends (controller → service → repository) and the easiest architecture to explain.
+
+## Animation
+
+<ArchitectureViz id="layered" />
+
+## How it works
+
+| Layer | Responsibility | Must not |
+| --- | --- | --- |
+| Presentation | HTTP, validation of input format, mapping to/from DTOs | Contain business rules or SQL |
+| Business (service) | Rules, workflows, transactions | Know about HTTP or the UI |
+| Data access (repository) | Queries, mapping rows to objects | Decide business outcomes |
+
+- **Closed layers**: a request must pass through every layer. This is what keeps rules in one place.
+- **Open layers** (allowed to be skipped) are sometimes declared on purpose — for example a shared utilities layer — but every skip is a place where rules can be bypassed.
+
+## Code
+
+```ts
+// presentation
+router.post("/orders", async (req, res) => {
+  const input = NewOrderSchema.parse(req.body);           // format check only
+  const order = await orderService.place(req.user.id, input);
+  res.status(201).json(toOrderDto(order));
+});
+
+// business
+class OrderService {
+  constructor(private orders: OrderRepository, private stock: StockRepository) {}
+  async place(userId: string, input: NewOrder) {
+    if (input.items.length === 0) throw new ValidationError("empty order");
+    await this.stock.reserve(input.items);                 // rule: reserve before saving
+    return this.orders.insert({ userId, ...input, status: "pending" });
+  }
+}
+
+// data access
+class OrderRepository {
+  insert(o: NewOrderRow) {
+    return db.query("INSERT INTO orders (user_id, status) VALUES ($1, $2) RETURNING *", [o.userId, o.status]);
+  }
+}
+```
+
+## When to use it — and when not
+
+**Use it** for CRUD-heavy apps, admin panels and most early-stage products. Everyone recognises it, frameworks scaffold it, and it keeps HTTP, rules and SQL apart.
+
+**It strains** when the business logic grows rich: the business layer still **depends on** the data layer, so domain code imports ORM types and tests need a database or heavy mocks. That is the exact arrow hexagonal and Clean Architecture invert. Large apps also suffer when layers are the *only* split — every feature touches every layer, so a "small" change edits three folders. Combine layers with vertical modules (per domain) as the codebase grows.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Simple, familiar, well supported | Business layer coupled to persistence |
+| Clear place for HTTP vs. rules vs. SQL | "Sinkhole" layers that only pass calls through |
+| Easy to swap the storage implementation | Features spread across all layers |
+
+## In interviews
+
+<QA q="What goes wrong when a controller talks to the database directly?" level="mid">
+
+Business rules get bypassed — validation, permission checks, side effects like reserving stock live in the service, so the shortcut silently skips them. The SQL also ends up duplicated, so a schema change has to be found in two places. The fix is to keep layers closed and, if the service method is too heavy, add a dedicated query method, not a bypass.
+
+</QA>
+
+## Sources
+
+- [Presentation Domain Data Layering — Martin Fowler](https://martinfowler.com/bliki/PresentationDomainDataLayering.html)

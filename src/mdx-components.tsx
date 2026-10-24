@@ -9,6 +9,7 @@ import { Resources } from "@/components/mdx/Resources";
 import { Term } from "@/components/mdx/Term";
 import { TypePuzzle } from "@/components/mdx/TypePuzzle";
 import {
+  ArchitectureViz,
   BackpressureViz,
   BinarySearchViz,
   ClosureViz,
@@ -17,6 +18,7 @@ import {
   DynamicArrayViz,
   EventLoopViz,
   FenwickViz,
+  GitViz,
   GraphTraversalViz,
   HiddenClassViz,
   HooksViz,
@@ -47,6 +49,7 @@ import {
   TwoPointersViz,
   UnionFindViz,
 } from "@/components/visualizer/viz/lazy";
+import { Link } from "@/i18n/navigation";
 
 // Components available in every lesson without an import, visualizers
 // included. The lesson page passes this object to the MDX content, which keeps
@@ -63,6 +66,7 @@ export const mdxComponents = {
   Resources,
   Term,
   TypePuzzle,
+  ArchitectureViz,
   BackpressureViz,
   BinarySearchViz,
   ClosureViz,
@@ -71,6 +75,7 @@ export const mdxComponents = {
   DynamicArrayViz,
   EventLoopViz,
   FenwickViz,
+  GitViz,
   GraphTraversalViz,
   HiddenClassViz,
   HooksViz,
@@ -100,6 +105,9 @@ export const mdxComponents = {
   TrieViz,
   TwoPointersViz,
   UnionFindViz,
+  // Internal links get the current locale prefix; external ones stay plain anchors.
+  a: ({ href = "", ...props }: React.ComponentProps<"a">) =>
+    href.startsWith("/") ? <Link href={href} {...props} /> : <a href={href} {...props} />,
   table: (props: React.ComponentProps<"table">) => (
     // Phones: edge to edge, smaller text, and a sticky first column so the
     // row label stays visible while the other columns scroll sideways.

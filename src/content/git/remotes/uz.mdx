@@ -1,0 +1,62 @@
+## TL;DR
+
+Har safar sinxronlashda uchta turli ref ishtirok etadi:
+
+- **serverdagi branch** (GitHub'dagi `main`),
+- **remote-tracking ref**'ingiz `origin/main` — serverning sizdagi *oxirgi surati*, faqat fetch bilan yangilanadi,
+- **lokal branch**'ingiz `main`.
+
+`git fetch` `origin/*`'ni yangilaydi va har doim xavfsiz. `git pull` = fetch + merge (yoki rebase). `git push` serverdan branch'ini sizning branch'ingizgacha fast-forward qilishni soʻraydi. Ustidan yozish shart boʻlsa, hech qachon oddiy `--force` emas, **`--force-with-lease`** ishlating.
+
+## Animatsiya
+
+<GitViz id="remotes" />
+
+## Buyruqlar
+
+```bash
+git remote -v                         # origin qayerga ishora qiladi
+git fetch --prune                     # origin/*'ni yangilash, oʻchirilgan remote branch'larni olib tashlash
+git status                            # upstream'ga nisbatan "ahead 1, behind 2"
+git log --oneline main..origin/main   # ularda bor, sizda yoʻq narsa
+git log --oneline origin/main..main   # sizda bor, ularda yoʻq narsa
+
+git pull --rebase                     # fetch, keyin commit'laringizni ustiga qayta qoʻyish
+git push                              # server branch'ini fast-forward qilish
+git push -u origin feat/login         # yangi branch'ning birinchi push'i: upstream'ni belgilash
+
+git push --force-with-lease --force-if-includes   # push qilingan branch'ni qayta yozgandan keyin
+git push origin --delete feat/login   # remote branch'ni oʻchirish
+```
+
+Foydali standart sozlamalar:
+
+```bash
+git config --global push.autoSetupRemote true   # birinchi push upstream'ni avtomatik belgilaydi
+git config --global fetch.prune true             # fetch'da doim prune qilish
+git config --global pull.rebase true             # pull merge oʻrniga rebase qiladi
+```
+
+## Ichkarida
+
+- Push faqat server branch'ining **fast-forward**'i boʻlsa (yoki majburlangan boʻlsa) qabul qilinadi. Rebase qilingan branch'lar shuning uchun rad etiladi.
+- `--force-with-lease` "server branch'i hali mening `origin/feat`'im aytgan commit'da boʻlsagina ustidan yoz" deb yuboradi. Agar oxirgi fetch'ingizdan keyin jamoadosh push qilgan boʻlsa, uning ishini oʻchirish oʻrniga rad etiladi.
+- `--force-if-includes` qolgan teshikni yopadi: fondagi `git fetch` (IDE'ingiz shuni qiladi) `origin/feat`'ni siz birlashtirmasdan yangilashi mumkin, bu esa oddiy lease'ni oʻtkazib yuboradi. U remote uchi branch'ingiz reflog'ida borligini ham tekshiradi.
+
+## Tuzoqlar
+
+- Lokal commit'li branch'da `git pull` rebase qilmasangiz, merge commit'lar yaratadi.
+- Himoyalangan branch'larga force-push qilish branch protection bilan bloklangan (va shunday boʻlishi kerak).
+- Eskirgan `origin/main` "lekin lokalda ishlagan edi" degan merge kutilmaganliklarining koʻpchiligining sababi — avval fetch qiling.
+
+## Interview'da
+
+<QA q="git fetch va git pull orasidagi farq nima va qaysi birini koʻproq ishlatasiz?" level="mid">
+
+fetch yangi commit'larni yuklab oladi va branch yoki fayllaringizga tegmasdan remote-tracking ref'larni (origin/*) siljitadi. pull — fetch va undan keyin upstream'ni joriy branch'ga birlashtirish: standart holatda merge yoki pull.rebase bilan rebase. Koʻp dasturchilar nima oʻzgarganini koʻrish uchun tez-tez fetch qiladi, keyin ongli ravishda birlashtiradi, masalan feature branch'ini origin/main ustiga rebase qiladi.
+
+</QA>
+
+## Hujjatlar
+
+- [git push](https://git-scm.com/docs/git-push) · [git fetch](https://git-scm.com/docs/git-fetch) · [git pull](https://git-scm.com/docs/git-pull)

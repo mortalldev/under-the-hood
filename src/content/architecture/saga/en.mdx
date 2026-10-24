@@ -1,0 +1,73 @@
+## TL;DR
+
+When one business action spans several services — create order, charge card, reserve stock, book shipping — there is no single database transaction to wrap it in. A **saga** is a **sequence of local transactions**, one per service, where each failure triggers **compensating transactions** that undo the earlier steps in business terms (refund, cancel).
+
+The idea comes from a 1987 paper by Hector Garcia-Molina and Kenneth Salem; microservices made it everyday practice.
+
+## Animation
+
+<ArchitectureViz id="saga" />
+
+## How it works
+
+- Each step **commits locally** and is visible right away. There is no global rollback.
+- Each step that can be undone has a **compensation**: `charge` ↔ `refund`, `reserve` ↔ `release`, `create order` ↔ `cancel order`. Compensations run in **reverse order**.
+- Steps after the **pivot** (the point of no return — e.g. the parcel has shipped) can't be compensated, so they must be retried until they succeed.
+- **Every step and compensation must be idempotent**, because messages are retried and delivered more than once.
+
+Two ways to coordinate:
+
+| | Orchestration | Choreography |
+| --- | --- | --- |
+| Who drives | One orchestrator calls each step | Each service reacts to the previous event |
+| Visibility | The flow is in one place | The flow is spread across services |
+| Coupling | Orchestrator knows all participants | Services know only events |
+| Good for | Long, branching business processes | Short flows with few steps |
+
+Durable workflow engines (Temporal, AWS Step Functions, Azure Durable Functions) run orchestrators that survive crashes and resume where they stopped.
+
+## Code
+
+```ts
+// orchestrated saga; in production this runs inside a durable workflow engine
+async function placeOrderSaga(input: NewOrder) {
+  const order = await orders.create(input);                              // T1
+  let charge: Charge | undefined;
+  try {
+    charge = await payments.charge(order.id, order.total, { idempotencyKey: order.id });   // T2
+    await inventory.reserve(order.id, order.items);                      // T3
+    await shipping.book(order.id);                                       // T4 (pivot)
+    await orders.confirm(order.id);
+  } catch (e) {
+    if (charge) await payments.refund(charge.id, { idempotencyKey: `refund-${order.id}` });   // C2
+    await orders.cancel(order.id, String(e));                            // C1
+    throw e;
+  }
+}
+```
+
+## When to use it — and when not
+
+**Use it** for business transactions across services that each own their data: checkout, travel booking (flight + hotel + car), account onboarding with several providers.
+
+**Avoid needing it**: if the steps can live in one service with one database, a local ACID transaction is simpler and stronger. Draw service boundaries so that most operations don't span services.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Consistency across services without distributed locks | Intermediate states are visible (order "pending") |
+| Each service keeps its own database | Compensation logic for every step |
+| Works with unreliable networks via retries | Harder to test and reason about |
+
+## In interviews
+
+<QA q="Why not use two-phase commit (2PC) across the services instead of a saga?" level="senior">
+
+2PC needs every participant to support it and hold locks until the coordinator decides; if the coordinator or one participant is slow or down, the others stay blocked, which hurts availability exactly when things go wrong. Most modern databases, queues and third-party APIs (a card processor) don't take part in 2PC anyway. A saga accepts temporary inconsistency, keeps every transaction local and short, and restores consistency with compensations.
+
+</QA>
+
+## Sources
+
+- [Pattern: Saga — microservices.io](https://microservices.io/patterns/data/saga.html)

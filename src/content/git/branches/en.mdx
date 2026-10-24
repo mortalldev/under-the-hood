@@ -1,0 +1,47 @@
+## TL;DR
+
+A **branch** is a movable pointer to a commit. When you commit, the branch you're on moves to the new commit. **`HEAD`** says which branch you're on (or, in "detached HEAD", which commit). Creating a branch copies nothing — it writes one hash.
+
+Use **`git switch`** to move between branches (Git 2.23+); `git checkout` still works but mixes branch switching with file restoring.
+
+## Animation
+
+<GitViz id="branches" />
+
+## Commands
+
+| I want to… | Command |
+| --- | --- |
+| Create a branch and switch to it | `git switch -c feat/login` |
+| Create it from the latest remote main | `git switch -c feat/login origin/main` |
+| Switch to an existing branch | `git switch main` |
+| Go back to the previous branch | `git switch -` |
+| List branches with their upstream and last commit | `git branch -vv` |
+| Rename the current branch | `git branch -m new-name` |
+| Delete a merged branch / force-delete | `git branch -d name` / `git branch -D name` |
+| Inspect an old commit without a branch | `git switch --detach <sha>` |
+| See the graph | `git log --oneline --graph --all` |
+
+## Under the hood
+
+- `git switch -c x` writes `refs/heads/x` and changes `.git/HEAD` to `ref: refs/heads/x`. Then the working tree and index are updated to that commit's snapshot (only files that differ are touched).
+- Switching with uncommitted changes works if they don't conflict with the target; otherwise Git refuses. Commit, stash, or use a second worktree.
+- **Detached HEAD** isn't an error: it's for looking around, bisecting, building an old release. Commits made there belong to no branch; once you switch away they're reachable only through the reflog. `git switch -c <name>` keeps them.
+- Set the default branch name for new repositories: `git config --global init.defaultBranch main`.
+
+## Pitfalls
+
+- Long-lived branches drift: the longer a branch lives, the bigger the merge. Prefer branches that live hours or days.
+- `git branch -d` refuses to delete a branch that isn't merged into its upstream or HEAD — a squash-merged PR branch looks unmerged, so `-D` is needed after checking it's on main.
+
+## In interviews
+
+<QA q="Why is creating a branch in Git so cheap compared with older version control systems?" level="mid">
+
+Because a branch isn't a copy of files; it's a name containing one commit hash. Creating it writes a few bytes, and switching only updates the files that differ between the two snapshots. Systems like Subversion implemented branches as directory copies on the server, which made branching heavy and rare.
+
+</QA>
+
+## Docs
+
+- [git switch](https://git-scm.com/docs/git-switch) · [git branch](https://git-scm.com/docs/git-branch)

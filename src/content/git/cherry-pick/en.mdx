@@ -1,0 +1,46 @@
+## TL;DR
+
+`git cherry-pick <sha>` takes the **change** introduced by one commit (its diff against its parent) and applies it on top of the current branch as a **new commit**. Typical use: backport a hotfix from `main` to a `release/*` branch without bringing the features around it.
+
+## Animation
+
+<GitViz id="cherry-pick" />
+
+## Commands
+
+```bash
+git switch release/1.2
+git cherry-pick -x 7f3c9e1         # -x records "(cherry picked from commit 7f3c9e1)"
+git cherry-pick 7f3c9e1 9a8b7c6    # several commits, applied in order
+git cherry-pick A..B               # every commit after A up to B (A excluded)
+git cherry-pick -n 7f3c9e1         # apply the changes but don't commit (stage only)
+git cherry-pick -m 1 <merge-sha>   # pick a merge commit, diffing against parent 1
+
+# on conflict
+git status
+git add <file> && git cherry-pick --continue
+git cherry-pick --skip | --abort
+```
+
+## Under the hood
+
+- Git computes the diff `parent(H) → H` and three-way-merges it into your branch, using `parent(H)` as the base. That's why it can conflict: the surrounding code on your branch may differ.
+- The new commit `H′` has the same author and message (plus the `-x` line) but a different parent, so a different hash.
+- Later, when `main` is merged into the release branch, Git usually notices the identical change and doesn't conflict. `git log --cherry-pick` and `git cherry` can list which commits already exist on both sides by patch.
+
+## Pitfalls
+
+- Cherry-picking whole features between long-lived branches creates duplicate commits and painful merges. Prefer one direction of flow (e.g. fix on main, cherry-pick to release; or fix on release, merge forward).
+- A fix that depends on earlier commits will conflict or, worse, apply but not compile. Run the tests on the target branch.
+
+## In interviews
+
+<QA q="Production runs release/1.2, main has moved on. A critical bug is fixed on main. How do you ship the fix?" level="mid">
+
+Branch from release/1.2, cherry-pick the fix with -x so it's traceable, run the release branch's CI, open a PR into release/1.2 and deploy a 1.2.1 patch. If the fix depends on newer code, write a minimal version for the release branch instead of pulling in features. Many teams also tag the result (v1.2.1) and keep a changelog entry.
+
+</QA>
+
+## Docs
+
+- [git cherry-pick](https://git-scm.com/docs/git-cherry-pick)

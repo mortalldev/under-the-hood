@@ -5,7 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "@/i18n/navigation";
 
 export interface SearchItem {
-  kind: "lesson" | "section" | "term" | "principle";
+  kind: "lesson" | "section" | "term" | "principle" | "architecture" | "git" | "tool";
   title: string;
   subtitle: string;
   href: string;
@@ -136,7 +136,7 @@ export function SearchPalette({ items }: { items: SearchItem[] }) {
               onClick={() => go(r)}
               className={`flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2 ${i === active ? "bg-accent/15" : ""}`}
             >
-              <span className="mt-0.5 w-14 shrink-0 text-[0.65rem] font-medium uppercase tracking-wide text-fg-subtle">{t(r.kind === "term" ? "term" : r.kind)}</span>
+              <span className="mt-0.5 w-[4.6rem] shrink-0 truncate text-[0.65rem] font-medium uppercase tracking-wide text-fg-subtle">{t(r.kind)}</span>
               <span className="min-w-0">
                 <span className="block text-sm font-medium">{r.title}</span>
                 <span className="block truncate text-xs text-fg-muted">{r.subtitle}</span>

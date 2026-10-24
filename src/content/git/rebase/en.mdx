@@ -1,0 +1,56 @@
+## TL;DR
+
+`git rebase main` takes the commits on your branch that main doesn't have and **replays them on top of main**, one by one. The result is a straight line of history — but every replayed commit is a **new commit with a new hash**, so rebasing rewrites history.
+
+**Golden rule:** rebase only commits that nobody else has built on.
+
+## Animation
+
+<GitViz id="rebase" />
+
+## Commands
+
+```bash
+git switch feature
+git fetch origin
+git rebase origin/main                     # replay feature onto the latest main
+# conflict on a commit:
+git status                                 # which file
+git add <file> && git rebase --continue    # next commit
+git rebase --skip                          # drop this commit
+git rebase --abort                         # back to before the rebase
+
+git push --force-with-lease                # update an already-pushed branch safely
+
+git config --global pull.rebase true       # git pull = fetch + rebase, no merge bubbles
+git config --global rebase.autoStash true  # stash/unstash local edits automatically
+git rebase --onto main old-base feature    # move only the commits after old-base
+```
+
+## Under the hood
+
+1. Find the merge base of `feature` and `main`.
+2. Save each commit after it as a patch (in order).
+3. Reset `feature` to `main`'s tip.
+4. Apply each patch, creating new commits (`D′`, `E′`) — conflicts are resolved one commit at a time.
+5. The old commits are no longer on a branch but stay in the reflog (`ORIG_HEAD` points to the old tip), so a bad rebase is recoverable: `git reset --hard ORIG_HEAD`.
+
+`--onto` is the precise form: `git rebase --onto <new-base> <old-base> <branch>` moves the commits in `old-base..branch`. Typical use: your branch was based on a teammate's branch that has since been squash-merged into main.
+
+## Pitfalls
+
+- Rebasing a shared branch forces everyone who pulled it to recover manually. Keep rebasing to personal branches.
+- Conflicts can appear several times — once per replayed commit. Squash fixups first (interactive rebase) or enable `rerere`.
+- `git push --force` after a rebase can wipe a teammate's commits; `--force-with-lease` refuses if the remote moved.
+
+## In interviews
+
+<QA q="You rebased your branch and now git push is rejected. What happened and what do you do?" level="mid">
+
+The rebase replaced your commits with new ones, so the remote branch is no longer an ancestor of your local branch — a normal push would discard the old commits, and Git refuses. If the branch is yours alone, push with --force-with-lease, which only overwrites the remote if it still points where you last saw it. If others use the branch, don't force: coordinate, or merge instead.
+
+</QA>
+
+## Docs
+
+- [git rebase](https://git-scm.com/docs/git-rebase) · [Pro Git — Rebasing](https://git-scm.com/book/en/v2/Git-Branching-Rebasing)

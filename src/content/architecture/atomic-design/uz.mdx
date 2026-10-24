@@ -1,0 +1,79 @@
+## TL;DR
+
+**Atomic Design** (Brad Frost, 2013) — design system'lar uchun fikrlash modeli: interfeysni eng kichik boʻlaklardan yuqoriga qarab quring. **Atom**'lar (Button, Input) **molecule**'larga (qidiruv maydoni), molecule'lar **organism**'larga (header), organism'lar **template**'larga (layout), template'lar esa **page**'larga (real kontent bilan toʻldirilgan layout) birlashadi.
+
+Gap papka nomlarida emas, *kompozitsiya va izchillikda*.
+
+## Animatsiya
+
+<ArchitectureViz id="atomic-design" />
+
+## Qanday ishlaydi
+
+| Daraja | Ta'rif | Misol |
+| --- | --- | --- |
+| Atom | Eng kichik foydali UI elementi, design token'lardan bezatilgan | `Button`, `Input`, `Label`, `Icon` |
+| Molecule | Bitta birlik boʻlib ishlaydigan bir nechta atom | `SearchField` = label + input + button |
+| Organism | Molecule'lardan qurilgan alohida qism | `SiteHeader`, `ProductCard`, `CommentThread` |
+| Template | Placeholder kontentli sahifa layout'i | `SearchTemplate` |
+| Page | Real ma'lumotli template | `/search?q=react` |
+
+Hammasining tagida **design token**'lar turadi — rang, oraliq, radius va shrift uchun nomlangan qiymatlar (`--color-accent`, `--space-4`). Token'ni oʻzgartirsangiz, har bir atom unga ergashadi.
+
+## Kod
+
+```tsx
+// atom: bitta vazifa, variantlar token'lardan (cva + Tailwind)
+const button = cva("inline-flex items-center rounded-md font-medium", {
+  variants: {
+    intent: { primary: "bg-accent text-accent-fg", ghost: "hover:bg-surface-2" },
+    size: { sm: "h-8 px-3 text-sm", md: "h-10 px-4" },
+  },
+  defaultVariants: { intent: "primary", size: "md" },
+});
+
+export function Button({ intent, size, className, ...props }: ButtonProps) {
+  return <button className={cn(button({ intent, size }), className)} {...props} />;
+}
+```
+
+```tsx
+// molecule: atom'lar birlashgan, hali biznes mantiq yoʻq
+export function SearchField({ defaultValue }: { defaultValue?: string }) {
+  return (
+    <form role="search" action="/search">
+      <Label htmlFor="q" className="sr-only">Search</Label>
+      <Input id="q" name="q" defaultValue={defaultValue} />
+      <Button type="submit">Search</Button>
+    </form>
+  );
+}
+```
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating** design system yoki bir nechta ilova boʻlishadigan komponent kutubxonasini qurish va tushuntirish uchun. U dizaynerlar va dasturchilarga bir xil lugʻat beradi va Storybook bilan tabiiy juftlashadi (har bir atom va molecule uchun bitta story).
+
+Butun ilova uchun qat'iy papka taksonomiyasiga **aylantirmang**. Jamoalar dropdown molecule'mi yoki organism'mi degan bahsga soatlab vaqt sarflaydi, darajalar esa *biznes* kod haqida hech narsa aytmaydi. Keng tarqalgan zamonaviy boʻlinish: `components/ui` (atom va molecule'lar, shadcn/ui uslubida) va qolgan hamma narsa uchun Feature-Sliced Design kabi domen tuzilmasi.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Izchil UI, har bir element uchun yagona manba | Atom'dagi oʻzgarishning ta'sir doirasi katta |
+| Boʻlaklarni alohida test qilish va hujjatlash oson | Molecule'dan yuqori darajalar nomi noaniq |
+| Dizaynerlar bilan umumiy til | State, ma'lumot yoki domen mantigʻi haqida hech narsa demaydi |
+
+Ta'sir doirasini vizual regression testlar bilan himoya qiling (Storybook + Chromatic yoki Playwright screenshot'lari).
+
+## Interview'da
+
+<QA q="Bir nechta mahsulot jamoasi ishlatadigan komponent kutubxonasini qanday loyihalaysiz?" level="senior">
+
+Token'lardan boshlang, keyin standart holatda accessible boʻlgan primitive'lar (koʻpincha Radix, Base UI yoki React Aria ustida), keyin ulardan yigʻilgan komponentlar. Erkin stil prop'lari oʻrniga variantlar oching, kutubxonani versiyalang, har bir komponentni Storybook'da hujjatlang va CI'da vizual hamda accessibility testlarini ishga tushiring. Atomic Design qatlamlar haqida gapirishning qulay usuli; qiyin qismlari esa API dizayni, accessibility, theming va breaking change'larni kam saqlash.
+
+</QA>
+
+## Manbalar
+
+- [Atomic Design, Brad Frost (bepul onlayn kitob)](https://atomicdesign.bradfrost.com/)

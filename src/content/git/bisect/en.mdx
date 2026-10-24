@@ -1,0 +1,50 @@
+## TL;DR
+
+`git bisect` finds the commit that introduced a bug by **binary search**: you mark one commit good and one bad, Git checks out the middle, you test it, and the range halves each time. A thousand commits take about ten tests — and with `git bisect run`, zero manual ones.
+
+## Animation
+
+<GitViz id="bisect" />
+
+## Commands
+
+```bash
+git bisect start
+git bisect bad                    # current commit is broken
+git bisect good v1.4.0            # this tag was fine
+# Git checks out a commit in the middle; test it, then:
+git bisect good                   # or: git bisect bad
+git bisect skip                   # this commit can't be tested (doesn't build)
+git bisect log                    # what you've marked so far
+git bisect reset                  # back to where you started
+
+# fully automatic
+git bisect start main v1.4.0
+git bisect run npm test -- src/cart.test.ts
+```
+
+The script passed to `bisect run` decides by exit code: **0** = good, **125** = skip, **1–127 except 125** = bad, anything **128 or above** aborts the bisect.
+
+## Under the hood
+
+- Each step picks a commit that splits the remaining candidates roughly in half, so the number of tests is about `log₂ n`.
+- It works across merges: Git reasons about the commit graph, not a straight list. `git bisect start --first-parent` follows only the main line — useful when every merge to main is one PR.
+- You can rename the terms for non-bug searches: `git bisect start --term-old=fast --term-new=slow` to find a performance regression.
+
+## Pitfalls
+
+- Bisect is only as good as the history: huge commits leave you with "the bug is somewhere in this 4,000-line commit". Small commits pay off here.
+- Commits that don't build make bisect skip a lot — another reason to keep every commit on main green.
+- Write the test first, against the bad commit, so `bisect run` checks exactly the behaviour you care about.
+
+## In interviews
+
+<QA q="A test started failing on main sometime in the last 300 commits. How do you find the cause quickly?" level="mid">
+
+git bisect with the last known good release as good and main as bad, automated with git bisect run and a command that runs just that test. Around nine steps for 300 commits. If some commits don't build, the script exits 125 for them so they're skipped. Then read the first bad commit's diff, and add the test to CI if it wasn't there.
+
+</QA>
+
+## Docs
+
+- [git bisect](https://git-scm.com/docs/git-bisect)

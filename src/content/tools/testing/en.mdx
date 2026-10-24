@@ -1,0 +1,74 @@
+## Quick start
+
+The usual frontend split — many fast unit and component tests, a few end-to-end tests of critical journeys:
+
+| Layer | Tool | Tests |
+| --- | --- | --- |
+| Unit | Vitest | pure functions, hooks, reducers |
+| Component | Vitest + Testing Library (+ MSW) | a component as users see it, with mocked network |
+| End-to-end | Playwright | sign-up, checkout, the flows that make money |
+| Visual / docs | Storybook (+ visual snapshots) | design-system components in every state |
+
+A component test queries by role and label, like a user — so it survives refactors:
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { expect, test } from "vitest";
+
+test("shows an error for an invalid email", async () => {
+  render(<SignUpForm />);
+  await userEvent.type(screen.getByLabelText("Email"), "not-an-email");
+  await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(/valid email/i);
+});
+```
+
+Mock the network once with MSW and reuse the handlers in tests, Storybook and local development:
+
+```ts
+import { http, HttpResponse } from "msw/http";
+import { setupServer } from "msw/node";
+
+export const server = setupServer(
+  http.get("/api/user", () => HttpResponse.json({ id: "1", name: "Ada" })),
+);
+// vitest.setup.ts: beforeAll(() => server.listen()); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
+```
+
+An end-to-end test with Playwright auto-waits for elements, so no manual sleeps:
+
+```ts
+import { expect, test } from "@playwright/test";
+
+test("checkout", async ({ page }) => {
+  await page.goto("/products/keyboard");
+  await page.getByRole("button", { name: "Add to cart" }).click();
+  await page.getByRole("link", { name: "Cart" }).click();
+  await expect(page.getByText("1 item")).toBeVisible();
+});
+```
+
+## How to choose
+
+| Need | Pick |
+| --- | --- |
+| Unit and component test runner | Vitest (Jest is fine in existing projects) |
+| Query the DOM like a user | Testing Library |
+| Real browsers, E2E, screenshots | Playwright |
+| Network mocking shared everywhere | MSW |
+| Component workshop and visual tests | Storybook |
+
+## Gotchas
+
+- Prefer `getByRole` / `getByLabelText` over test ids and CSS selectors; they also check accessibility.
+- Flaky E2E tests are usually missing waits on the *right* condition — assert on what the user sees (`toBeVisible`), not on timeouts.
+- Test behaviour, not implementation: asserting that a hook was called or a state variable changed breaks on every refactor.
+
+## In interviews
+
+<QA q="What would you test in a React app, and with what?" level="senior">
+
+Business logic as plain unit tests; components through their public behaviour with Testing Library and MSW-mocked APIs, covering loading, error and empty states; a handful of Playwright tests for revenue-critical journeys running against a production-like build in CI; and visual regression for the design system. I'd keep the suite fast enough to run on every PR, track flaky tests as bugs, and add a regression test for every production incident.
+
+</QA>

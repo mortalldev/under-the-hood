@@ -1,0 +1,83 @@
+## TL;DR
+
+**Domain-Driven Design (DDD)** (Eric Evans, 2003) dasturning eng qiyin qismi biznes domeni ekanini aytadi, shuning uchun kodni unga asoslab — uni biladigan odamlar bilan birga — modellashtiring.
+
+Amalda ikki gʻoya eng muhim:
+
+- **Bounded context** — ichida har bir atama aynan bitta ma'noga ega boʻlgan chegara. Sales'dagi "Customer" (deal) va Support'dagi "Customer" (ticket tarixi) turli modellar, va bu toʻgʻri.
+- **Ubiquitous language** — kod, suhbatlar va hujjatlar domen mutaxassislari ishlatadigan soʻzlarni ishlatadi: `order.status = 2` emas, `order.place()`.
+
+## Animatsiya
+
+<ArchitectureViz id="domain-driven-design" />
+
+## Qanday ishlaydi
+
+**Strategik dizayn** (katta manzara):
+
+- **Subdomain**'larni toping: *core* (biznesni alohida qiladigan narsa — shu yerga sarmoya kiriting), *supporting* va *generic* (sotib oling yoki tayyorini ishlating: auth, email, toʻlovlar).
+- **Bounded context**'larni chizing, ideal holda har jamoaga bittadan, har birining oʻz modeli va ma'lumoti bilan.
+- **Context map**'ni chizing: context'lar qanday integratsiyalashadi — e'lon qilingan event'lar, umumiy kontrakt yoki legacy yoki tashqi modelni sizning modelingizga oʻtib ketmasligi uchun tarjima qiladigan **anti-corruption layer (ACL)**.
+
+**Taktik dizayn** (bitta context ichida):
+
+| Qurilish bloki | Bu nima |
+| --- | --- |
+| Entity | Saqlanib qoladigan identifikatorga ega (`Order #123`) |
+| Value object | Qiymatlari bilan aniqlanadi, oʻzgarmas (`Money`, `Address`) |
+| Aggregate | Root orqali bitta birlik sifatida oʻzgaradigan klaster; invariant'larni himoya qiladi |
+| Domain event | Sodir boʻlgan fakt (`OrderPlaced`) |
+| Repository | Butun aggregate'larni yuklaydi va saqlaydi |
+
+## Kod
+
+```ts
+// value object: oʻzgarmas, qiymat boʻyicha solishtiriladi
+class Money {
+  constructor(readonly cents: number, readonly currency: "USD" | "UZS") {
+    if (!Number.isInteger(cents)) throw new DomainError("Money must be whole cents");
+  }
+  add(o: Money) { if (o.currency !== this.currency) throw new DomainError("Currency mismatch"); return new Money(this.cents + o.cents, this.currency); }
+}
+
+// aggregate root: buyurtmani oʻzgartirishning yagona yoʻli, shuning uchun qoidalari doim bajariladi
+class Order {
+  private lines: OrderLine[] = [];
+  private status: "draft" | "placed" = "draft";
+  addLine(sku: Sku, qty: number, price: Money) {
+    if (this.status !== "draft") throw new DomainError("Placed orders can't change");
+    this.lines.push(new OrderLine(sku, qty, price));
+  }
+  place(): OrderPlaced {
+    if (this.lines.length === 0) throw new DomainError("Order has no lines");
+    this.status = "placed";
+    return { type: "OrderPlaced", orderId: this.id, total: this.total() };
+  }
+}
+```
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar domen murakkab va tez-tez oʻzgarsa — sugʻurta, logistika, marketplace, billing — va domen mutaxassislari bilan gaplashish imkoni boʻlsa. Bounded context'lar modul yoki service'larga boʻlish uchun ham eng yaxshi yoʻriqnoma.
+
+Mantigʻi kam CRUD ekranlar uchun **taktik pattern'larni tashlab keting**; aggregate va repository'lar hech narsani himoya qilmasdan ogʻirlik qoʻshadi. Strategik qism — context'lar va umumiy til — deyarli hamma joyda oʻzini oqlaydi.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Kod biznes qanday gapirishi va oʻzgarishiga mos | Domen mutaxassislari bilan vaqt kerak |
+| Context'lar tabiiy modul/service chegaralarini beradi | Context'lar orasida tarjima — qoʻshimcha kod |
+| Aggregate'lar invariant'larni bir joyda saqlaydi | Oddiy CRUD'ga pattern'larni ortiqcha qoʻllash oson |
+
+## Interview'da
+
+<QA q="Monolith'ni service'larga qayerdan boʻlishni qanday hal qilasiz?" level="senior">
+
+Texnik layer'lar yoki baza jadvallari boʻyicha emas, bounded context'lar boʻyicha. Bir soʻz qayerda turli ma'nolarni anglatishini, qaysi ma'lumot birga oʻzgarishini va qaysi jamoa qaysi qarorlarga egalik qilishini xaritaga tushirgan boʻlardim. Har bir context modul uchun nomzod boʻladi va faqat haqiqiy ehtiyoji borlari — mustaqil kengayish, release ritmi, boshqa jamoa — service'ga aylanadi. Context'lar event'lar yoki aniq API'lar orqali gaplashadi, legacy narsalar atrofida esa anti-corruption layer turadi.
+
+</QA>
+
+## Manbalar
+
+- [Bounded Context — Martin Fowler](https://martinfowler.com/bliki/BoundedContext.html)

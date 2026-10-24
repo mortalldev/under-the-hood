@@ -1,0 +1,62 @@
+## TL;DR
+
+Katta monorepo'lar oddiy `git clone` va `git status`'ni sekinlashtiradi. Git'da **faqat kerakli narsani** yuklab olish va ochish uchun oʻrnatilgan tool'lar bor:
+
+- **Partial clone** (`--filter=blob:none`) — barcha commit va tree'lar, fayl tarkibi esa kerak boʻlganda olinadi.
+- **Sparse checkout** (cone rejimi) — working tree'da faqat siz ishlaydigan papkalar paydo boʻladi.
+- **Shallow clone** (`--depth 1`) — faqat oxirgi commit; bir martalik CI build'lari uchun.
+- **Fondagi maintenance**, **commit-graph** va **fsmonitor** daemon kundalik buyruqlarni tez saqlaydi.
+- **`scalar`** (Microsoft yaratgan, Git bilan birga keladi) bularning hammasini bitta buyruq bilan sozlaydi.
+
+## Animatsiya
+
+<GitViz id="large-repos" />
+
+## Buyruqlar
+
+```bash
+# dasturchi kompyuteri: toʻliq tarix, kechiktirilgan fayl tarkibi, faqat sizning papkalaringiz
+git clone --filter=blob:none --sparse https://github.com/acme/monorepo
+cd monorepo
+git sparse-checkout set apps/web packages/ui      # cone rejimi standart
+git sparse-checkout add packages/config
+git sparse-checkout list
+git sparse-checkout disable                       # toʻliq tree'ga qaytish
+
+# CI: oxirgi commit'ni build qilib, clone'ni tashlab yuborish
+git clone --depth 1 --branch main https://github.com/acme/monorepo
+
+# katta repo'ni tez saqlash
+git maintenance start                             # rejalashtirilgan prefetch, commit-graph, repacking
+git config core.fsmonitor true                    # git status uchun fayl tizimi kuzatuvchisi
+git config core.untrackedCache true
+
+# yoki yuqoridagilarning hammasi
+scalar clone https://github.com/acme/monorepo
+```
+
+## Ichkarida
+
+- **Partial clone** server filtrlarni qoʻllab-quvvatlashiga tayanadi (GitHub, GitLab va Bitbucket qoʻllaydi). Yetishmayotgan blob'lar buyruqqa kerak boʻlganda olinadi — checkout, diff, blame. `git log` kabi tarix buyruqlari lokal qoladi.
+- **Cone rejimi** pattern'larni butun papkalar bilan cheklaydi, bu Git'ga yoʻllarni tez moslash imkonini beradi; ixtiyoriy glob pattern'lar (non-cone) sekinroq va tavsiya etilmaydi.
+- **Shallow clone**'lar tarixni kesadi, shuning uchun `git log`, `blame` va merge-base hisoblari notoʻgʻri boʻlishi yoki yiqilishi mumkin; odamlar uchun blobless partial clone'ni afzal koʻring. (`--filter=tree:0` "treeless" clone'lar yanada kichik, lekin tarix buyruqlarini sekinlashtiradi, shuning uchun ular odamlardan koʻra CI'ga mos.)
+- Scalar Microsoft'ning juda katta repository'lar ustidagi ishidan oʻsib chiqqan va Git 2.38'da uning bir qismiga aylangan.
+
+## Tuzoqlar
+
+- Sparse checkout papkalarni yashiradi, lekin dependency'larni oʻzgartirmaydi: agar `apps/web` `packages/auth`'ni import qilsa, sizga oʻsha papka ham kerak.
+- Blobless clone fayllarning eski versiyalarini ochganingizda tarmoqni talab qiladi.
+- Katta binary asset'lar uchun toʻgʻri javob hali ham Git LFS; yuqoridagi tool'lar katta binary'larni arzon qilmaydi.
+
+## Interview'da
+
+<QA q="Dasturchilar monorepo'ni clone qilish 40 daqiqa, git status esa 10 soniya olishidan shikoyat qiladi. Nimani oʻzgartirasiz?" level="senior">
+
+Faqat commit va tree'lar tushishi uchun --filter=blob:none (yoki scalar clone) bilan clone qiling, hamda har bir jamoa ishlaydigan papkalar uchun cone rejimidagi sparse-checkout. status va log tez boʻlishi uchun git maintenance, commit-graph, fsmonitor va untracked cache'ni yoqing. Katta binary'larni LFS'ga koʻchiring. CI'da shallow yoki treeless clone ishlating va repository'ni job'lar orasida cache qiling. Keyin nima qolganini koʻrish uchun GIT_TRACE2_PERF bilan yana oʻlchang.
+
+</QA>
+
+## Hujjatlar
+
+- [git sparse-checkout](https://git-scm.com/docs/git-sparse-checkout) · [scalar](https://git-scm.com/docs/scalar) · [git maintenance](https://git-scm.com/docs/git-maintenance)
+- [Get up to speed with partial clone and shallow clone — GitHub Blog](https://github.blog/open-source/git/get-up-to-speed-with-partial-clone-and-shallow-clone/)

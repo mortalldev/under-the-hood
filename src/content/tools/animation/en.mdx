@@ -1,0 +1,64 @@
+## Quick start
+
+Use the lightest tool that does the job: **CSS transitions** for hover and focus, the **View Transition API** for page and layout changes, **Motion** for interactive React UI (enter/exit, layout, gestures), **GSAP** for long, sequenced or scroll-driven storytelling.
+
+```tsx
+import { AnimatePresence, motion } from "motion/react";
+
+export function Toast({ open, message }: { open: boolean; message: string }) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          role="status"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 12 }}
+          transition={{ type: "spring", stiffness: 400, damping: 30 }}
+        >
+          {message}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+```
+
+`AnimatePresence` keeps the element mounted until its `exit` animation finishes — something React alone can't do. Add `layout` to a `motion` element and it animates smoothly whenever its size or position changes.
+
+The View Transition API animates between two DOM states with almost no JavaScript:
+
+```ts
+function selectTab(tab: string) {
+  if (!document.startViewTransition) return render(tab);   // older browsers: no animation
+  document.startViewTransition(() => render(tab));
+}
+```
+
+```css
+/* cross-document transitions between pages of the same site */
+@view-transition { navigation: auto; }
+```
+
+## How to choose
+
+| Situation | Pick |
+| --- | --- |
+| Hover, focus, simple state changes | CSS transitions |
+| Page-to-page or list re-order transitions | View Transition API |
+| React UI: enter/exit, shared layout, drag, gestures | Motion |
+| Timelines, scroll-driven marketing pages | GSAP |
+
+## Gotchas
+
+- Animate `transform` and `opacity`; animating `width`, `top` or `box-shadow` triggers layout or paint on every frame and janks on slower phones.
+- Respect `prefers-reduced-motion`: Motion's `useReducedMotion()` and Tailwind's `motion-reduce:` variant make it easy. Motion should explain change, not decorate it.
+- Animations must not hide content from screen readers or delay input; keep them short (150–300 ms for UI).
+
+## In interviews
+
+<QA q="An animation stutters on mid-range Android phones. How do you debug it?" level="senior">
+
+Record a Performance profile in Chrome DevTools with CPU throttling and look for long frames: layout and paint inside the animation mean it animates layout-affecting properties, so switch to transform and opacity (which the compositor can run off the main thread). Check for JavaScript running on every frame (scroll handlers, React re-renders during the animation), reduce the number of animated elements, and use will-change sparingly on the elements that actually move.
+
+</QA>

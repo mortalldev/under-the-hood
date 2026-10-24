@@ -1,0 +1,71 @@
+## TL;DR
+
+**MVC, MVVM va Flux** — hammasi *foydalanuvchi koʻradigan narsani* *uning ortidagi state*'dan ajratadi. Ular **ma'lumot qaysi tomonga oqishi** bilan farq qiladi:
+
+- **MVC** — controller input'ni model yangilanishiga aylantiradi; model view'larga xabar beradi. Serverda klassik (Rails, Spring MVC, ASP.NET MVC).
+- **MVVM** — ViewModel bitta view uchun state va command'larni ochadi; view unga **bogʻlanadi** (WPF, Angular, Vue, SwiftUI'ning observable modellari).
+- **Flux** — **bir tomonlama** halqa: view → action → store → view. Facebook uni 2014-yilda React bilan birga taqdim qilgan; Redux, `useReducer` va Zustand xuddi shu shaklga amal qiladi.
+
+## Animatsiya
+
+<ArchitectureViz id="mvc-mvvm" />
+
+## Qanday ishlaydi
+
+| | State'ni kim oʻzgartiradi | Yoʻnalish | Odatiy joyi |
+| --- | --- | --- | --- |
+| MVC | Controller model'ni chaqiradi | Input → controller → model → view | Serverda render qilinadigan ilovalar |
+| MVVM | View ViewModel xususiyatlari va command'lariga bogʻlanadi | View va ViewModel orasida ikki tomonlama binding | Desktop, Angular, Vue |
+| Flux / Redux | Faqat reducer'lar, action'larga javoban | Bir tomonga, halqa boʻylab | React ilovalari |
+
+Flux nishonga olgan muammo: katta client ilovalarda model va view'larning bir-birini koʻp yoʻnalishda yangilashi state *nima uchun* shundayligini aytishni imkonsiz qiladi. Yagona store va aniq action'lar bilan har qanday state'ni uni yaratgan action'larni qayta oʻynab tushuntirish mumkin — Redux DevTools'dagi time travel ham aynan shuning uchun mumkin.
+
+## Kod
+
+```tsx
+type Action = { type: "added"; text: string } | { type: "toggled"; id: string };
+
+function todos(state: Todo[], action: Action): Todo[] {
+  switch (action.type) {
+    case "added":
+      return [...state, { id: crypto.randomUUID(), text: action.text, done: false }];
+    case "toggled":
+      return state.map((t) => (t.id === action.id ? { ...t, done: !t.done } : t));
+  }
+}
+
+function TodoApp() {
+  const [state, dispatch] = useReducer(todos, []);
+  return <TodoList todos={state} onToggle={(id) => dispatch({ type: "toggled", id })} />;
+}
+```
+
+View hech qachon `state`'ni oʻzgartirmaydi; u nima sodir boʻlganini (`toggled`) tasvirlaydi, keyingi state'ni esa pure function boʻlgan reducer hal qiladi.
+
+## Qaysi birini qachon tanlash kerak
+
+- Lokal UI uchun **oddiy komponent state** (`useState`): ochiq menu, input qoralamasi.
+- Bir state'ni koʻp event oʻzgartirsa yoki uni koʻp komponent oʻqisa — **reducer / store (Flux shakli)**: savat, editor, koʻp bosqichli form.
+- **Server state boshqa narsa**: serverda yashaydigan ma'lumot qoʻlda yozilgan store'ga emas, TanStack Query kabi cache'ga tegishli.
+- Framework'ingiz shunga moʻljallangan boʻlsa — **MVVM** (Angular signal va service'lari, Vue composable'lari); framework bilan kurashmang.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Bir tomonlama oqim oldindan aytiladigan va debug qilinadigan | Oddiy holatlar uchun boilerplate |
+| Pure reducer'larni unit test qilish juda oson | Global store hamma narsani unga solishga undaydi |
+| Ikki tomonlama binding (MVVM) form'lar uchun ixcham | Zanjirli yangilanishlarni kuzatish qiyin |
+
+## Interview'da
+
+<QA q="Nima uchun React ekotizimni bir tomonlama ma'lumot oqimiga burdi?" level="senior">
+
+Chunki koʻp view va model orasidagi ikki tomonlama yangilanishlar state oʻzgarishlarini lokal boʻlmagan qiladi: bir joydagi oʻzgarish boshqa joyda yangilanishni, u esa yana yangilanishlarni keltirib chiqaradi va bug'larni takrorlash qiyinlashadi. Bir tomonlama oqim har bir oʻzgarishni ma'lum yoʻldan (action va reducer yoki setState) oʻtkazadi, shuning uchun UI state'ning funksiyasi, state esa action tarixining funksiyasi boʻladi. Bu oldindan aytiladigan render, oson test va time-travel debugging kabi tool'larni beradi.
+
+</QA>
+
+## Manbalar
+
+- [Flux: An Application Architecture for React (React blog, 2014)](https://legacy.reactjs.org/blog/2014/05/06/flux.html)
+- [Thinking in React — react.dev](https://react.dev/learn/thinking-in-react)

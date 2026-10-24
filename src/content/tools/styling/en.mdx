@@ -1,0 +1,57 @@
+## Quick start
+
+**Tailwind CSS v4** is configured in CSS, not in a JavaScript file. With Vite:
+
+```ts
+// vite.config.ts
+import tailwindcss from "@tailwindcss/vite";
+export default defineConfig({ plugins: [react(), tailwindcss()] });
+```
+
+```css
+/* app.css */
+@import "tailwindcss";
+
+@theme {
+  --color-brand: oklch(0.62 0.19 260);
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+```
+
+Every `--color-*` token becomes utilities (`bg-brand`, `text-brand`), and the tokens are real CSS variables you can read anywhere. Next.js uses `@tailwindcss/postcss` instead of the Vite plugin.
+
+For components with variants, combine **cva**, **clsx** and **tailwind-merge** — this `cn()` helper is exactly what shadcn/ui generates:
+
+```ts
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs));
+
+cn("px-2 py-1", isActive && "bg-brand", "px-4");   // → "py-1 bg-brand px-4" (px-2 removed)
+```
+
+## How to choose
+
+| Situation | Pick |
+| --- | --- |
+| Most new React apps, design tokens, fast iteration | Tailwind CSS |
+| Hand-written CSS with scoping and zero runtime | CSS Modules |
+| Very large apps, many teams, type-safe styles | StyleX |
+| Variant APIs for a component library | cva + tailwind-merge |
+
+Runtime CSS-in-JS (styles computed in the browser during render) has fallen out of favour for React Server Components apps: it needs client-side JavaScript and complicates streaming. Prefer compile-time options.
+
+## Gotchas
+
+- Tailwind finds classes by scanning source text. Build class names from complete strings (`isError ? "text-red-600" : "text-gray-700"`), never by concatenation like `"text-" + color`.
+- Long class lists are fine in components; extract a component, not an `@apply` rule, when markup repeats.
+- Respect `prefers-reduced-motion` and dark mode with the built-in `motion-reduce:` and `dark:` variants.
+
+## In interviews
+
+<QA q="How would you choose a styling approach for a large React app using Server Components?" level="senior">
+
+Pick something that produces static CSS at build time, so server-rendered HTML is styled without client JavaScript: Tailwind, CSS Modules or a compile-time CSS-in-JS like StyleX. Define design tokens as CSS variables for theming and dark mode, give components a variant API so teams don't invent one-off styles, and measure CSS size and unused rules in CI.
+
+</QA>

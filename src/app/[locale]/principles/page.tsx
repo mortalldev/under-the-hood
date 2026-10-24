@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { getLocale, getTranslations } from "next-intl/server";
 import { IntentLink } from "@/components/layout/IntentLink";
-import { categories, hueClass, principles, principlesIn } from "@/content/principles/registry";
+import { entriesIn, hueClass } from "@/content/library";
+import { categories, principles, principlesLib } from "@/content/principles/registry";
 import type { Locale } from "@/i18n/routing";
 import { jsonLd, pageMetadata } from "@/lib/seo";
 import { site } from "@/lib/site";
@@ -60,10 +61,10 @@ export default async function PrinciplesPage() {
             </h2>
             <p className="mt-1.5 max-w-2xl text-[0.95rem] leading-relaxed text-fg-muted">{t("solidLead")}</p>
           </div>
-          <span className="font-mono text-xs text-fg-subtle">{t("count", { count: principlesIn("solid").length })}</span>
+          <span className="font-mono text-xs text-fg-subtle">{t("count", { count: entriesIn(principlesLib, "solid").length })}</span>
         </div>
         <ol className="mt-6 grid gap-3 sm:grid-cols-5">
-          {principlesIn("solid").map((p) => (
+          {entriesIn(principlesLib, "solid").map((p) => (
             <li key={p.slug}>
               <IntentLink
                 href={`/principles/solid/${p.slug}`}
@@ -89,11 +90,11 @@ export default async function PrinciplesPage() {
             <IntentLink href={`/principles/${c.slug}`} className="group flex items-center gap-2.5">
               <span aria-hidden="true" className={`size-2.5 rounded-full bg-current ${hueClass[c.hue].text}`} />
               <span className="text-lg font-semibold group-hover:text-accent">{c.title[locale]}</span>
-              <span className="ml-auto font-mono text-xs text-fg-subtle">{t("count", { count: principlesIn(c.slug).length })}</span>
+              <span className="ml-auto font-mono text-xs text-fg-subtle">{t("count", { count: entriesIn(principlesLib, c.slug).length })}</span>
             </IntentLink>
             <p className="mt-2 text-[0.95rem] leading-relaxed text-fg-muted">{c.summary[locale]}</p>
             <ul className="mt-4 flex flex-wrap gap-2">
-              {principlesIn(c.slug).map((p) => (
+              {entriesIn(principlesLib, c.slug).map((p) => (
                 <li key={p.slug}>
                   <IntentLink
                     href={`/principles/${c.slug}/${p.slug}`}

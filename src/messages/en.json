@@ -24,7 +24,18 @@
     "principles": "Principles",
     "filterLessons": "Find a lesson",
     "noMatches": "No lessons match",
-    "overview": "Section overview"
+    "overview": "Section overview",
+    "architecture": "Architecture",
+    "tools": "Tools",
+    "git": "Git",
+    "handbook": "Handbook",
+    "handbookLead": "Reference for working engineers: principles, architecture, the modern frontend toolchain and Git.",
+    "principlesDesc": "SOLID, DRY, KISS and 20 more, animated",
+    "architectureDesc": "FSD, hexagonal, microservices, CQRS…",
+    "toolsDesc": "Zod, shadcn/ui, TanStack Query… with official docs",
+    "gitDesc": "Commands that are used today, with animated graphs",
+    "learnDesc": "The full course: DSA, JS, TS, React, Next.js, Node, system design",
+    "more": "More"
   },
   "Languages": {
     "uz": "Oʻzbekcha",
@@ -47,7 +58,9 @@
     "how3Body": "Real code, trade-offs, interview questions and a short quiz — then the lesson goes into your spaced-repetition list.",
     "partsTitle": "Ten parts, same order everywhere",
     "previewTitle": "Sliding window",
-    "previewNote": "right meets a repeated “a” — left jumps past its previous position, so the window stays valid."
+    "previewNote": "right meets a repeated “a” — left jumps past its previous position, so the window stays valid.",
+    "handbookTitle": "Handbook",
+    "handbookLead": "Beyond the course: the reference you keep open while you work and before a senior interview."
   },
   "LessonParts": {
     "tldr": "TL;DR",
@@ -173,7 +186,10 @@
     "term": "Term",
     "section": "Section",
     "principle": "Principle",
-    "close": "Close"
+    "close": "Close",
+    "architecture": "Architecture",
+    "git": "Git",
+    "tool": "Tool"
   },
   "Resources": {
     "title": "Go deeper",
@@ -221,6 +237,58 @@
     "all": "All principles",
     "solidLead": "Five letters, one goal: classes that are small, replaceable and safe to extend.",
     "open": "Open"
+  },
+  "Architecture": {
+    "title": "Software architecture",
+    "lead": "How real systems are split into parts: Feature-Sliced Design and monorepos on the frontend, hexagonal and clean architecture in the application, microservices, events and sagas between services. Every style comes with an animation, real code and the trade-offs interviewers ask about.",
+    "stats": "{entries} topics · {categories} levels · every one animated",
+    "start": "Start with Feature-Sliced Design",
+    "categories": "Levels",
+    "count": "{count, plural, one {# topic} other {# topics}}",
+    "tabs": "Parts of the page",
+    "related": "Related topics",
+    "nav": "Architecture navigation",
+    "all": "All topics",
+    "mapTitle": "From one component to many services",
+    "mapLead": "Architecture is the same question asked at three scales: where does this code live, and what is it allowed to depend on?"
+  },
+  "Git": {
+    "title": "Git in practice",
+    "lead": "The Git that working teams use today: the object model under the hood, switch and restore instead of checkout, rebase and fixup commits, force-with-lease, worktrees, bisect and sparse checkouts for huge repos. Every topic shows the commit graph changing step by step.",
+    "stats": "{entries} topics · {categories} groups · animated commit graphs",
+    "start": "Start with how Git stores data",
+    "categories": "Groups",
+    "count": "{count, plural, one {# topic} other {# topics}}",
+    "tabs": "Parts of the page",
+    "related": "Related topics",
+    "nav": "Git navigation",
+    "all": "All topics",
+    "cheatTitle": "I want to…",
+    "cheatLead": "The commands for everyday situations. Each row links to the topic that explains it.",
+    "safe": "Safe",
+    "unsafe": "Rewrites history",
+    "local": "Local only"
+  },
+  "Tools": {
+    "title": "Frontend tools",
+    "lead": "The tools a modern frontend team actually ships with: what each one is for, when to reach for it, when not to, and the official place to learn it. Every link goes to the project's own documentation.",
+    "stats": "{tools} tools · {categories} categories · official docs only",
+    "categories": "Categories",
+    "count": "{count, plural, one {# tool} other {# tools}}",
+    "docs": "Official docs",
+    "install": "Install",
+    "use": "Reach for it when",
+    "avoid": "Skip it when",
+    "by": "Made by",
+    "checked": "Links and versions checked against official sources on {date}.",
+    "nav": "Tools navigation",
+    "all": "All tools",
+    "tabs": "Parts of the page",
+    "stackTitle": "A sensible default stack",
+    "stackLead": "Starting a React app today with no constraints? This combination is well supported and widely used. Swap a piece only when you have a reason.",
+    "pick": "Default pick",
+    "guide": "Examples and comparison",
+    "latest": "latest"
   },
   "Glossary": {
     "title": "Glossary",

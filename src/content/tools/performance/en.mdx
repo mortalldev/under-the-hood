@@ -1,0 +1,62 @@
+## Quick start
+
+Measure what **real users** feel, not only what your laptop shows. Google's **Core Web Vitals** are the shared yardstick:
+
+| Metric | Measures | Good (at the 75th percentile of page loads) |
+| --- | --- | --- |
+| LCP — Largest Contentful Paint | loading: when the main content appears | ≤ 2.5 s |
+| INP — Interaction to Next Paint | responsiveness: delay after a click or key press | ≤ 200 ms |
+| CLS — Cumulative Layout Shift | visual stability: content jumping around | ≤ 0.1 |
+
+Collect them from the field with the `web-vitals` library and send them to your analytics:
+
+```ts
+import { onCLS, onINP, onLCP, type Metric } from "web-vitals";
+
+function send(metric: Metric) {
+  const body = JSON.stringify({ name: metric.name, value: metric.value, rating: metric.rating, id: metric.id });
+  navigator.sendBeacon("/api/vitals", body);     // survives the page being closed
+}
+
+onCLS(send);
+onINP(send);
+onLCP(send);
+```
+
+In Next.js, `useReportWebVitals` from `next/web-vitals` gives the same metrics without wiring the library yourself.
+
+Catch production errors with source-mapped stack traces:
+
+```ts
+// instrumentation-client.ts (Next.js) or your app entry
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  tracesSampleRate: 0.1,          // sample 10% of transactions for performance tracing
+});
+```
+
+## How to choose
+
+| Need | Pick |
+| --- | --- |
+| Field data: what users experience | web-vitals → your analytics (or your host's dashboard) |
+| Lab audits and regression checks in CI | Lighthouse |
+| Why a component re-renders | React DevTools Profiler |
+| Long tasks, layout, paint, network | Chrome DevTools Performance panel |
+| Crashes and slow transactions in production | Sentry (or OpenTelemetry + your backend) |
+
+## Gotchas
+
+- Lab scores (Lighthouse) and field data disagree: lab runs one device on one network. Decide using the 75th percentile of field data, and use the lab to find causes.
+- INP replaced FID as the responsiveness Core Web Vital in 2024. Long JavaScript tasks after input are the usual cause: break them up, defer non-urgent work, avoid huge re-renders.
+- CLS mostly comes from images and ads without reserved space, and late-loading fonts. Set `width`/`height` or `aspect-ratio`, and size font fallbacks.
+
+## In interviews
+
+<QA q="The product page's LCP is 4 seconds on mobile. Walk me through fixing it." level="senior">
+
+Find the LCP element first (usually the hero image or heading) with field data and a DevTools trace, then shorten each phase: time to first byte (cache HTML at the CDN, avoid server waterfalls), resource load delay (make the image discoverable in HTML, fetchpriority high, no lazy-loading above the fold), load time (modern formats, correct sizes via srcset), and render delay (less render-blocking CSS and JS, no client-side-only rendering of the hero). Verify with field data after release, not only Lighthouse.
+
+</QA>

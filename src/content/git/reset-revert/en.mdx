@@ -1,0 +1,53 @@
+## TL;DR
+
+Two ways to undo a commit:
+
+- **`git reset`** moves the current branch pointer back. It rewrites history — use it on **local, unpushed** commits.
+- **`git revert`** adds a **new commit that undoes** an earlier one. History only grows — use it on **shared** branches.
+
+`reset` has three modes that decide what happens to the changes in the commits you move past.
+
+## Animation
+
+<GitViz id="reset-revert" />
+
+## Commands
+
+| Command | Branch pointer | Index | Working tree |
+| --- | --- | --- | --- |
+| `git reset --soft HEAD~1` | moves back | keeps the changes (staged) | untouched |
+| `git reset HEAD~1` (`--mixed`, default) | moves back | reset (changes unstaged) | untouched |
+| `git reset --hard HEAD~1` | moves back | reset | **reset — edits lost** |
+| `git revert <sha>` | new commit on top | updated | updated |
+
+```bash
+git reset --soft HEAD~3           # squash the last 3 local commits: then commit once
+git reset --hard origin/main      # make local main exactly match the server
+git revert 9d2e4f1                # undo one pushed commit
+git revert --no-commit A..B       # undo a range, commit once at the end
+git revert -m 1 <merge-sha>       # undo a merge, keeping the mainline (parent 1)
+```
+
+## Under the hood
+
+- `HEAD~1` is the first parent of HEAD; `HEAD~3` goes three first-parents back. `HEAD^2` is the *second* parent of a merge.
+- Before any reset, Git saves the old position in `ORIG_HEAD` and the reflog, so `git reset --hard ORIG_HEAD` or `git reflog` undoes a bad reset — as long as the work was committed.
+- `revert` computes the inverse of the commit's diff and commits it. Reverting a revert re-applies the original change.
+
+## Pitfalls
+
+- `--hard` discards uncommitted work for good. Run `git stash` or `git status` first.
+- Reverting a merge and later merging the same branch again won't bring its changes back (Git sees them as already merged); you have to revert the revert first.
+- Resetting a pushed branch and force-pushing breaks everyone who pulled it.
+
+## In interviews
+
+<QA q="A commit with a bug was merged to main an hour ago and deployed. How do you roll back?" level="mid">
+
+Revert, don't reset: git revert the commit (or the merge commit with -m 1) on a branch, open a PR, let CI run and deploy — main's history stays linear and nobody's clone breaks. Many teams can also roll back the deployment itself or switch off the feature flag first to stop the bleeding, then fix forward.
+
+</QA>
+
+## Docs
+
+- [git reset](https://git-scm.com/docs/git-reset) · [git revert](https://git-scm.com/docs/git-revert)

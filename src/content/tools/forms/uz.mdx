@@ -1,0 +1,69 @@
+## Tez boshlash
+
+Koʻp maydonli va darhol validatsiyali client-side form uchun **Zod** schema'li **React Hook Form** type'lar va qoidalar uchun yagona haqiqat manbaini saqlaydi va har bir tugma bosilganda butun form'ni qayta render qilmaydi:
+
+```tsx
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+
+const Profile = z.object({ name: z.string().min(2), email: z.email() });
+type Profile = z.infer<typeof Profile>;
+
+export function ProfileForm({ onSave }: { onSave: (p: Profile) => Promise<void> }) {
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Profile>({
+    resolver: zodResolver(Profile),
+  });
+
+  return (
+    <form onSubmit={handleSubmit(onSave)} noValidate>
+      <label htmlFor="name">Name</label>
+      <input id="name" {...register("name")} aria-invalid={!!errors.name} />
+      {errors.name && <p role="alert">{errors.name.message}</p>}
+
+      <label htmlFor="email">Email</label>
+      <input id="email" type="email" {...register("email")} aria-invalid={!!errors.email} />
+      {errors.email && <p role="alert">{errors.email.message}</p>}
+
+      <button disabled={isSubmitting}>Save</button>
+    </form>
+  );
+}
+```
+
+Serverga yuboriladigan oddiy form uchun Server Action'li React 19 **`useActionState`**'i kutubxona talab qilmaydi va JavaScript yuklanishidan oldin ham ishlaydi:
+
+```tsx
+"use client";
+const [state, action, pending] = useActionState(subscribe, { error: null });
+
+return (
+  <form action={action}>
+    <input name="email" type="email" required />
+    <button disabled={pending}>Subscribe</button>
+    {state.error && <p role="alert">{state.error}</p>}
+  </form>
+);
+```
+
+## Qanday tanlash
+
+| Vaziyat | Tanlov |
+| --- | --- |
+| Koʻp maydon, dinamik array'lar, darhol validatsiya | React Hook Form + Zod |
+| Eng qat'iy type'lar, ichma-ich form'lar, bir nechta framework | TanStack Form |
+| Server Action'ga yuboriladigan qisqa form'lar | `useActionState` (+ serverda Zod) |
+
+## Tuzoqlar
+
+- Har doim serverda xuddi shu schema bilan qayta tekshiring; client resolver UX uchun.
+- Screen reader'lar uchun xatolarni input'larga bogʻlang (`aria-invalid`, `aria-describedby`, `role="alert"`) — qizil chegara xato xabari emas.
+- Katta form'larda har bir maydon uchun controlled input'lardan qoching; u har tugmada qayta render boʻladi. Uncontrolled input'lar va `register` — React Hook Form tez boʻlishining sababi.
+
+## Interview'da
+
+<QA q="30 maydonli checkout uchun form ishlashini loyihalang. Nima muhim?" level="senior">
+
+Qoidalar va type'lar hech qachon farq qilmasligi uchun client va server boʻlishadigan bitta schema; yozish 30 ta maydonning hammasini qayta render qilmasligi uchun uncontrolled input'lar yoki maydon darajasidagi obunalar; har bir tugma emas, blur va submit'da validatsiya; accessible xato xabarlari va submit'da birinchi notoʻgʻri maydonga focus; qoralamalarni saqlash; ikki marta bosish ikkita buyurtma yaratmasligi uchun idempotent yuborish (tugmani oʻchirish, idempotency key yuborish); va server xatolarini maydonlarga qaytarib bogʻlash.
+
+</QA>

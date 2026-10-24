@@ -1,0 +1,52 @@
+## Quick start
+
+Accessible widgets are hard: a dialog needs a focus trap, Escape to close, focus returned to the trigger, `aria-modal`, scroll locking and screen-reader announcements. Don't hand-roll them. Use **headless primitives** for the behaviour and add your own styles — or let **shadcn/ui** generate styled components you own.
+
+```bash
+npx shadcn@latest init            # sets up Tailwind tokens, the cn() helper and components.json
+npx shadcn@latest add button dialog table
+```
+
+The components land in your repository (`components/ui/button.tsx`), so you read and edit them like your own code:
+
+```tsx
+import { Button } from "@/components/ui/button";
+
+export function SaveBar({ pending }: { pending: boolean }) {
+  return (
+    <div className="flex gap-2">
+      <Button variant="outline">Cancel</Button>
+      <Button disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
+    </div>
+  );
+}
+```
+
+For big data tables, TanStack Table handles the logic and you render the markup:
+
+```tsx
+const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel() });
+```
+
+## How to choose
+
+| Situation | Pick |
+| --- | --- |
+| New app, want good-looking components you own | shadcn/ui |
+| Building your own design system on unstyled primitives | Base UI or Radix |
+| Strict accessibility or i18n requirements, date pickers | React Aria |
+| Sortable, filterable data grids | TanStack Table (+ TanStack Virtual for long lists) |
+
+## Gotchas
+
+- shadcn/ui is copied code: updates don't arrive by `npm update`. Re-run `add` for a component and review the diff when you want upstream fixes.
+- Whatever you pick, test with a keyboard only and a screen reader. Primitives make accessibility possible; your labels and structure still matter.
+- Don't mix two primitive libraries for the same widget type in one app — focus and portal behaviour can conflict.
+
+## In interviews
+
+<QA q="Build an accessible modal dialog. What has to be true?" level="senior">
+
+Focus moves into the dialog when it opens and is trapped there; Escape and an explicit close button close it; focus returns to the element that opened it; the background is inert and doesn't scroll; the dialog has role dialog with aria-modal and is labelled by its title. The native dialog element with showModal gives much of this for free; primitives like Radix, Base UI or React Aria cover the rest, including nested layers and portals.
+
+</QA>

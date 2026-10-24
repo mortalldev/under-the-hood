@@ -1,0 +1,66 @@
+## TL;DR
+
+**Interactive rebase** (`git rebase -i`) opens a todo list of your branch's commits and lets you **reorder, squash, fixup, reword, edit or drop** them before review. Combined with **`git commit --fixup`** and **`--autosquash`**, it turns "wip / fix typo / address review" noise into a few clean, meaningful commits.
+
+## Animation
+
+<GitViz id="interactive-rebase" />
+
+## Commands
+
+```bash
+# while working: make a fix that belongs to an earlier commit
+git commit --fixup=a1b2c3d          # message becomes "fixup! <subject of a1b2c3d>"
+git commit --fixup=reword:a1b2c3d   # only change that commit's message
+
+# before review: fold fixups into their targets
+git rebase -i --autosquash origin/main
+
+# make it the default for interactive rebases
+git config --global rebase.autoSquash true
+# move stacked branches that point into the rewritten range
+git config --global rebase.updateRefs true
+
+git push --force-with-lease
+```
+
+The todo list Git opens (top = oldest):
+
+```text
+pick   a1b2c3d feat: login form
+fixup  e4f5a6b fixup! feat: login form
+pick   9c8d7e6 feat: logout
+drop   1f2e3d4 wip
+```
+
+| Verb | Effect |
+| --- | --- |
+| `pick` | Keep the commit as is |
+| `reword` | Keep the changes, edit the message |
+| `edit` | Stop after applying it so you can amend or split it |
+| `squash` | Meld into the previous commit, combine messages |
+| `fixup` | Meld into the previous commit, discard this message |
+| `drop` | Remove the commit |
+| `exec` | Run a command, e.g. `exec npm test` after each commit |
+
+## Under the hood
+
+It's the same replay as a normal rebase, driven by your edited plan. Each line becomes a new commit (new hash). `--update-refs` additionally moves other local branches that pointed at commits in the range — essential for **stacked PRs** (branch B built on branch A).
+
+## Pitfalls
+
+- Do it on your own branch, before others build on it. After pushing, update with `--force-with-lease`.
+- Mid-rebase you're in a temporary state; `git status` tells you what's next, `git rebase --abort` gets you out, and `git reflog` recovers anything.
+- Don't rewrite review history *during* a review if reviewers rely on "changes since last review" — push fixup commits, then autosquash right before merging.
+
+## In interviews
+
+<QA q="What makes a good commit history for review, and how do you produce it?" level="mid">
+
+Each commit is one logical, buildable change with a message explaining why: the reviewer can read the branch commit by commit, and later bisect or revert precisely. While working I commit freely, using commit --fixup for corrections to earlier commits; before opening the PR I run rebase -i --autosquash to fold them in, reword messages and drop experiments, then push with --force-with-lease.
+
+</QA>
+
+## Docs
+
+- [git rebase — interactive mode](https://git-scm.com/docs/git-rebase#_interactive_mode) · [git commit --fixup](https://git-scm.com/docs/git-commit)

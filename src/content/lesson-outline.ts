@@ -28,11 +28,14 @@ export async function lessonOutline(section: SectionSlug, lesson: string, locale
   return outlineOf(await readFile(file, "utf8"));
 }
 
-/** Same as `lessonOutline` for a principle page (`content/principles/<slug>/<locale>.mdx`). */
-export async function principleOutline(slug: string, locale: Locale): Promise<LessonOutline> {
+/**
+ * Same as `lessonOutline` for any other MDX page under `src/content`: a
+ * library entry (`principles/<slug>`) or a tools category (`tools/<category>`).
+ */
+export async function pageOutline(dir: "principles" | "architecture" | "git" | "tools", slug: string, locale: Locale): Promise<LessonOutline> {
   "use cache";
   cacheLife("max");
-  const file = path.join(process.cwd(), "src/content/principles", slug, `${locale}.mdx`);
+  const file = path.join(process.cwd(), "src/content", dir, slug, `${locale}.mdx`);
   return outlineOf(await readFile(file, "utf8"));
 }
 

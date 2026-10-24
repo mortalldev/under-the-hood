@@ -1,0 +1,78 @@
+## TL;DR
+
+**Micro-frontends** bitta veb-ilovani turli jamoalarga tegishli boʻlaklarga boʻladi; har bir boʻlak **mustaqil build, test va deploy qilinadi**, keyin brauzerda yoki serverda birlashtiriladi. Bu UI'ga qoʻllangan microservices fikrlashi.
+
+Sababi tashkiliy: oʻnlab jamoalar umumiy release poyezdisiz bitta mahsulot chiqaradi.
+
+## Animatsiya
+
+<ArchitectureViz id="micro-frontends" />
+
+## Qanday ishlaydi
+
+Yupqa **shell** (yoki host) sahifa ramkasiga — routing, login, layout — egalik qiladi va jamoalarga tegishli **remote**'larni joylashtiradi. Ularni birlashtirish usullari:
+
+| Usul | Qanday | Trade-off |
+| --- | --- | --- |
+| Build vaqtidagi package'lar | Har bir jamoa npm package nashr qiladi; shell versiyalarga bogʻlanadi | Oddiy, lekin mustaqil deploy emas |
+| Module Federation | Shell remote bundle'larni runtime'da ularning oʻz URL'laridan yuklaydi | Mustaqil deploy; React singleton sifatida umumiy boʻlishi kerak |
+| Import map + ES module'lar | Brauzer bare specifier'larni URL'larga moslaydi | Platforma standarti; tool'lar kamroq |
+| Server tomonida birlashtirish | Edge yoki server HTML boʻlaklarini tikadi | Tez birinchi koʻrinish; interaktivlik qiyinroq |
+| iframe'lar | Har bir boʻlak oʻz hujjatida | Kuchli izolyatsiya; UX yomon, state boʻlishish qiyin |
+
+## Kod
+
+```ts
+// shell: Module Federation'li webpack / Rspack config
+new ModuleFederationPlugin({
+  name: "shell",
+  remotes: {
+    checkout: "checkout@https://cdn.example.com/checkout/remoteEntry.js",
+  },
+  shared: { react: { singleton: true }, "react-dom": { singleton: true } },
+});
+```
+
+```tsx
+// shell route: checkout jamoasi bu kodni oʻz jadvali boʻyicha deploy qiladi
+const Checkout = lazy(() => import("checkout/App"));
+
+export function CheckoutRoute() {
+  return (
+    <ErrorBoundary fallback={<CheckoutUnavailable />}>
+      <Suspense fallback={<Spinner />}>
+        <Checkout />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+```
+
+Error boundary muhim: remote — siz build qilmagan, tarmoq orqali yuklanadigan kod; u yuklanmay qolishi mumkin, sahifaning qolgan qismi esa omon qolishi kerak.
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar katta mahsulotning alohida qismlariga koʻp jamoa egalik qilsa va umumiy release poyezdi tor joy boʻlsa, yoki legacy ilovani boʻlakma-boʻlak koʻchirayotgan boʻlsangiz (eski route'lar Angular'da qolganda yangilari React'da).
+
+Bir-ikki jamoa uchun **ishlatmang**. Siz takrorlangan dependency'lar, versiya kelishuvi, ilovalararo state va ogʻirroq birinchi yuklanish uchun tashkiliy foydasiz pul toʻlaysiz. Bitta ilova va aniq modul chegaralari boʻlgan monorepo "kod bazasi katta" muammolarining koʻpini hal qiladi.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Mustaqil deploy va jamoa avtonomiyasi | Dependency'lar umumiy boʻlmasa, bundle'lar kattaroq |
+| Framework'lar orasida bosqichma-bosqich koʻchish | Bitta design system majburlanmasa, UX izchil emas |
+| Har bir remote uchun xatoni izolyatsiya qilish | Ilovalar boʻylab lokal development, test va debugging qiyinroq |
+
+## Interview'da
+
+<QA q="Kompaniyangizda bitta Next.js ilovada 30 frontend dasturchi bor va deploy'lar sekin. Micro-frontends kiritasizmi?" level="senior">
+
+Avval haqiqiy tor joyni toping. Sekin CI caching va faqat ta'sirlangan qismni build qilish bilan tuzatiladi; merge conflict'lar — aniqroq modul egaligi bilan; xavfli release'lar — feature flag va canary bilan. Micro-frontends jamoalarga mustaqil *release ritmi* kerak boʻlganda va bogʻliqlik tashkiliy boʻlganda oʻzini oqlaydi. Shunday boʻlsa, men biznes domeni boʻyicha boʻlgan boʻlardim (checkout, search, account), bitta design system va umumiy singleton'larni saqlab, kontraktlarni belgilardim: routing, auth, ilovalar orasidagi event'lar.
+
+</QA>
+
+## Manbalar
+
+- [Micro Frontends — Cam Jackson, martinfowler.com](https://martinfowler.com/articles/micro-frontends.html)
+- [Module Federation — rasmiy sayt](https://module-federation.io/)

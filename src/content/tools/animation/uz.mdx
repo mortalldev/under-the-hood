@@ -1,0 +1,64 @@
+## Tez boshlash
+
+Ishni bajaradigan eng yengil tool'dan foydalaning: hover va focus uchun **CSS transition**'lar, sahifa va layout oʻzgarishlari uchun **View Transition API**, interaktiv React UI uchun (enter/exit, layout, gesture'lar) **Motion**, uzun, ketma-ket yoki scroll'ga bogʻliq hikoya uchun **GSAP**.
+
+```tsx
+import { AnimatePresence, motion } from "motion/react";
+
+export function Toast({ open, message }: { open: boolean; message: string }) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          role="status"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 12 }}
+          transition={{ type: "spring", stiffness: 400, damping: 30 }}
+        >
+          {message}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+```
+
+`AnimatePresence` elementni uning `exit` animatsiyasi tugaguncha mount holatida saqlaydi — buni React yolgʻiz qila olmaydi. `motion` elementiga `layout` qoʻshing, shunda uning oʻlchami yoki pozitsiyasi oʻzgarganda u silliq animatsiya qilinadi.
+
+View Transition API ikki DOM holati orasida deyarli JavaScript'siz animatsiya qiladi:
+
+```ts
+function selectTab(tab: string) {
+  if (!document.startViewTransition) return render(tab);   // eski brauzerlar: animatsiyasiz
+  document.startViewTransition(() => render(tab));
+}
+```
+
+```css
+/* bir sayt sahifalari orasidagi cross-document transition'lar */
+@view-transition { navigation: auto; }
+```
+
+## Qanday tanlash
+
+| Vaziyat | Tanlov |
+| --- | --- |
+| Hover, focus, oddiy state oʻzgarishlari | CSS transition'lar |
+| Sahifadan-sahifaga yoki roʻyxat tartibi oʻzgarishi | View Transition API |
+| React UI: enter/exit, umumiy layout, drag, gesture'lar | Motion |
+| Timeline'lar, scroll'ga bogʻliq marketing sahifalari | GSAP |
+
+## Tuzoqlar
+
+- `transform` va `opacity`'ni animatsiya qiling; `width`, `top` yoki `box-shadow`'ni animatsiya qilish har bir kadrda layout yoki paint'ni ishga tushiradi va sekinroq telefonlarda qotadi.
+- `prefers-reduced-motion`'ni hurmat qiling: Motion'ning `useReducedMotion()`'i va Tailwind'ning `motion-reduce:` varianti buni osonlashtiradi. Harakat oʻzgarishni bezash uchun emas, tushuntirish uchun boʻlishi kerak.
+- Animatsiyalar kontentni screen reader'lardan yashirmasligi yoki input'ni kechiktirmasligi kerak; ularni qisqa saqlang (UI uchun 150–300 ms).
+
+## Interview'da
+
+<QA q="Animatsiya oʻrta darajadagi Android telefonlarda qotadi. Uni qanday debug qilasiz?" level="senior">
+
+Chrome DevTools'da CPU throttling bilan Performance profilini yozing va uzun kadrlarni qidiring: animatsiya ichidagi layout va paint u layout'ga ta'sir qiladigan xususiyatlarni animatsiya qilayotganini bildiradi, shuning uchun transform va opacity'ga oʻting (compositor ularni main thread'dan tashqarida bajara oladi). Har bir kadrda ishlaydigan JavaScript'ni (scroll handler'lar, animatsiya paytidagi React re-render'lari) tekshiring, animatsiya qilinadigan elementlar sonini kamaytiring va will-change'ni faqat haqiqatan harakatlanadigan elementlarda tejamkorlik bilan ishlating.
+
+</QA>

@@ -1,0 +1,69 @@
+## TL;DR
+
+**CQRS — Command Query Responsibility Segregation** — **ma'lumotni oʻzgartirish uchun bitta model** (command'lar) va **uni oʻqish uchun boshqa model** (query'lar) ishlatadi. Write tomoni normallashgan va qoidalarni majburlaydi; read tomoni denormallashgan, ekranlarga moslangan va write tomoni event'laridan yangilanib turadi.
+
+Bu metodlardan butun modellargacha kengaytirilgan CQS (metod yo state'ni oʻzgartiradi, yo ma'lumot qaytaradi).
+
+## Animatsiya
+
+<ArchitectureViz id="cqrs" />
+
+## Qanday ishlaydi
+
+1. **Command** (`PlaceOrder`) handler'ga boradi; u write model'ni yuklaydi, invariant'larni tekshiradi va saqlaydi.
+2. Oʻzgarish **event** (`OrderPlaced`) hosil qiladi va u outbox yoki change data capture orqali ishonchli e'lon qilinadi.
+3. **Projector** event'larni oʻqiydi va bir yoki bir nechta **read model**'ni yangilaydi: denormallashgan jadval, cache yozuvi, qidiruv indeksi, materialised view.
+4. **Query**'lar read model'ni toʻgʻridan-toʻgʻri oʻqiydi — join yoʻq, allaqachon ekran shaklida — va bu tomon alohida kengayadi (replica, CDN, Elasticsearch).
+
+Ikki tomon **eventual consistent**: yozuvdan keyin qisqa vaqt read model orqada boʻladi.
+
+## Kod
+
+```ts
+// write tomoni
+async function placeOrder(cmd: PlaceOrder) {
+  const order = Order.create(cmd);
+  await db.transaction(async (tx) => {
+    await tx.orders.insert(order);
+    await tx.outbox.insert({ type: "OrderPlaced", payload: order });
+  });
+}
+
+// projector
+on("OrderPlaced", async (e) => {
+  await readDb.ordersByCustomer.upsert({
+    customerId: e.customerId, orderId: e.id, total: e.total, itemCount: e.items.length, status: "placed",
+  });
+});
+
+// query: bitta indekslangan qidiruv
+export const listOrders = (customerId: string) => readDb.ordersByCustomer.find({ customerId });
+```
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar oʻqish va yozish juda farq qilsa: millionlab marta oʻqiladigan va kam yoziladigan feed, koʻp jadvallarni yigʻadigan dashboard'lar, bir nechta service'ga tegishli ma'lumot boʻylab qidiruv yoki so'rov qilish qiyin boʻlgan murakkab qoidali write model.
+
+Oddiy CRUD uchun **ishlatmang**. Ikki model, projector va eventual consistency harakatlanuvchi qismlarni ikki barobar oshiradi. Koʻpincha oʻsha jadvallar ustidagi baza view'i yoki cache yetarli. CQRS event sourcing bilan yaxshi ishlaydi, lekin uni talab qilmaydi.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Oʻqish tez va har bir ekranga moslangan | Eventual consistency foydalanuvchiga koʻrinadi |
+| Read va write tomonlari mustaqil kengayadi | Koʻproq infratuzilma: event'lar, projector'lar |
+| Write model qoidalarga e'tibor qaratadi | Bug'dan keyin read model'larni qayta qurish rejalashtirishni talab qiladi |
+
+Kechikishni UI'da yashiring: foydalanuvchining oʻz yozuvini optimistic koʻrsating yoki yuborgandan keyin uni darhol write tomondan oʻqing ("read your writes").
+
+## Interview'da
+
+<QA q="Postlar kam yoziladigan, lekin doim oʻqiladigan ijtimoiy ilova uchun timeline'ni loyihalang." level="senior">
+
+Bu oʻqish/yozish nomutanosibligi — klassik CQRS holati. Yozuvlar posts store'ga boradi; event koʻp foydalanuvchilar uchun oldindan hisoblangan shaxsiy timeline'larga tarqatishni (fan-out on write) ishga tushiradi, juda koʻp obunachisi bor akkauntlarning postlari esa millionlab timeline'ga yozmaslik uchun oʻqish vaqtida qoʻshiladi (fan-out on read). Oʻqishlar toʻgʻridan-toʻgʻri timeline store yoki cache'ga tushadi. Izchillik kechikishini, kimdir yangi akkauntga obuna boʻlganda timeline'larni toʻldirishni va projection'larni log'dan qayta qurishni muhokama qiling.
+
+</QA>
+
+## Manbalar
+
+- [CQRS — Martin Fowler](https://martinfowler.com/bliki/CQRS.html)

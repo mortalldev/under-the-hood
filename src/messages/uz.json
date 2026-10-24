@@ -24,7 +24,18 @@
     "principles": "Tamoyillar",
     "filterLessons": "Darsni topish",
     "noMatches": "Mos dars topilmadi",
-    "overview": "Boʻlim haqida"
+    "overview": "Boʻlim haqida",
+    "architecture": "Arxitektura",
+    "tools": "Tool'lar",
+    "git": "Git",
+    "handbook": "Qoʻllanma",
+    "handbookLead": "Ishlayotgan dasturchi uchun ma'lumotnoma: tamoyillar, arxitektura, zamonaviy frontend tool'lari va Git.",
+    "principlesDesc": "SOLID, DRY, KISS va yana 20 ta, animatsiya bilan",
+    "architectureDesc": "FSD, hexagonal, microservices, CQRS…",
+    "toolsDesc": "Zod, shadcn/ui, TanStack Query… rasmiy doc bilan",
+    "gitDesc": "Bugun ishlatiladigan buyruqlar, animatsiyali graf bilan",
+    "learnDesc": "Toʻliq kurs: DSA, JS, TS, React, Next.js, Node, system design",
+    "more": "Yana"
   },
   "Languages": {
     "uz": "Oʻzbekcha",
@@ -47,7 +58,9 @@
     "how3Body": "Real kod, trade-off'lar, interview savollari va qisqa quiz — keyin dars takrorlash roʻyxatingizga tushadi.",
     "partsTitle": "Oʻnta qism, hamma joyda bir xil tartibda",
     "previewTitle": "Sliding window",
-    "previewNote": "right takroriy “a”ga yetdi — left uning oldingi oʻrnidan keyinga sakraydi, window yana toʻgʻri boʻladi."
+    "previewNote": "right takroriy “a”ga yetdi — left uning oldingi oʻrnidan keyinga sakraydi, window yana toʻgʻri boʻladi.",
+    "handbookTitle": "Qoʻllanma",
+    "handbookLead": "Kursdan tashqari: ishlayotganda va senior interview oldidan ochiq turadigan ma'lumotnoma."
   },
   "LessonParts": {
     "tldr": "TL;DR",
@@ -173,7 +186,10 @@
     "term": "Atama",
     "section": "Boʻlim",
     "principle": "Tamoyil",
-    "close": "Yopish"
+    "close": "Yopish",
+    "architecture": "Arxitektura",
+    "git": "Git",
+    "tool": "Tool"
   },
   "Resources": {
     "title": "Chuqurroq oʻrganish",
@@ -221,6 +237,58 @@
     "all": "Barcha tamoyillar",
     "solidLead": "Beshta harf, bitta maqsad: kichik, almashtiriladigan va kengaytirish xavfsiz boʻlgan class'lar.",
     "open": "Ochish"
+  },
+  "Architecture": {
+    "title": "Dasturiy arxitektura",
+    "lead": "Haqiqiy tizimlar qanday qismlarga boʻlinadi: frontend'da Feature-Sliced Design va monorepo, ilova ichida hexagonal va clean architecture, service'lar orasida microservices, event'lar va saga'lar. Har bir uslubda animatsiya, real kod va interview'da soʻraladigan trade-off'lar bor.",
+    "stats": "{entries} ta mavzu · {categories} ta daraja · har biri animatsiyali",
+    "start": "Feature-Sliced Design'dan boshlang",
+    "categories": "Darajalar",
+    "count": "{count, plural, other {# ta mavzu}}",
+    "tabs": "Sahifa qismlari",
+    "related": "Bogʻliq mavzular",
+    "nav": "Arxitektura navigatsiyasi",
+    "all": "Barcha mavzular",
+    "mapTitle": "Bitta komponentdan koʻplab service'largacha",
+    "mapLead": "Arxitektura uch xil masshtabda beriladigan bitta savol: bu kod qayerda yashaydi va u nimaga bogʻlanishi mumkin?"
+  },
+  "Git": {
+    "title": "Amaliy Git",
+    "lead": "Bugungi jamoalar ishlatadigan Git: ichkaridagi object model, checkout oʻrniga switch va restore, rebase va fixup commit'lar, force-with-lease, worktree, bisect va ulkan repo'lar uchun sparse checkout. Har bir mavzuda commit grafi qadamma-qadam oʻzgaradi.",
+    "stats": "{entries} ta mavzu · {categories} ta guruh · animatsiyali commit graflari",
+    "start": "Git ma'lumotni qanday saqlashidan boshlang",
+    "categories": "Guruhlar",
+    "count": "{count, plural, other {# ta mavzu}}",
+    "tabs": "Sahifa qismlari",
+    "related": "Bogʻliq mavzular",
+    "nav": "Git navigatsiyasi",
+    "all": "Barcha mavzular",
+    "cheatTitle": "Men … qilmoqchiman",
+    "cheatLead": "Kundalik vaziyatlar uchun buyruqlar. Har bir qator uni tushuntiradigan mavzuga olib boradi.",
+    "safe": "Xavfsiz",
+    "unsafe": "Tarixni qayta yozadi",
+    "local": "Faqat lokal"
+  },
+  "Tools": {
+    "title": "Frontend tool'lari",
+    "lead": "Zamonaviy frontend jamoasi haqiqatda ishlatadigan tool'lar: har biri nima uchun kerak, qachon tanlanadi, qachon kerak emas va uni qayerdan rasmiy oʻrganish mumkin. Har bir havola loyihaning oʻz dokumentatsiyasiga olib boradi.",
+    "stats": "{tools} ta tool · {categories} ta kategoriya · faqat rasmiy doc",
+    "categories": "Kategoriyalar",
+    "count": "{count, plural, other {# ta tool}}",
+    "docs": "Rasmiy doc",
+    "install": "Oʻrnatish",
+    "use": "Qachon tanlash kerak",
+    "avoid": "Qachon kerak emas",
+    "by": "Muallif",
+    "checked": "Havolalar va versiyalar {date} kuni rasmiy manbalardan tekshirildi.",
+    "nav": "Tool'lar navigatsiyasi",
+    "all": "Barcha tool'lar",
+    "tabs": "Sahifa qismlari",
+    "stackTitle": "Oqilona standart stack",
+    "stackLead": "Bugun hech qanday cheklovsiz React ilova boshlayapsizmi? Bu kombinatsiya yaxshi qoʻllab-quvvatlanadi va keng ishlatiladi. Biror qismni faqat sababingiz boʻlsa almashtiring.",
+    "pick": "Standart tanlov",
+    "guide": "Misollar va taqqoslash",
+    "latest": "soʻnggi"
   },
   "Glossary": {
     "title": "Glossariy",

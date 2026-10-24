@@ -46,4 +46,6 @@ export const TreeTraversalViz = dynamic(() => import("./TreeTraversalViz").then(
 export const TrieViz = dynamic(() => import("./TrieViz").then((m) => m.TrieViz), { loading: VizPlaceholder });
 export const TwoPointersViz = dynamic(() => import("./TwoPointersViz").then((m) => m.TwoPointersViz), { loading: VizPlaceholder });
 export const PrincipleViz = dynamic(() => import("./PrincipleViz").then((m) => m.PrincipleViz), { loading: VizPlaceholder });
+export const ArchitectureViz = dynamic(() => import("./ArchitectureViz").then((m) => m.ArchitectureViz), { loading: VizPlaceholder });
+export const GitViz = dynamic(() => import("./GitViz").then((m) => m.GitViz), { loading: VizPlaceholder });
 export const UnionFindViz = dynamic(() => import("./UnionFindViz").then((m) => m.UnionFindViz), { loading: VizPlaceholder });

@@ -1,0 +1,61 @@
+## Quick start
+
+TypeScript types disappear at runtime. Anything that comes from outside your code — form fields, `fetch` responses, `process.env`, URL params, Server Action arguments — must be **parsed** before you trust it. A schema library gives you the runtime check *and* the static type from one definition.
+
+```ts
+import { z } from "zod";
+
+const SignUp = z.object({
+  email: z.email(),
+  password: z.string().min(12, "At least 12 characters"),
+  age: z.coerce.number().int().min(18).optional(),   // "21" from a form → 21
+});
+type SignUp = z.infer<typeof SignUp>;                // { email: string; password: string; age?: number }
+
+const result = SignUp.safeParse(Object.fromEntries(formData));
+if (!result.success) {
+  return { errors: z.flattenError(result.error).fieldErrors };   // { email?: string[], … }
+}
+await createUser(result.data);                       // fully typed, already validated
+```
+
+Validate environment variables once at startup, so a missing secret fails the deploy instead of the first request:
+
+```ts
+export const env = z
+  .object({ DATABASE_URL: z.url(), STRIPE_KEY: z.string().startsWith("sk_") })
+  .parse(process.env);
+```
+
+The same check in Valibot, where every validator is a separate, tree-shakeable function:
+
+```ts
+import * as v from "valibot";
+const SignUp = v.object({ email: v.pipe(v.string(), v.email()), password: v.pipe(v.string(), v.minLength(12)) });
+const result = v.safeParse(SignUp, input);
+```
+
+## How to choose
+
+| Need | Pick |
+| --- | --- |
+| Default for apps; widest ecosystem (forms, tRPC, AI SDKs) | Zod |
+| Smallest client bundle | Valibot |
+| Fastest validation, type-like syntax | ArkType |
+| You write a library that accepts "any validator" | Standard Schema |
+
+Zod, Valibot and ArkType all implement **Standard Schema**, so libraries like TanStack Form accept any of them.
+
+## Gotchas
+
+- `parse` throws, `safeParse` returns a result. Use `safeParse` at boundaries where bad input is expected (forms), `parse` where it means a bug (env, internal invariants).
+- Validate on the **server** even if the client validated too — client checks are UX, server checks are security.
+- Don't validate the same data at every layer. Parse at the boundary, then pass typed data inward.
+
+## In interviews
+
+<QA q="TypeScript already has types. Why do you need Zod?" level="mid">
+
+TypeScript checks only code you compile; it can't see data arriving at runtime from the network, users or the environment. A type annotation on a fetch result is a promise you can't keep. A schema validates the actual value and narrows it to a real type, so everything after the boundary can be trusted — and the type is derived from the schema, so they never drift apart.
+
+</QA>

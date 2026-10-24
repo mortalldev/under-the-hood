@@ -1,0 +1,97 @@
+## TL;DR
+
+**Feature-Sliced Design (FSD)** is a published standard for organising a frontend codebase. It answers two questions every growing React or Vue app eventually argues about: *where does this file go?* and *what may it import?*
+
+- **Layers** (top to bottom): `app` → `pages` → `widgets` → `features` → `entities` → `shared`. A module may import only from layers **below** its own.
+- **Slices** split a layer by business domain: `features/auth`, `entities/user`.
+- **Segments** split a slice by technical purpose: `ui`, `model`, `api`, `lib`, `config`.
+- Every slice exposes a **public API** (`index.ts`); nobody imports its internals.
+
+## Animation
+
+<ArchitectureViz id="feature-sliced-design" />
+
+## How it works
+
+| Layer | What lives there | Example |
+| --- | --- | --- |
+| `app` | Providers, router, global styles, entry point | `QueryClientProvider`, theme |
+| `pages` | One slice per route; composes widgets and features | `pages/checkout` |
+| `widgets` | Large self-contained UI blocks | `widgets/header`, `widgets/cart-summary` |
+| `features` | User interactions that bring business value | `features/auth`, `features/add-to-cart` |
+| `entities` | Business objects and their UI | `entities/user`, `entities/product` |
+| `shared` | Reusable code with no business meaning | `shared/ui/Button`, `shared/api/client` |
+
+`app` and `shared` have no slices — they are already one thing each. Two rules make the structure useful:
+
+1. **Downward imports only.** `features/cart` may import `entities/product` and `shared/ui`, never `pages/*` or `widgets/*`.
+2. **No cross-imports between slices on the same layer.** `features/cart` does not import `features/auth`. If both are needed together, the layer above (a widget or page) composes them.
+
+The older `processes` layer is deprecated; current FSD guidance moves that logic into `features` or `app`.
+
+## Code
+
+```ts
+// entities/user/index.ts — public API of the slice
+export { UserAvatar } from "./ui/UserAvatar";
+export { useCurrentUser } from "./model/useCurrentUser";
+export type { User } from "./model/types";
+```
+
+```tsx
+// widgets/header/ui/Header.tsx — composes lower layers
+import { LogoutButton } from "@/features/auth";
+import { CartBadge } from "@/features/cart";
+import { UserAvatar, useCurrentUser } from "@/entities/user";
+import { Logo } from "@/shared/ui";
+
+export function Header() {
+  const user = useCurrentUser();
+  return (
+    <header>
+      <Logo />
+      <CartBadge />
+      {user && <UserAvatar user={user} />}
+      <LogoutButton />
+    </header>
+  );
+}
+```
+
+Enforce the rules in CI rather than in review: **Steiger** is the official FSD linter, and `eslint-plugin-boundaries` works for any layered layout.
+
+<Callout kind="note" title="FSD with the Next.js App Router">
+Next.js reserves the `app` and `pages` folder names for routing, which clashes with two FSD layers. The FSD guide for Next.js renames those layers to `_app` and `_pages`, keeps Next's `app/` folder at the project root and the FSD layers in `src/`. Each route file then just re-exports a page slice: `export { CheckoutPage as default } from "@/_pages/checkout"`.
+</Callout>
+
+## When to use it — and when not
+
+**Use it** when several developers work on one frontend for years, when "where does this go?" comes up in every review, or when you need a shared vocabulary for onboarding.
+
+**Skip it** for a landing page, a prototype, or a small app one person maintains: six layers with two files each is ceremony. Start with `components/`, `features/` and `lib/`, and adopt FSD when the folders start to sprawl.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Predictable location for every file | Learning curve; "is this a feature or an entity?" debates |
+| Low coupling, easy to delete a feature | More files and `index.ts` barrels |
+| Lint-enforced boundaries | Barrel files can hurt tree-shaking and dev-server speed if they re-export everything |
+
+## In interviews
+
+<QA q="How would you structure a large React codebase so that teams don't step on each other?" level="senior">
+
+Group by business domain first, technical type second, and make dependency direction explicit. FSD is one concrete answer: layers that only import downward, slices per domain with a public API, segments inside. Mention how you would enforce it (a lint rule in CI), how a feature is deleted (remove one folder), and the cost: some upfront ceremony that isn't worth it for a small app.
+
+</QA>
+
+<QA q="Two features need the same logic. Where does it go?" level="mid">
+
+Not in one of the features — that would be a same-layer cross-import. If it is business data, move it down to an entity; if it has no business meaning, to `shared`. If it's really about combining both features, the widget or page above composes them.
+
+</QA>
+
+## Sources
+
+- [Feature-Sliced Design — official documentation](https://feature-sliced.design/)

@@ -1,0 +1,77 @@
+## TL;DR
+
+**Hexagonal architecture** (Alistair Cockburn, 2005), boshqa nomi **Ports and Adapters**, biznes mantiqni markazga qoʻyadi va uni tashqaridagi hamma narsadan mustaqil qiladi: veb-framework'lar, bazalar, queue'lar, uchinchi tomon API'lari.
+
+- **Port**'lar — yadro belgilaydigan interface'lar: u nimani *taklif qiladi* (driving port, masalan `PlaceOrder`) va unga nima *kerak* (driven port, masalan `OrderRepo`).
+- **Adapter**'lar tashqarida yashaydi va port'larga ulanadi: HTTP controller, Postgres repository, testlar uchun in-memory fake.
+
+## Animatsiya
+
+<ArchitectureViz id="hexagonal" />
+
+## Qanday ishlaydi
+
+- **Driving tomon** (chap): ilovani chaqiradigan narsalar — HTTP, CLI, message consumer, test. Har bir adapter oʻz input'ini driving port'dagi chaqiruvga aylantiradi.
+- **Driven tomon** (oʻng): ilova chaqiradigan narsalar — saqlash, email, toʻlov provayderlari. Yadro port'ni chaqiradi; adapter uni amalga oshiradi.
+- **Bogʻliqlik yoʻnalishi**: adapter'lar yadroga bogʻliq, hech qachon teskarisi emas. Yadro database driver oʻrnatilmagan holda ham kompilyatsiya boʻladi.
+- **Composition root** (`main.ts`, DI container, Next.js server moduli) qaysi adapter qaysi port'ga borishini biladigan yagona joy.
+
+## Kod
+
+```ts
+// core/ports.ts
+export interface PlaceOrder { place(cmd: NewOrder): Promise<OrderId> }   // driving
+export interface OrderRepo { save(o: Order): Promise<void> }              // driven
+export interface Payments { charge(orderId: OrderId, cents: number): Promise<void> }
+
+// core/order-service.ts — framework import'lari yoʻq
+export class OrderService implements PlaceOrder {
+  constructor(private repo: OrderRepo, private payments: Payments) {}
+  async place(cmd: NewOrder) {
+    const order = Order.create(cmd);                 // biznes qoidalar
+    await this.payments.charge(order.id, order.totalCents);
+    await this.repo.save(order);
+    return order.id;
+  }
+}
+```
+
+```ts
+// adapters/
+class PostgresOrderRepo implements OrderRepo { constructor(private db: Pool) {} async save(o: Order) { /* SQL */ } }
+class StripePayments implements Payments { async charge(id: OrderId, cents: number) { /* Stripe SDK */ } }
+
+// test: fake'lar bilan oʻsha yadro, tarmoq ham, baza ham yoʻq
+const saved: Order[] = [];
+const service = new OrderService({ save: async (o) => void saved.push(o) }, { charge: async () => {} });
+await service.place({ items: [{ sku: "A1", qty: 2 }] });
+expect(saved).toHaveLength(1);
+```
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar domen mantigʻi qimmatli va uzoq yashaydigan qism boʻlsa (narxlash, billing, rejalashtirish), infratuzilma oʻzgarishini kutsangiz yoki biznes qoidalarni bazasiz tez test qilmoqchi boʻlsangiz.
+
+Yupqa CRUD service'ni har bir jadval uchun port'larga **oʻramang** — har bir endpoint uchun hech qanday foydasiz uchta fayl yozasiz. Uni haqiqiy chegaralarda qoʻllang: saqlash, tarmoq, vaqt, tasodifiylik.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Biznes qoidalarni millisekundlarda test qilish mumkin | Koʻproq interface va ulash kodi |
+| Yadroga tegmasdan infratuzilmani almashtirish | Domen obyektlari va baza qatorlari orasida aylantirish |
+| Framework yangilanishlari domenga yetmaydi | Oddiy service'larda ortiqcha abstraksiya |
+
+Hexagonal, Onion va Clean Architecture yaqin qarindoshlar: hammasi domenni oʻrtada, bogʻliqliklarni ichkariga qaratib saqlaydi.
+
+## Interview'da
+
+<QA q="Kartadan pul yechadigan va bazaga yozadigan biznes mantiqni qanday unit test qilasiz?" level="senior">
+
+Yadroni Stripe SDK yoki database client'ga emas, port'larga bogʻlang. Testlarda in-memory yoki fake adapter'larni bering va xatti-harakatni tekshiring: buyurtma saqlandi, toʻlov toʻgʻri summa bilan soʻraldi, muvaffaqiyatsiz toʻlov hech narsa saqlamaydi. Haqiqiy adapter'larni test bazasi va provayder sandbox'iga qarshi kichikroq integratsiya testlari bilan qamrang.
+
+</QA>
+
+## Manbalar
+
+- [Hexagonal Architecture — Alistair Cockburn](https://alistair.cockburn.us/hexagonal-architecture)

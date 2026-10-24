@@ -1,0 +1,81 @@
+## TL;DR
+
+**Clean Architecture** (Robert C. Martin, 2012) ilovani konsentrik halqalar sifatida chizadi — **Entities**, **Use cases**, **Interface adapters**, **Frameworks & drivers** — va bitta qoidani qoʻyadi:
+
+> **Dependency Rule:** source code bogʻliqliklari faqat ichkariga qaraydi. Ichki halqadagi hech narsa tashqi halqa haqida hech narsa bilmaydi.
+
+U oldingi gʻoyalarni (hexagonal, onion) birlashtiradi va "baza — bu tafsilot" degan ibora keng tarqalganining sababi shu.
+
+## Animatsiya
+
+<ArchitectureViz id="clean-architecture" />
+
+## Qanday ishlaydi
+
+| Halqa | Ichida | Nima haqida biladi |
+| --- | --- | --- |
+| Entities | Korxona miqyosidagi qoidalar: `Order`, `Money`, invariant'lar | Boshqa hech narsa |
+| Use cases | Ilova amallari: `PlaceOrder`, `RefundPayment`; ularga kerakli port'lar | Entity'lar |
+| Interface adapters | Ma'lumotni aylantiradigan controller, presenter, gateway'lar | Use case'lar |
+| Frameworks & drivers | Next.js, Express, Postgres driver, React | Ichkaridagi hamma narsa |
+
+Ichki halqaga tashqaridan nimadir kerak boʻlsa — buyurtmani saqlash — u **interface** (port) e'lon qiladi, tashqi halqa esa uni amalga oshiradi. Bu butun ilovaga qoʻllangan Dependency Inversion Principle. Ma'lumot chegaralardan ORM entity yoki `Request` obyektlari sifatida emas, oddiy tuzilmalar (DTO) sifatida oʻtadi.
+
+## Kod
+
+```ts
+// entities/order.ts
+export class Order {
+  private constructor(readonly id: string, readonly items: Item[]) {}
+  static create(items: Item[]) {
+    if (items.length === 0) throw new DomainError("Order must have at least one item");
+    return new Order(crypto.randomUUID(), items);
+  }
+}
+
+// use-cases/place-order.ts — oʻziga kerakli port'ga egalik qiladi
+export interface OrderRepo { save(o: Order): Promise<void> }
+export class PlaceOrder {
+  constructor(private repo: OrderRepo) {}
+  async run(input: { items: Item[] }) {
+    const order = Order.create(input.items);
+    await this.repo.save(order);
+    return { orderId: order.id };                 // entity emas, oddiy natija
+  }
+}
+
+// adapters/http.ts
+export const placeOrderHandler = (uc: PlaceOrder) => async (req: Request) =>
+  Response.json(await uc.run(await req.json()), { status: 201 });
+
+// frameworks/sql-order-repo.ts
+export class SqlOrderRepo implements OrderRepo {
+  async save(o: Order) { await db.query("INSERT INTO orders (id) VALUES ($1)", [o.id]); }
+}
+```
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating** biznes qoidalar framework'lardan uzoqroq yashaydigan tizimlar uchun: bank, sugʻurta, logistika, oʻn yil davomida yuritiladigan har qanday narsa. Halqalar yadroni koʻchiriladigan va test qilinadigan qiladi.
+
+Kichik ilovaning har bir endpoint'iga toʻrtta halqani **qoʻllamang**. Koʻp jamoalar *qoidani* (bogʻliqliklar ichkariga qaraydi, domen infratuzilmani import qilmaydi) toʻliq papka rasmiyatchiligisiz qabul qiladi — odatda bu eng yaxshi kelishuv.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Domen framework, UI va bazadan mustaqil | Halqalar orasida koʻp aylantirish kodi |
+| Use case'lar tizim nima qilishini hujjatlaydi | Bilvositalik oddiy oqimlarni oʻqishni uzaytiradi |
+| Yadroni test qilish oson | Ortiqcha murakkablashtirish oson |
+
+## Interview'da
+
+<QA q="Clean Architecture va klassik layered architecture orasidagi farq nima?" level="senior">
+
+Bitta strelkaning yoʻnalishi. Layered architecture'da business layer data layer'ni chaqiradi va unga bogʻliq. Clean Architecture'da repository interface'i use case'ga tegishli, data layer esa uni amalga oshiradi, shuning uchun source-code bogʻliqligi infratuzilmadan domenga qaraydi. Amaliy natija: domen kodida baza import'lari yoʻq, uni in-memory fake'lar bilan test qilish mumkin va u framework yoki saqlash almashishidan omon qoladi.
+
+</QA>
+
+## Manbalar
+
+- [The Clean Architecture — Robert C. Martin (2012)](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)

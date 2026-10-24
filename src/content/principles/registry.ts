@@ -1,35 +1,14 @@
-import type { Localized } from "@/visualizer/core/types";
+import { row, type Library, type LibraryCategory, type LibraryEntry } from "../library";
 
 /**
- * Map of the principles library: categories → principles. Like the course
- * registry it holds only what navigation needs; the body of each principle is
- * `principles/<slug>/{en,uz}.mdx` and its animation is a scene in
- * `visualizer/principles/scenes.ts`. Principle names are never translated.
+ * Map of the principles library: categories → principles. The body of each
+ * principle is `principles/<slug>/{en,uz}.mdx` and its animation is a scene in
+ * `visualizer/principles/scenes`. Principle names are never translated.
  */
 export const categorySlugs = ["solid", "simplicity", "design", "reliability", "clean-code"] as const;
 export type CategorySlug = (typeof categorySlugs)[number];
 
-export interface PrincipleCategory {
-  slug: CategorySlug;
-  title: Localized;
-  summary: Localized;
-  /** Tailwind colour family used for the category's accents. */
-  hue: "indigo" | "emerald" | "sky" | "amber" | "rose";
-}
-
-export interface PrincipleMeta {
-  slug: string;
-  category: CategorySlug;
-  /** Badge text: the letter or acronym (S, DRY, SoC…). */
-  short: string;
-  name: string;
-  /** What the acronym stands for, when the name is one. */
-  expansion?: string;
-  tagline: Localized;
-  related: string[];
-}
-
-export const categories: PrincipleCategory[] = [
+export const categories: LibraryCategory<CategorySlug>[] = [
   {
     slug: "solid",
     title: { en: "SOLID", uz: "SOLID" },
@@ -77,18 +56,9 @@ export const categories: PrincipleCategory[] = [
   },
 ];
 
-const p = (
-  category: CategorySlug,
-  slug: string,
-  short: string,
-  name: string,
-  expansion: string | undefined,
-  en: string,
-  uz: string,
-  related: string[],
-): PrincipleMeta => ({ category, slug, short, name, expansion, tagline: { en, uz }, related });
+const p = row<CategorySlug>;
 
-export const principles: PrincipleMeta[] = [
+export const principles: LibraryEntry<CategorySlug>[] = [
   // SOLID
   p("solid", "single-responsibility", "S", "Single Responsibility", "Single Responsibility Principle", "A module should have one reason to change.", "Modulning oʻzgarishi uchun bitta sabab boʻlishi kerak.", ["separation-of-concerns", "coupling-cohesion", "interface-segregation"]),
   p("solid", "open-closed", "O", "Open/Closed", "Open/Closed Principle", "Extend behaviour by adding code, not by editing working code.", "Xatti-harakatni ishlayotgan kodni tahrirlab emas, yangi kod qoʻshib kengaytiring.", ["dependency-inversion", "composition-over-inheritance", "liskov-substitution"]),
@@ -124,30 +94,4 @@ export const principles: PrincipleMeta[] = [
   p("clean-code", "boy-scout-rule", "BSR", "Boy Scout Rule", undefined, "Leave the code a little cleaner than you found it.", "Kodni topganingizdan sal tozaroq holda qoldiring.", ["refactoring", "technical-debt", "code-smells"]),
 ];
 
-export const isCategorySlug = (s: string): s is CategorySlug => (categorySlugs as readonly string[]).includes(s);
-
-export const getCategory = (slug: CategorySlug) => categories.find((c) => c.slug === slug)!;
-
-export const principlesIn = (category: CategorySlug) => principles.filter((x) => x.category === category);
-
-export const getPrinciple = (category: string, slug: string) =>
-  principles.find((x) => x.category === category && x.slug === slug);
-
-export const principleBySlug = (slug: string) => principles.find((x) => x.slug === slug);
-
-export const principleParams = () => principles.map((x) => ({ category: x.category, principle: x.slug }));
-
-/** Previous/next across the whole library, in registry order. */
-export function principleNeighbours(slug: string) {
-  const i = principles.findIndex((x) => x.slug === slug);
-  return { prev: i > 0 ? principles[i - 1] : undefined, next: i < principles.length - 1 ? principles[i + 1] : undefined };
-}
-
-/** Class sets per category hue (kept literal so Tailwind sees them). */
-export const hueClass: Record<PrincipleCategory["hue"], { badge: string; ring: string; soft: string; text: string }> = {
-  indigo: { badge: "bg-indigo-500/12 text-indigo-700 dark:text-indigo-300", ring: "hover:border-indigo-500/50", soft: "from-indigo-500/12", text: "text-indigo-700 dark:text-indigo-300" },
-  emerald: { badge: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", ring: "hover:border-emerald-500/50", soft: "from-emerald-500/12", text: "text-emerald-700 dark:text-emerald-300" },
-  sky: { badge: "bg-sky-500/12 text-sky-700 dark:text-sky-300", ring: "hover:border-sky-500/50", soft: "from-sky-500/12", text: "text-sky-700 dark:text-sky-300" },
-  amber: { badge: "bg-amber-500/14 text-amber-800 dark:text-amber-300", ring: "hover:border-amber-500/50", soft: "from-amber-500/14", text: "text-amber-800 dark:text-amber-300" },
-  rose: { badge: "bg-rose-500/12 text-rose-700 dark:text-rose-300", ring: "hover:border-rose-500/50", soft: "from-rose-500/12", text: "text-rose-700 dark:text-rose-300" },
-};
+export const principlesLib: Library<CategorySlug> = { id: "principles", base: "/principles", categories, entries: principles };

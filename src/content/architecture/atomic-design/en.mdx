@@ -1,0 +1,79 @@
+## TL;DR
+
+**Atomic Design** (Brad Frost, 2013) is a mental model for design systems: build interfaces from the smallest pieces up. **Atoms** (Button, Input) combine into **molecules** (a search field), molecules into **organisms** (a header), organisms into **templates** (layouts) and templates into **pages** (layouts filled with real content).
+
+It is about *composition and consistency*, not folder names.
+
+## Animation
+
+<ArchitectureViz id="atomic-design" />
+
+## How it works
+
+| Level | Definition | Example |
+| --- | --- | --- |
+| Atom | Smallest useful UI element, styled from design tokens | `Button`, `Input`, `Label`, `Icon` |
+| Molecule | A few atoms that act as one unit | `SearchField` = label + input + button |
+| Organism | A distinct section built from molecules | `SiteHeader`, `ProductCard`, `CommentThread` |
+| Template | Page layout with placeholder content | `SearchTemplate` |
+| Page | The template with real data | `/search?q=react` |
+
+Underneath everything sit **design tokens** — named values for colour, spacing, radius and type (`--color-accent`, `--space-4`). Change a token and every atom follows.
+
+## Code
+
+```tsx
+// atom: one job, variants from tokens (cva + Tailwind)
+const button = cva("inline-flex items-center rounded-md font-medium", {
+  variants: {
+    intent: { primary: "bg-accent text-accent-fg", ghost: "hover:bg-surface-2" },
+    size: { sm: "h-8 px-3 text-sm", md: "h-10 px-4" },
+  },
+  defaultVariants: { intent: "primary", size: "md" },
+});
+
+export function Button({ intent, size, className, ...props }: ButtonProps) {
+  return <button className={cn(button({ intent, size }), className)} {...props} />;
+}
+```
+
+```tsx
+// molecule: atoms composed, still no business logic
+export function SearchField({ defaultValue }: { defaultValue?: string }) {
+  return (
+    <form role="search" action="/search">
+      <Label htmlFor="q" className="sr-only">Search</Label>
+      <Input id="q" name="q" defaultValue={defaultValue} />
+      <Button type="submit">Search</Button>
+    </form>
+  );
+}
+```
+
+## When to use it — and when not
+
+**Use it** to build and explain a design system or a component library shared by several apps. It gives designers and engineers the same vocabulary, and pairs naturally with Storybook (one story per atom and molecule).
+
+**Don't** turn it into a strict folder taxonomy for a whole app. Teams lose hours debating whether a dropdown is a molecule or an organism, and the levels say nothing about *business* code. A common modern split: `components/ui` (atoms and molecules, shadcn/ui style) plus a domain structure such as Feature-Sliced Design for everything else.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Consistent UI, one source of truth per element | A change to an atom has a big blast radius |
+| Easy to test and document pieces in isolation | Level names are fuzzy above molecules |
+| Shared language with designers | Says nothing about state, data or domain logic |
+
+Guard the blast radius with visual regression tests (Storybook + Chromatic, or Playwright screenshots).
+
+## In interviews
+
+<QA q="How do you design a component library that several product teams use?" level="senior">
+
+Start from tokens, then primitives that are accessible by default (often built on Radix, Base UI or React Aria), then composed components. Expose variants instead of free-form styling props, version it, document every component in Storybook, and run visual and accessibility tests in CI. Atomic Design is a useful way to talk about the layers; the hard parts are API design, accessibility, theming and keeping breaking changes rare.
+
+</QA>
+
+## Sources
+
+- [Atomic Design by Brad Frost (free online book)](https://atomicdesign.bradfrost.com/)

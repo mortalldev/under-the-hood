@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { principles } from "@/content/principles/registry";
-import { sceneSteps, type Frame, type Scene } from "./scene";
-import { scenes } from "./scenes";
+import { architectureLib } from "@/content/architecture/registry";
+import { gitLib } from "@/content/git/registry";
+import type { Library } from "@/content/library";
+import { principlesLib } from "@/content/principles/registry";
+import { scenes as architectureScenes } from "./architecture/scenes";
+import { scenes as gitScenes } from "./git/scenes";
+import { sceneSteps, type Frame, type Scene } from "./principles/scene";
+import { scenes as principleScenes } from "./principles/scenes";
 
 const box = (s: Scene, id: string, x: number, y: number) => {
   const n = s.nodes[id];
@@ -10,9 +15,15 @@ const box = (s: Scene, id: string, x: number, y: number) => {
   return { l: x - w / 2, r: x + w / 2, t: y - h / 2, b: y + h / 2 };
 };
 
-describe("principle scenes", () => {
-  it("every principle has exactly one scene", () => {
-    expect(Object.keys(scenes).sort()).toEqual(principles.map((p) => p.slug).sort());
+const sets: [Library, Record<string, Scene>][] = [
+  [principlesLib, principleScenes],
+  [architectureLib, architectureScenes],
+  [gitLib, gitScenes],
+];
+
+describe.each(sets)("$id scenes", (lib, scenes) => {
+  it("every entry has exactly one scene", () => {
+    expect(Object.keys(scenes).sort()).toEqual(lib.entries.map((p) => p.slug).sort());
   });
 
   for (const [slug, scene] of Object.entries(scenes)) {

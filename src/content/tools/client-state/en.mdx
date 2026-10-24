@@ -1,0 +1,60 @@
+## Quick start
+
+Before reaching for a library, ask **where the state belongs**:
+
+1. Only one component needs it → `useState` / `useReducer`.
+2. It belongs in the URL (filters, tabs, pagination, search) → **nuqs** or the router.
+3. It's server data → TanStack Query (previous category), not a store.
+4. Many distant components share it → a small store such as **Zustand**.
+
+```ts
+import { create } from "zustand";
+
+interface CartState {
+  items: Record<string, number>;
+  add: (sku: string) => void;
+  clear: () => void;
+}
+
+export const useCart = create<CartState>()((set) => ({
+  items: {},
+  add: (sku) => set((s) => ({ items: { ...s.items, [sku]: (s.items[sku] ?? 0) + 1 } })),
+  clear: () => set({ items: {} }),
+}));
+
+// a component subscribes to the slice it selects and re-renders only when it changes
+const count = useCart((s) => Object.values(s.items).reduce((a, b) => a + b, 0));
+```
+
+URL state with nuqs — shareable, bookmarkable, survives reload:
+
+```tsx
+import { parseAsInteger, useQueryState } from "nuqs";
+
+const [q, setQ] = useQueryState("q", { defaultValue: "" });
+const [page, setPage] = useQueryState("page", parseAsInteger.withDefault(1));   // ?q=shoes&page=2
+```
+
+## How to choose
+
+| Situation | Pick |
+| --- | --- |
+| Shared app state, minimal API | Zustand |
+| Many small, interdependent pieces (editors, canvases) | Jotai |
+| Large team wanting strict, traceable updates and devtools | Redux Toolkit |
+| Flows with explicit states (checkout, wizard, call) | XState |
+| Filters, search, tabs, pagination | nuqs / the URL |
+
+## Gotchas
+
+- Select narrowly: `useCart((s) => s.items)` re-renders on every cart change; select the value you display.
+- In Next.js App Router, a module-level store is shared by every request on the server. Create stores per request (a provider with `useRef`) if the server renders them, or keep stores client-only.
+- Context is not a state manager: every consumer re-renders when the value changes. It's great for rarely changing values (theme, current user), not for fast-changing state.
+
+## In interviews
+
+<QA q="How do you decide between React context, a store library and the URL?" level="senior">
+
+By ownership and change frequency. Data owned by the server goes in a server-state cache. Anything a user should be able to share or go back to goes in the URL. Rarely changing, tree-wide values like theme or locale fit context. Frequently changing state read by many components goes in a store with selector subscriptions, so only components whose slice changed re-render. Local UI state stays local.
+
+</QA>

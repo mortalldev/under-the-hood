@@ -1,0 +1,69 @@
+## TL;DR
+
+**CQRS — Command Query Responsibility Segregation** — uses **one model to change data** (commands) and **a different model to read it** (queries). The write side is normalised and enforces rules; the read side is denormalised and shaped for screens, kept up to date from the write side's events.
+
+It's CQS (a method either changes state or returns data) scaled up from methods to whole models.
+
+## Animation
+
+<ArchitectureViz id="cqrs" />
+
+## How it works
+
+1. A **command** (`PlaceOrder`) goes to a handler that loads the write model, checks invariants and saves.
+2. The change produces an **event** (`OrderPlaced`), published reliably via an outbox or change data capture.
+3. A **projector** consumes events and updates one or more **read models**: a denormalised table, a cache entry, a search index, a materialised view.
+4. **Queries** read the read model directly — no joins, already in the screen's shape — and that side scales separately (replicas, CDN, Elasticsearch).
+
+The two sides are **eventually consistent**: for a short time after a write, the read model is behind.
+
+## Code
+
+```ts
+// write side
+async function placeOrder(cmd: PlaceOrder) {
+  const order = Order.create(cmd);
+  await db.transaction(async (tx) => {
+    await tx.orders.insert(order);
+    await tx.outbox.insert({ type: "OrderPlaced", payload: order });
+  });
+}
+
+// projector
+on("OrderPlaced", async (e) => {
+  await readDb.ordersByCustomer.upsert({
+    customerId: e.customerId, orderId: e.id, total: e.total, itemCount: e.items.length, status: "placed",
+  });
+});
+
+// query: one indexed lookup
+export const listOrders = (customerId: string) => readDb.ordersByCustomer.find({ customerId });
+```
+
+## When to use it — and when not
+
+**Use it** when reads and writes differ a lot: a feed read millions of times and written rarely, dashboards that aggregate many tables, search over data owned by several services, or a write model with complex rules that would be painful to query.
+
+**Don't use it** for plain CRUD. Two models, a projector and eventual consistency double the moving parts. A database view or a cache in front of the same tables is often enough. CQRS works well with event sourcing but doesn't require it.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Reads fast and shaped for each screen | Eventual consistency visible to users |
+| Read and write sides scale independently | More infrastructure: events, projectors |
+| Write model stays focused on rules | Rebuilding read models after a bug takes planning |
+
+Handle the lag in the UI: show the user's own write optimistically, or read it from the write side right after submitting ("read your writes").
+
+## In interviews
+
+<QA q="Design the timeline for a social app where posts are written rarely but read constantly." level="senior">
+
+That read/write asymmetry is the classic CQRS case. Writes go to a posts store; an event triggers fan-out into precomputed per-user timelines (fan-out on write) for most users, while posts from accounts with huge followings are merged at read time (fan-out on read) to avoid writing to millions of timelines. Reads hit the timeline store or cache directly. Discuss the consistency lag, backfilling timelines when someone follows a new account, and rebuilding projections from the log.
+
+</QA>
+
+## Sources
+
+- [CQRS — Martin Fowler](https://martinfowler.com/bliki/CQRS.html)

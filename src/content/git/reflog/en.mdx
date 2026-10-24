@@ -1,0 +1,44 @@
+## TL;DR
+
+The **reflog** is Git's local diary of where `HEAD` and each branch have pointed: every commit, reset, rebase, merge, switch and amend is recorded. If a commit seems lost after a bad `reset --hard` or a rebase, it's almost certainly still there — find it in `git reflog` and point a branch at it.
+
+## Animation
+
+<GitViz id="reflog" />
+
+## Commands
+
+```bash
+git reflog                          # HEAD's history: HEAD@{0}, HEAD@{1}, …
+git reflog show feature             # one branch's history
+git log -g --oneline                # the same as a log you can grep
+git show HEAD@{2}                   # inspect an old position
+git reset --hard HEAD@{1}           # move the current branch back there
+git branch rescue HEAD@{3}          # or keep it on a new branch
+git switch -c rescue 9d2e4f1        # same, by hash
+git reflog show main@{yesterday}    # time-based: where was main yesterday?
+git fsck --lost-found               # last resort: dangling commits and blobs
+```
+
+## Under the hood
+
+- Each ref has a log file under `.git/logs/` with "old hash → new hash, who, when, why".
+- Objects stay in the store while anything (a ref or a reflog entry) still points to them. Garbage collection only deletes unreachable objects after the reflog entries expire.
+- Defaults: entries for commits no longer reachable expire after **30 days** (`gc.reflogExpireUnreachable`), others after **90 days** (`gc.reflogExpire`).
+
+## Pitfalls
+
+- The reflog is **local**. It isn't pushed, and a fresh clone has an empty one. It can't recover a teammate's commits — but their own reflog can.
+- It only records committed states. Changes you never committed (or stashed) aren't in it.
+
+## In interviews
+
+<QA q="A teammate ran git reset --hard and lost a day of commits. Can you help?" level="mid">
+
+Yes, if the work was committed. Run git reflog on their machine, find the entry before the reset (for example HEAD@{1}: commit: …), and either git reset --hard to it or create a branch there. If it's been under 30 days the commits are still in the object store. If the work was never committed, Git can't help — that's an argument for small, frequent commits.
+
+</QA>
+
+## Docs
+
+- [git reflog](https://git-scm.com/docs/git-reflog) · [Pro Git — Data Recovery](https://git-scm.com/book/en/v2/Git-Internals-Maintenance-and-Data-Recovery)

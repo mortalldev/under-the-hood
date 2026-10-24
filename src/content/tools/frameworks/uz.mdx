@@ -1,0 +1,46 @@
+## Tez boshlash
+
+Framework **kod qayerda ishlashini** (server, client, build vaqti), **route'lar qanday belgilanishini** va **ma'lumot qanday yuklanishini** hal qiladi — shuning uchun uni birinchi tanlang. Quyidagi har bir variant bitta buyruq bilan boshlanadi:
+
+```bash
+npx create-next-app@latest            # Next.js (App Router, TypeScript, Tailwind savollari)
+npx create-react-router@latest        # framework rejimidagi React Router
+npm create astro@latest               # Astro
+npm create vite@latest                # Vite + React SPA ("react-ts"ni tanlang)
+```
+
+Next.js App Router sahifasi ma'lumotni serverda oddiy `async`/`await` bilan yuklaydi — client'ga fetch kodi yuborilmaydi:
+
+```tsx
+// app/products/[id]/page.tsx — Server Component
+export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const product = await db.product.findUnique({ where: { id } });
+  if (!product) notFound();
+  return <ProductView product={product} />;      // faqat interaktiv qismlar client component
+}
+```
+
+## Qanday tanlash
+
+| Vaziyat | Tanlov |
+| --- | --- |
+| SEO muhim mahsulot yoki kontent sayti, React Server Components, bitta full-stack loyiha | Next.js |
+| Veb-standart loader/action, istalgan joyga deploy, mavjud React Router ilovasini yangilash | React Router (framework rejimi) |
+| Hammadan ustun type-safe route va search param'lar | TanStack Start |
+| Docs, blog, marketing: asosan statik, interaktivlik orollari bilan | Astro |
+| Login ortidagi ichki tool yoki dashboard, SEO yoʻq | Vite + React Router yoki TanStack Router (SPA) |
+
+## Tuzoqlar
+
+- Versiyaning oʻz hujjatlarini oʻqing. Framework'lar major versiyalar orasida qoidalarni oʻzgartiradi — Next.js hujjatlarini `next` package ichida yetkazadi (`node_modules/next/dist/docs`).
+- Server va client chegaralari — dizayn qarori: `"use client"`'ni barglarda saqlang, serialize qilinadigan prop'lar uzating va server-only kodni (maxfiy kalitlar, database client'lar) hech qachon client komponentlarga import qilmang — buni build xatosiga aylantirish uchun `server-only` package'dan foydalaning.
+- SPA yomonroq tanlov emas. Agar hech narsa indekslanishi yoki serverda render qilinishi shart boʻlmasa, uni host qilish va tushunish soddaroq.
+
+## Interview'da
+
+<QA q="SSR, SSG, ISR, CSR, RSC — sahifa uchun rendering strategiyasini qanday tanlaysiz?" level="senior">
+
+Ma'lumot qanchalik yangi boʻlishi kerakligi va u kim uchunligidan boshlang. Hamma uchun bir xil va kam oʻzgaradigan: build vaqtida statik (SSG), ixtiyoriy ravishda jadval boʻyicha yoki talab boʻyicha qayta tekshiriladigan (ISR). Shaxsiylashtirilgan yoki doim yangi: har bir so'rovda serverda render (SSR), sekin qismlar Suspense ortida stream qilinadi. Juda interaktiv, login ortida, SEO'siz: client rendering normal. React Server Components ularni har bir komponent darajasida aralashtirish imkonini beradi: statik shell, serverda olingan ma'lumot, kichik client orollari — yuboriladigan JavaScript'ni minimallashtirib.
+
+</QA>

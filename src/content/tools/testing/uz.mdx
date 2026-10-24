@@ -1,0 +1,74 @@
+## Tez boshlash
+
+Odatiy frontend taqsimoti — koʻp tez unit va component testlar, muhim yoʻllar uchun bir nechta end-to-end test:
+
+| Qatlam | Tool | Nimani test qiladi |
+| --- | --- | --- |
+| Unit | Vitest | pure function'lar, hook'lar, reducer'lar |
+| Component | Vitest + Testing Library (+ MSW) | komponentni foydalanuvchi koʻrganidek, mock qilingan tarmoq bilan |
+| End-to-end | Playwright | roʻyxatdan oʻtish, checkout — pul keltiradigan oqimlar |
+| Vizual / hujjatlar | Storybook (+ vizual snapshot'lar) | design system komponentlari har bir holatda |
+
+Component test foydalanuvchi kabi role va label boʻyicha so'raydi — shuning uchun refactor'dan omon qoladi:
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { expect, test } from "vitest";
+
+test("shows an error for an invalid email", async () => {
+  render(<SignUpForm />);
+  await userEvent.type(screen.getByLabelText("Email"), "not-an-email");
+  await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(/valid email/i);
+});
+```
+
+Tarmoqni MSW bilan bir marta mock qiling va handler'larni testlar, Storybook va lokal development'da qayta ishlating:
+
+```ts
+import { http, HttpResponse } from "msw/http";
+import { setupServer } from "msw/node";
+
+export const server = setupServer(
+  http.get("/api/user", () => HttpResponse.json({ id: "1", name: "Ada" })),
+);
+// vitest.setup.ts: beforeAll(() => server.listen()); afterEach(() => server.resetHandlers()); afterAll(() => server.close());
+```
+
+Playwright'dagi end-to-end test elementlarni avtomatik kutadi, shuning uchun qoʻlda sleep kerak emas:
+
+```ts
+import { expect, test } from "@playwright/test";
+
+test("checkout", async ({ page }) => {
+  await page.goto("/products/keyboard");
+  await page.getByRole("button", { name: "Add to cart" }).click();
+  await page.getByRole("link", { name: "Cart" }).click();
+  await expect(page.getByText("1 item")).toBeVisible();
+});
+```
+
+## Qanday tanlash
+
+| Ehtiyoj | Tanlov |
+| --- | --- |
+| Unit va component test runner | Vitest (mavjud loyihalarda Jest ham normal) |
+| DOM'ni foydalanuvchi kabi so'rash | Testing Library |
+| Haqiqiy brauzerlar, E2E, screenshot'lar | Playwright |
+| Hamma joyda umumiy network mocking | MSW |
+| Komponent ustaxonasi va vizual testlar | Storybook |
+
+## Tuzoqlar
+
+- Test id va CSS selector'lar oʻrniga `getByRole` / `getByLabelText`'ni afzal koʻring; ular accessibility'ni ham tekshiradi.
+- Beqaror E2E testlar odatda *toʻgʻri* shartni kutmaslikdan kelib chiqadi — timeout'larga emas, foydalanuvchi koʻradigan narsaga (`toBeVisible`) assert qiling.
+- Implementatsiyani emas, xatti-harakatni test qiling: hook chaqirilgani yoki state oʻzgaruvchisi oʻzgarganini tekshirish har bir refactor'da buziladi.
+
+## Interview'da
+
+<QA q="React ilovada nimani va nima bilan test qilgan boʻlardingiz?" level="senior">
+
+Biznes mantiqni oddiy unit testlar bilan; komponentlarni ularning ochiq xatti-harakati orqali Testing Library va MSW bilan mock qilingan API'lar bilan, loading, error va boʻsh holatlarni qamrab; daromad uchun muhim yoʻllar uchun CI'da production'ga oʻxshash build'ga qarshi ishlaydigan bir nechta Playwright testi; va design system uchun vizual regression. Test toʻplamini har bir PR'da ishlatsa boʻladigan darajada tez saqlab, beqaror testlarni bug sifatida kuzatib, har bir production hodisasi uchun regression test qoʻshgan boʻlardim.
+
+</QA>

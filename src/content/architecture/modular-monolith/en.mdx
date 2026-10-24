@@ -1,0 +1,69 @@
+## TL;DR
+
+A **modular monolith** is one deployable application split internally into **modules with enforced boundaries**: each module owns its data and exposes a small public API, and nothing reaches into another module's internals. You get most of the organisational benefit of microservices with none of the network.
+
+It's the architecture most teams should start with — and, done well, the easiest one to split later.
+
+## Animation
+
+<ArchitectureViz id="modular-monolith" />
+
+## How it works
+
+1. **Split by business capability**, not by technical layer: `catalog`, `orders`, `billing`, `shipping`. Each module has its own layers inside.
+2. **Public API only**: other modules import `@/modules/billing` (its `index.ts`), never `@/modules/billing/internal/*`.
+3. **Data ownership**: each module owns its tables (a schema or table prefix per module). No cross-module joins, no reading another module's tables.
+4. **Communication**: direct function calls through the public API, or in-process domain events when the caller shouldn't wait.
+5. **Enforcement in CI**: a lint rule fails the build on a forbidden import, so boundaries don't erode under deadline pressure.
+
+## Code
+
+```text
+src/modules/
+  billing/
+    index.ts           ← public API: the only file others import
+    internal/
+      invoices.repo.ts
+      charge.service.ts
+  orders/
+  catalog/
+```
+
+```ts
+// src/modules/billing/index.ts
+export { charge, refund } from "./internal/charge.service";
+export type { ChargeResult } from "./internal/types";
+
+// src/modules/orders/internal/checkout.ts
+import { charge } from "@/modules/billing";                 // ✓ allowed
+// import { invoicesRepo } from "@/modules/billing/internal/invoices.repo";   ✗ fails lint
+```
+
+Boundary tools: `eslint-plugin-boundaries`, `dependency-cruiser` or Nx module boundary rules for TypeScript; Shopify built **Packwerk** for the same job in Ruby.
+
+## When to use it — and when not
+
+**Use it** for nearly every new product with one or a few teams. It's fast to develop and deploy, easy to debug (one process, one stack trace), transactions are local, and refactoring across modules is an IDE rename.
+
+**Move beyond it** when one module needs to scale or deploy independently (a heavy video pipeline), needs a different technology, or its team's release cadence is blocked by the rest. Clean module boundaries make that extraction a mechanical change.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Simple ops: one deploy, one database | Whole app scales as one unit |
+| Local transactions, easy debugging | Boundaries need tooling, or they erode |
+| Cheap refactors across modules | One bad deploy affects every module |
+
+## In interviews
+
+<QA q="A startup asks whether to begin with microservices. What do you say?" level="senior">
+
+Usually no: begin with a modular monolith. Microservices pay off when team size and independent deployment needs outgrow coordination, but they cost network failures, distributed data and a lot of platform work up front. Draw the module boundaries along business capabilities, give each module its own data and public API, enforce it in CI — then extracting a service later is a known, mechanical step, done only where the numbers justify it.
+
+</QA>
+
+## Sources
+
+- [Deconstructing the Monolith — Shopify Engineering (2019)](https://shopify.engineering/deconstructing-monolith-designing-software-maximizes-developer-productivity)
+- [MonolithFirst — Martin Fowler](https://martinfowler.com/bliki/MonolithFirst.html)

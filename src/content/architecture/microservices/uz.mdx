@@ -1,0 +1,74 @@
+## TL;DR
+
+**Microservices** tizimni kichik service'larga boʻladi: har biri **bitta jamoaga tegishli**, **mustaqil deploy qilinadi** va **oʻz ma'lumotiga egalik qiladi**. Ular tarmoq orqali gaplashadi (HTTP/gRPC yoki event'lar). Foydasi — tashkiliy masshtab: koʻp jamoa har bir release'ni kelishmasdan chiqaradi. Narxi — tarmoq olib keladigan hamma narsa: qisman xatolar, kechikish, eventual consistency va katta platforma ishi.
+
+## Animatsiya
+
+<ArchitectureViz id="microservices" />
+
+## Qanday ishlaydi
+
+- **Har bir service'ga oʻz bazasi**: boshqa hech bir service sizning jadvallaringizni oʻqimaydi. Umumiy baza service'larni yana "distributed monolith"ga aylantiradi.
+- **Aqlli endpoint'lar, oddiy quvurlar**: mantiq service'larda yashaydi; transport faqat xabarlarni tashiydi.
+- **Xato uchun loyihalash**: har bir chaqiruvda **timeout** bor; qayta urinishlar **jitter'li exponential backoff** ishlatadi; **circuit breaker** doim yiqilayotgan service'ni chaqirishni toʻxtatadi; yozuvlar **idempotency key** olib yuradi, shunda qayta urinish ikki marta pul yechmaydi.
+- **Observability majburiy**: har bir qadamdan oʻtadigan trace id (OpenTelemetry), tuzilgan log'lar, har bir service uchun dashboard va alert'lar.
+- **Kontraktlar**: versiyalangan API'lar (OpenAPI, protobuf), orqaga mos oʻzgarishlar, consumer-driven contract testlar.
+
+## Kod
+
+```ts
+// orders → payments'ga barqaror chaqiruv
+async function charge(orderId: string, amount: number) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(PAYMENTS_URL + "/charges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": orderId },
+        body: JSON.stringify({ orderId, amount }),
+        signal: AbortSignal.timeout(2_000),          // hech qachon cheksiz kutmang
+      });
+      if (res.ok) return await res.json();
+      if (res.status < 500) throw new PaymentRejected(await res.text());   // 4xx'ni qayta urinmang
+    } catch (e) {
+      if (e instanceof PaymentRejected) throw e;
+    }
+    await sleep(2 ** attempt * 200 + Math.random() * 100);   // backoff + jitter
+  }
+  throw new PaymentUnavailable(orderId);   // chaqiruvchi buyurtmani "toʻlov kutilmoqda" deb belgilaydi
+}
+```
+
+## Qachon kerak va qachon kerak emas
+
+**Ishlating**, agar koʻp jamoalarga (oʻnlab-yuzlab dasturchi) mustaqil release sikli kerak boʻlsa, tizim qismlarining kengayish yoki ishonchlilik ehtiyojlari juda farq qilsa va platforma allaqachon boʻlsa: har bir service uchun CI/CD, container orkestratsiyasi, tracing, on-call.
+
+**U bilan boshlamang.** Yangi mahsulot yoki bitta jamoa uchun microservices operatsion ishni koʻpaytiradi va sizni sekinlashtiradi. Toza chegarali modular monolith bilan boshlang; aniq bir modulga kerak boʻlganda service ajrating.
+
+## Trade-off'lar
+
+| Foyda | Narx |
+| --- | --- |
+| Mustaqil deploy, jamoa avtonomiyasi | Har bir chaqiruvda tarmoq xatolari va kechikish |
+| Har bir service uchun alohida kengayish va texnologiya | Service'lararo transaction yoʻq (oʻrniga saga) |
+| Xatolarni izolyatsiya qilish mumkin | Distributed tracing, kontraktlar, versiyalash, infra xarajati |
+
+Amazon service'larga egalik qiladigan jamoalarini "two-pizza team" deb ataydi: ikkita pitsa bilan toʻydirsa boʻladigan darajada kichik va service'ga boshidan oxirigacha egalik qiladi.
+
+## Interview'da
+
+<QA q="A service B'ni chaqiradi, B esa sekin. A'ning thread pool'i toʻladi va A ham ishdan chiqadi. Buning oldini qanday olasiz?" level="senior">
+
+Bu cascading failure. Har bir tashqi chaqiruvga qisqa timeout qoʻying, B'ga parallel chaqiruvlarni cheklang (bulkhead) va circuit breaker qoʻshing, shunda takroriy xatolardan keyin A navbatga qoʻyish oʻrniga tez yiqiladi. Faqat idempotent amallarni exponential backoff va jitter bilan qayta urining va umumiy qayta urinish byudjetini cheklang. Keyin muloyim pasaying: cache'dagi ma'lumotni yoki qisman javob qaytaring yoki so'rovni qabul qilib, uni queue orqali asinxron tugating.
+
+</QA>
+
+<QA q="Nima uchun microservices orasidagi umumiy baza muammo?" level="mid">
+
+Chunki schema yashirin API'ga aylanadi. Jadvalni oʻzgartiradigan har qanday jamoa boshqalarni buzishi mumkin, shuning uchun deploy'lar yana kelishuv talab qiladi va hech kim oʻz saqlash usulini mustaqil oʻzgartira olmaydi. Har bir service oʻz ma'lumotiga egalik qilishi va uni API yoki event'lar orqali ochishi kerak.
+
+</QA>
+
+## Manbalar
+
+- [Microservices — James Lewis va Martin Fowler](https://martinfowler.com/articles/microservices.html)
+- [microservices.io — Chris Richardson'ning pattern katalogi](https://microservices.io/patterns/data/saga.html)

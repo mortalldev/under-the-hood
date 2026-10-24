@@ -1,0 +1,67 @@
+## TL;DR
+
+**Event sourcing** stores **every change as an immutable event** in an append-only log, instead of storing only the current state. The current state is derived by replaying the events — a **fold**: `events.reduce(apply, initial)`.
+
+Your bank statement works this way: the balance is the result of every deposit and withdrawal, and you can always see how it got there.
+
+## Animation
+
+<ArchitectureViz id="event-sourcing" />
+
+## How it works
+
+- **Events are facts** in past tense (`Deposited`, `Withdrew`) and are never updated or deleted. Corrections are new events (`DepositReversed`).
+- **Commands are validated against current state**, rebuilt from the stream; if valid, new events are appended.
+- **Optimistic concurrency**: append with `expectedVersion` — if someone else appended in the meantime, the write fails and you retry with fresh state.
+- **Snapshots**: for long streams, store state every N events and replay only the tail.
+- **Projections**: read models built from the event stream (often with CQRS). A new report? Write a new projection and replay history into it.
+
+## Code
+
+```ts
+type Event =
+  | { type: "Opened" }
+  | { type: "Deposited"; amount: number }
+  | { type: "Withdrew"; amount: number };
+
+const apply = (balance: number, e: Event) =>
+  e.type === "Deposited" ? balance + e.amount : e.type === "Withdrew" ? balance - e.amount : balance;
+
+async function withdraw(accountId: string, amount: number) {
+  const { events, version } = await store.read(accountId);
+  const balance = events.reduce(apply, 0);
+  if (amount > balance) throw new InsufficientFunds();
+  await store.append(accountId, [{ type: "Withdrew", amount }], { expectedVersion: version });
+}
+
+// time travel: the balance on any date
+const balanceOn = (events: (Event & { at: Date })[], day: Date) =>
+  events.filter((e) => e.at <= day).reduce(apply, 0);
+```
+
+## When to use it — and when not
+
+**Use it** when the history itself is valuable: finance and ledgers, audit-heavy domains, collaborative editing, systems where you need to answer "how did we get here?" or build new analyses from old data.
+
+**Avoid it** for most CRUD: querying requires projections, schema changes become event versioning forever, and simple "update this field" operations turn into event design. Deleting personal data from an immutable log needs a plan (for example, encrypt personal fields per user and delete the key — "crypto-shredding").
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Complete audit trail and time travel | Every query needs a projection |
+| New read models from historical data | Event schemas must stay readable forever |
+| Natural fit for event-driven integration | Replays and snapshots add operational work |
+| Concurrency conflicts are explicit | GDPR-style deletion is hard |
+
+## In interviews
+
+<QA q="What is the difference between event sourcing and simply publishing events?" level="senior">
+
+In event-driven systems the database holds current state and events are notifications sent alongside. In event sourcing the event log *is* the source of truth: state is rebuilt from it, and nothing else is authoritative. That gives full history and replayability, but means projections for every query and treating event schemas as a permanent contract.
+
+</QA>
+
+## Sources
+
+- [Event Sourcing — Martin Fowler](https://martinfowler.com/eaaDev/EventSourcing.html)

@@ -1,0 +1,66 @@
+## TL;DR
+
+A **Backend for Frontend (BFF)** is a thin server layer built for *one* client — the web app, the iOS app — that calls the general-purpose backend services and returns exactly what that client's screens need. One request per screen instead of many, shaped for that UI, owned by the team that owns the UI.
+
+The pattern was popularised at SoundCloud and named by Sam Newman.
+
+## Animation
+
+<ArchitectureViz id="bff" />
+
+## How it works
+
+- The client makes **one call per screen** (`GET /api/home`). The BFF fans out to `users`, `orders`, `catalog` **inside the data centre**, where each hop costs about a millisecond instead of a mobile round trip.
+- It **aggregates and trims**: joins the results, drops fields the screen doesn't render, formats dates and money for that client.
+- It **adapts to the client's life cycle**: a mobile BFF keeps old fields alive for app versions still installed on phones; the web BFF can change with every deploy.
+- Cross-cutting concerns that are the same for everyone — TLS, rate limits, coarse auth — belong in an **API gateway** in front of everything; BFFs are client-specific.
+
+## Code
+
+```ts
+// app/api/home/route.ts — a Next.js route handler acting as the web BFF
+export async function GET(req: Request) {
+  const userId = await requireUser(req);
+  const [user, orders, picks] = await Promise.all([
+    users.get(userId),
+    orders.recent(userId, { limit: 3 }),
+    catalog.recommended(userId),
+  ]);
+
+  return Response.json({
+    greeting: user.firstName,
+    orders: orders.map((o) => ({ id: o.id, status: o.status, total: formatMoney(o.total) })),
+    picks: picks.slice(0, 8).map((p) => ({ id: p.id, title: p.title, image: p.thumbnailUrl })),
+  });
+}
+```
+
+`Promise.all` keeps the latency at the slowest call, not the sum. In a React Server Components app the page itself often *is* the BFF: the server component calls the services directly and only HTML and serialized props reach the browser.
+
+## When to use it — and when not
+
+**Use it** when clients differ a lot (web vs. mobile vs. TV), when screens need data from several services, or when the mobile team must not wait on the backend team to reshape an API.
+
+**Don't** add one when there's a single client and a single backend that already fits it — it's one more service to run. And don't let a BFF grow business rules: once it decides prices or permissions, every BFF must duplicate them. Keep it to composition and formatting.
+
+## Trade-offs
+
+| Gain | Cost |
+| --- | --- |
+| Fewer round trips, smaller payloads | Another deployable per client |
+| UI teams move without backend changes | Logic can get duplicated across BFFs |
+| Per-client versioning and caching | One more hop and failure point |
+
+GraphQL solves a similar problem differently: one schema, clients pick their fields. A common setup is a GraphQL layer that acts as a shared BFF.
+
+## In interviews
+
+<QA q="Design the API for a mobile home screen that shows the user, their last orders and recommendations." level="senior">
+
+Don't make the phone call three services. Put a BFF (or a GraphQL query) in front that fetches in parallel server-side and returns one compact payload for the screen. Discuss partial failure: if recommendations time out, return the rest with that section empty instead of failing the page. Mention caching per user, payload size on mobile networks, and backward compatibility for old app versions.
+
+</QA>
+
+## Sources
+
+- [Backends For Frontends — Sam Newman](https://samnewman.io/patterns/architectural/bff/)
